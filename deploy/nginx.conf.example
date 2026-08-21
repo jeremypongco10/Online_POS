@@ -1,0 +1,115 @@
+# Production Nginx config for: React (static build) -> Nginx -> PHP-FPM
+# (CodeIgniter) -> MySQL.
+#
+# Assumes:
+#   - frontend/dist/  (from `npm run build`) copied to /var/www/pos-system/frontend
+#   - backend/         copied to /var/www/pos-system/backend, with backend/public/
+#     as the CodeIgniter front-controller directory
+#   - PHP-FPM listening on a unix socket (adjust the fastcgi_pass path to match
+#     your PHP-FPM pool, e.g. /run/php/php8.4-fpm.sock)
+#   - TLS certs from Let's Encrypt via certbot (adjust paths if you use
+#     something else)
+#
+# Copy, fill in your domain, and drop into /etc/nginx/sites-available/,
+# then `ln -s` into sites-enabled and `nginx -t && systemctl reload nginx`.
+
+# --- HTTP: redirect everything to HTTPS ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name app.yourdomain.com api.yourdomain.com;
+
+    # Let certbot's HTTP-01 challenge through before redirecting.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- Frontend: static React build ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name app.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/app.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    root /var/www/pos-system/frontend;
+    index index.html;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # Hashed asset filenames (Vite's default) can be cached forever;
+    # index.html itself must not be, or deploys won't show up for
+    # already-open tabs until a hard refresh.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # SPA fallback: any path not matching a real static file goes to
+    # index.html so React Router-less client-side navigation
+    # (this app manages view state itself, not URL routes, but the
+    # fallback is still needed for a hard refresh/deep link to work).
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+# --- API: proxied to PHP-FPM running CodeIgniter ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/api.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    root /var/www/pos-system/backend/public;
+    index index.php;
+
+    # JSON API bodies (product imports, bulk operations) can be larger
+    # than Nginx's 1MB default.
+    client_max_body_size 10m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # Forward the real client IP so app.proxyIPs / RateLimitFilter
+        # see the actual caller, not this Nginx box.
+        fastcgi_param HTTP_X_FORWARDED_FOR $proxy_add_x_forwarded_for;
+    }
+
+    # Never serve the framework/app source or writable/ (logs, cache,
+    # session files) directly — only public/ is the webroot above, but
+    # this blocks anything that leaks through a misconfigured alias.
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+}

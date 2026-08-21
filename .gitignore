@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.production.local
+
+# Deployment artifacts
+backend/writable/backups/
+
+# Generated SQLite schema for the test suite (rebuilt by
+# tests/_support/build-test-db.php — see tests/integration/*Test.php)
+backend/writable/tests.db

@@ -1,0 +1,53 @@
+import type { ReactNode } from 'react';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Stack from '@mui/material/Stack';
+import CloseIcon from '@mui/icons-material/Close';
+import { PopTransition } from '../PopTransition';
+
+interface Props {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  wide?: boolean;
+  /** Wider still than `wide` — for content-heavy modals like a permission matrix. Overrides `wide` when set. */
+  maxWidth?: 'sm' | 'md' | 'lg';
+  /**
+   * Defaults to true — most callers only ever mount <Modal> while it
+   * should be visible. Pass false (keeping the component mounted rather
+   * than removed from the tree) to let the close transition play instead
+   * of the dialog just vanishing.
+   */
+  open?: boolean;
+}
+
+export function Modal({ title, onClose, children, wide, maxWidth, open = true }: Props) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth={maxWidth ?? (wide ? 'md' : 'sm')} fullWidth slots={{ transition: PopTransition }}>
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          px: 3,
+          py: 2,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        <DialogTitle sx={{ p: 0, fontSize: 17, fontWeight: 700 }}>{title}</DialogTitle>
+        <IconButton
+          onClick={onClose}
+          aria-label="Close"
+          size="small"
+          sx={{ color: 'text.secondary', bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Stack>
+      <DialogContent sx={{ px: 3, py: 2.5 }}>{children}</DialogContent>
+    </Dialog>
+  );
+}

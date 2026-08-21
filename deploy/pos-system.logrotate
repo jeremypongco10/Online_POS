@@ -1,0 +1,13 @@
+# CodeIgniter's FileHandler never rotates or prunes writable/logs/ itself —
+# left alone, it grows forever. Install this at /etc/logrotate.d/pos-system
+# (adjust the path to match where backend/ actually lives in production).
+
+/var/www/pos-system/backend/writable/logs/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 www-data www-data
+}
