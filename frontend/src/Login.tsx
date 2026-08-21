@@ -48,6 +48,7 @@ export function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        p: 2,
         bgcolor: 'background.default',
         backgroundImage:
           'radial-gradient(circle at 15% 15%, color-mix(in srgb, var(--mui-palette-primary-main) 16%, transparent), transparent 45%), radial-gradient(circle at 85% 85%, color-mix(in srgb, var(--mui-palette-primary-main) 10%, transparent), transparent 50%)',
@@ -63,7 +64,9 @@ export function Login() {
         elevation={0}
         sx={{
           width: 360,
-          p: 4.5,
+          // Without this the card overflows any viewport narrower than 360px.
+          maxWidth: '100%',
+          p: { xs: 3, sm: 4.5 },
           borderRadius: 1,
           border: '1px solid',
           borderColor: 'divider',

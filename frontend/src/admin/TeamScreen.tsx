@@ -1,7 +1,5 @@
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { SectionTabs } from './SectionTabs';
 import { UsersScreen } from './UsersScreen';
 import { RolesScreen } from './RolesScreen';
 import { useRouteState } from '../routing';
@@ -14,18 +12,10 @@ export function TeamScreen() {
 
   return (
     <div>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Team</Typography>
-      </Stack>
-
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        sx={{ mb: 2.25, borderBottom: '1px solid', borderColor: 'divider', minHeight: 40 }}
-      >
-        <Tab value="users" label="Users" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="roles" label="Roles" sx={{ minHeight: 40, textTransform: 'none' }} />
-      </Tabs>
+      <SectionTabs value={tab} onChange={setTab}>
+        <Tab value="users" label="Users" />
+        <Tab value="roles" label="Roles" />
+      </SectionTabs>
 
       {tab === 'users' && <UsersScreen />}
       {tab === 'roles' && <RolesScreen />}

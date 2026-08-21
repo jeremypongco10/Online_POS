@@ -183,9 +183,16 @@ export function DataTable<T>({
           rowsPerPage={perPage}
           onRowsPerPageChange={(e) => onPerPageChange(Number(e.target.value))}
           rowsPerPageOptions={[10, 20, 50, 100]}
-          sx={{ borderTop: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}
+          sx={{
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'action.hover',
+            minHeight: 40,
+            '& .MuiToolbar-root': { minHeight: 40, pl: 2, pr: 1 },
+          }}
         />
       )}
     </Paper>
   );
 }
+

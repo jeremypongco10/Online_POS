@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import Toolbar from '@mui/material/Toolbar';
-import AppBar from '@mui/material/AppBar';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -15,21 +14,30 @@ import Stack from '@mui/material/Stack';
 import Avatar from '@mui/material/Avatar';
 import Divider from '@mui/material/Divider';
 import Tooltip from '@mui/material/Tooltip';
-import Breadcrumbs from '@mui/material/Breadcrumbs';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PersonIcon from '@mui/icons-material/Person';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { canAccessPos } from '../auth/posAccess';
 import { ThemeToggle } from '../ThemeToggle';
-import { ChangePasswordButton } from '../ChangePasswordModal';
-import { IconBox, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconTruck, IconUsers } from './icons';
+import { ChangePasswordModal } from '../ChangePasswordModal';
+import { IconBox, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconShoppingBag, IconTruck, IconUsers } from './icons';
 
 export type AdminSection = 'dashboard' | 'catalog' | 'inventory' | 'purchasing' | 'customers' | 'team' | 'reports' | 'settings';
 
 interface NavItem {
   section: AdminSection;
   label: string;
+  /** One-line summary shown under the page title in the content header. */
+  description: string;
   /** Visible if the user holds any one of these — matches the OR across the group's sub-screens. */
   permissions: string[];
   icon: (props: { className?: string }) => ReactNode;
@@ -50,14 +58,62 @@ export const ADMIN_NAV_PERMISSIONS = [
 ];
 
 const NAV_ITEMS: NavItem[] = [
-  { section: 'dashboard', label: 'Dashboard', permissions: ['reports.view'], icon: IconChart },
-  { section: 'catalog', label: 'Catalog', permissions: ['products.view', 'categories.view'], icon: IconBox },
-  { section: 'inventory', label: 'Inventory', permissions: ['inventory.view'], icon: IconLayers },
-  { section: 'purchasing', label: 'Purchasing', permissions: ['suppliers.view', 'purchases.view'], icon: IconTruck },
-  { section: 'customers', label: 'Customers', permissions: ['customers.view', 'returns.view'], icon: IconUsers },
-  { section: 'team', label: 'Team', permissions: ['users.view', 'roles.view'], icon: IconShield },
-  { section: 'reports', label: 'Reports', permissions: ['reports.view'], icon: IconClipboard },
-  { section: 'settings', label: 'Settings', permissions: ['stores.view'], icon: IconSettings },
+  {
+    section: 'dashboard',
+    label: 'Dashboard',
+    description: "Overview of today's sales, inventory alerts, and store performance.",
+    permissions: ['reports.view'],
+    icon: IconChart,
+  },
+  {
+    section: 'catalog',
+    label: 'Catalog',
+    description: 'Manage products, categories, and pricing across your stores.',
+    permissions: ['products.view', 'categories.view'],
+    icon: IconBox,
+  },
+  {
+    section: 'inventory',
+    label: 'Inventory',
+    description: 'Track stock levels, adjustments, and transfers between stores.',
+    permissions: ['inventory.view'],
+    icon: IconLayers,
+  },
+  {
+    section: 'purchasing',
+    label: 'Purchasing',
+    description: 'Manage suppliers and purchase orders.',
+    permissions: ['suppliers.view', 'purchases.view'],
+    icon: IconTruck,
+  },
+  {
+    section: 'customers',
+    label: 'Customers',
+    description: 'Manage customer records, loyalty, and returns.',
+    permissions: ['customers.view', 'returns.view'],
+    icon: IconUsers,
+  },
+  {
+    section: 'team',
+    label: 'Team',
+    description: 'Manage users, roles, and permissions for your company.',
+    permissions: ['users.view', 'roles.view'],
+    icon: IconShield,
+  },
+  {
+    section: 'reports',
+    label: 'Reports',
+    description: 'Sales and inventory reports across your business.',
+    permissions: ['reports.view'],
+    icon: IconClipboard,
+  },
+  {
+    section: 'settings',
+    label: 'Settings',
+    description: 'Configure stores, registers, tax rates, and units.',
+    permissions: ['stores.view'],
+    icon: IconSettings,
+  },
 ];
 
 // Purely a visual grouping for the sidebar — sections themselves are flat,
@@ -82,7 +138,15 @@ interface Props {
 
 export function AdminLayout({ section, onSectionChange, onBackToPos, children }: Props) {
   const { user, logout, hasPermission } = useAuth();
+  const theme = useTheme();
+  // Below `md` the sidebar can't stay permanent — a fixed 240px rail on a
+  // phone leaves almost nothing for the content, so it becomes an overlay
+  // opened from the header's hamburger instead.
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_STORAGE_KEY) === '1');
+  const [profileMenuAnchor, setProfileMenuAnchor] = useState<HTMLElement | null>(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const visibleSections = new Set(NAV_ITEMS.filter((item) => item.permissions.some((p) => hasPermission(p))).map((i) => i.section));
   const itemsBySection = new Map(NAV_ITEMS.map((item) => [item.section, item]));
 
@@ -94,15 +158,31 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
     });
   }
 
-  const drawerWidth = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH;
+  // Collapsing is a desktop-only affordance — in the mobile overlay the
+  // sidebar always shows full labels, since it's dismissed after each pick.
+  const isCollapsed = collapsed && !isMobile;
+  const drawerWidth = isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH;
+
+  function selectSection(next: AdminSection) {
+    onSectionChange(next);
+    setMobileNavOpen(false);
+  }
+
   const currentLabel = itemsBySection.get(section)?.label ?? 'Back Office';
+  const currentDescription = itemsBySection.get(section)?.description;
+  const CurrentIcon = itemsBySection.get(section)?.icon;
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100svh' }}>
       <Drawer
-        variant="permanent"
+        variant={isMobile ? 'temporary' : 'permanent'}
+        open={isMobile ? mobileNavOpen : true}
+        onClose={() => setMobileNavOpen(false)}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          width: drawerWidth,
+          // A temporary drawer floats above the content, so it must not
+          // reserve any track width in the flex row.
+          width: isMobile ? 0 : drawerWidth,
           flexShrink: 0,
           transition: (t) => t.transitions.create('width', { duration: t.transitions.duration.shorter }),
           [`& .MuiDrawer-paper`]: {
@@ -116,12 +196,35 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
           },
         }}
       >
-        <Toolbar sx={{ justifyContent: 'space-between', px: collapsed ? 1.5 : 2 }}>
-          {!collapsed && (
-            <Typography sx={{ fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' }}>Back Office</Typography>
+        <Toolbar sx={{ justifyContent: 'space-between', px: isCollapsed ? 1.5 : 2 }}>
+          {!isCollapsed && (
+            <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
+              <Box
+                sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  bgcolor: 'primary.main',
+                  color: 'primary.contrastText',
+                }}
+              >
+                <IconShoppingBag />
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' }} noWrap>
+                Back Office
+              </Typography>
+            </Stack>
           )}
-          <IconButton size="small" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-            {collapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+          <IconButton
+            size="small"
+            onClick={isMobile ? () => setMobileNavOpen(false) : toggleCollapsed}
+            aria-label={isMobile ? 'Close navigation' : isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
           </IconButton>
         </Toolbar>
         <Divider />
@@ -135,7 +238,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                 key={group.label}
                 sx={{ px: 1 }}
                 subheader={
-                  !collapsed ? (
+                  !isCollapsed ? (
                     <ListSubheader
                       component="div"
                       sx={{
@@ -159,22 +262,22 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                     <ListItemButton
                       key={item.section}
                       selected={selected}
-                      onClick={() => onSectionChange(item.section)}
+                      onClick={() => selectSection(item.section)}
                       sx={{
                         borderRadius: 1.5,
                         mb: 0.25,
-                        justifyContent: collapsed ? 'center' : 'flex-start',
-                        px: collapsed ? 1.5 : 1.5,
+                        justifyContent: isCollapsed ? 'center' : 'flex-start',
+                        px: isCollapsed ? 1.5 : 1.5,
                         '&.Mui-selected': {
                           bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 12%, transparent)',
                           '&:hover': { bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 16%, transparent)' },
                         },
                       }}
                     >
-                      <ListItemIcon sx={{ minWidth: collapsed ? 0 : 34, color: selected ? 'primary.main' : 'inherit' }}>
+                      <ListItemIcon sx={{ minWidth: isCollapsed ? 0 : 34, color: selected ? 'primary.main' : 'inherit' }}>
                         <item.icon />
                       </ListItemIcon>
-                      {!collapsed && (
+                      {!isCollapsed && (
                         <ListItemText
                           primary={item.label}
                           slotProps={{
@@ -185,7 +288,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                     </ListItemButton>
                   );
 
-                  return collapsed ? (
+                  return isCollapsed ? (
                     <Tooltip key={item.section} title={item.label} placement="right" arrow>
                       {button}
                     </Tooltip>
@@ -201,15 +304,36 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
           <>
             <Divider />
             <Box sx={{ p: 1.5 }}>
-              {collapsed ? (
+              {isCollapsed ? (
                 <Tooltip title="Back to POS" placement="right" arrow>
-                  <IconButton size="small" onClick={onBackToPos} sx={{ width: '100%', borderRadius: 1.5 }}>
+                  <IconButton
+                    size="small"
+                    onClick={onBackToPos}
+                    sx={{
+                      width: '100%',
+                      borderRadius: 1.5,
+                      color: 'primary.main',
+                      bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 10%, transparent)',
+                      '&:hover': { bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 18%, transparent)' },
+                    }}
+                  >
                     <ChevronLeftIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               ) : (
-                <Button size="small" onClick={onBackToPos}>
-                  ← Back to POS
+                <Button
+                  size="small"
+                  fullWidth
+                  onClick={onBackToPos}
+                  startIcon={<ChevronLeftIcon fontSize="small" />}
+                  sx={{
+                    justifyContent: 'flex-start',
+                    color: 'primary.main',
+                    bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 10%, transparent)',
+                    '&:hover': { bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 18%, transparent)' },
+                  }}
+                >
+                  Back to POS
                 </Button>
               )}
             </Box>
@@ -218,44 +342,110 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
       </Drawer>
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <AppBar
-          position="static"
-          color="inherit"
-          elevation={0}
-          sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
-        >
-          <Toolbar sx={{ justifyContent: 'space-between' }}>
-            <Box>
-              <Breadcrumbs separator={<NavigateNextIcon sx={{ fontSize: 14 }} />} sx={{ mb: 0.25, '& .MuiBreadcrumbs-li': { display: 'flex' } }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-                  Back Office
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+        <ChangePasswordModal open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
+        <Box sx={{ flex: 1, p: { xs: 2.5, sm: 3, md: 4 }, overflowX: 'auto' }}>
+          <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Stack direction="row" spacing={{ xs: 1.5, sm: 2 }} sx={{ alignItems: 'center', minWidth: 0 }}>
+              {isMobile && (
+                <IconButton size="small" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" edge="start">
+                  <MenuIcon fontSize="small" />
+                </IconButton>
+              )}
+              {CurrentIcon && (
+                <Box
+                  sx={{
+                    width: { xs: 42, sm: 52 },
+                    height: { xs: 42, sm: 52 },
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                  }}
+                >
+                  <CurrentIcon />
+                </Box>
+              )}
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="h4"
+                  sx={{ fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.2, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}
+                  noWrap
+                >
                   {currentLabel}
                 </Typography>
-              </Breadcrumbs>
-              <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.2 }}>
-                {currentLabel}
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-              <ThemeToggle />
-              <ChangePasswordButton />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <Avatar sx={{ width: 28, height: 28, fontSize: 13, bgcolor: 'primary.main' }}>
-                  {user?.name?.charAt(0).toUpperCase()}
+                {currentDescription && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, display: { xs: 'none', sm: 'block' } }}>
+                    {currentDescription}
+                  </Typography>
+                )}
+              </Box>
+            </Stack>
+
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', bgcolor: 'action.hover', borderRadius: 999, p: 0.5 }}>
+                <ThemeToggle />
+              </Stack>
+
+              <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
+
+              <Stack
+                direction="row"
+                spacing={0.5}
+                onClick={(e) => setProfileMenuAnchor(e.currentTarget)}
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: 'action.hover',
+                  borderRadius: 999,
+                  pl: 0.5,
+                  pr: 1,
+                  py: 0.5,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'action.selected' },
+                }}
+              >
+                {/* No profile images in the system yet — a generic person icon stands in. */}
+                <Avatar sx={{ width: 26, height: 26, bgcolor: 'primary.main' }}>
+                  <PersonIcon sx={{ fontSize: 16 }} />
                 </Avatar>
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, display: { xs: 'none', sm: 'block' } }} noWrap>
                   {user?.name}
                 </Typography>
-                <Button size="small" onClick={logout}>
-                  Log out
-                </Button>
+                <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
               </Stack>
+
+              <Menu anchorEl={profileMenuAnchor} open={profileMenuAnchor !== null} onClose={() => setProfileMenuAnchor(null)}>
+                <MenuItem
+                  onClick={() => {
+                    setProfileMenuAnchor(null);
+                    setChangePasswordOpen(true);
+                  }}
+                >
+                  <ListItemIcon>
+                    <KeyOutlinedIcon fontSize="small" />
+                  </ListItemIcon>
+                  Change Password
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setProfileMenuAnchor(null);
+                    logout();
+                  }}
+                  sx={{ color: 'error.main' }}
+                >
+                  <ListItemIcon>
+                    <LogoutOutlinedIcon fontSize="small" color="error" />
+                  </ListItemIcon>
+                  Log out
+                </MenuItem>
+              </Menu>
             </Stack>
-          </Toolbar>
-        </AppBar>
-        <Box sx={{ flex: 1, p: 3, overflowX: 'auto' }}>{children}</Box>
+          </Stack>
+
+          {children}
+        </Box>
       </Box>
     </Box>
   );

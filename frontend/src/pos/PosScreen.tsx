@@ -9,6 +9,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
+import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../auth/AuthContext';
 import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordButton } from '../ChangePasswordModal';
@@ -267,10 +268,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
             >
               <ThemeToggle />
               <ChangePasswordButton />
-              <Avatar sx={{ width: 28, height: 28, fontSize: 12, bgcolor: 'primary.main' }}>
-                {user.name.charAt(0).toUpperCase()}
+              {/* No profile images in the system yet — a generic person icon stands in. */}
+              <Avatar sx={{ width: 28, height: 28, bgcolor: 'primary.main' }}>
+                <PersonIcon sx={{ fontSize: 17 }} />
               </Avatar>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, display: { xs: 'none', sm: 'block' } }}>
                 {user.name}
               </Typography>
               <Button size="small" onClick={logout}>

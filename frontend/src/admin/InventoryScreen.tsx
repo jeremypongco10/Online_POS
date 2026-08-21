@@ -8,16 +8,39 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
+import { SectionTabs } from './SectionTabs';
+import { InventoryMovementsScreen } from './InventoryMovementsScreen';
+import { InlineSelectFilter } from './InlineSelectFilter';
+import { useRouteState } from '../routing';
 import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
+import Tab from '@mui/material/Tab';
+
+type InventoryTab = 'stock' | 'movements';
+const TABS: InventoryTab[] = ['stock', 'movements'];
 
 export function InventoryScreen() {
+  const [tab, setTab] = useRouteState<InventoryTab>(2, TABS, 'stock', (t) => `/admin/inventory/${t}`);
+
+  return (
+    <div>
+      <SectionTabs value={tab} onChange={setTab}>
+        <Tab value="stock" label="Stock Levels" />
+        <Tab value="movements" label="Movements" />
+      </SectionTabs>
+
+      {tab === 'stock' && <StockLevelsScreen />}
+      {tab === 'movements' && <InventoryMovementsScreen />}
+    </div>
+  );
+}
+
+function StockLevelsScreen() {
   const { hasPermission } = useAuth();
   const notify = useSnackbar();
   const [storeFilter, setStoreFilter] = useState('');
@@ -125,44 +148,36 @@ export function InventoryScreen() {
 
   return (
     <div>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Inventory</Typography>
-      </Stack>
-
       <ListToolbar
         search=""
         onSearchChange={() => {}}
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <TextField
-            select
-            value={storeFilter}
-            onChange={(e) => setStoreFilter(e.target.value)}
-            sx={{ minWidth: 180 }}
-          >
+          <InlineSelectFilter label="Store" value={storeFilter} onChange={setStoreFilter}>
             <MenuItem value="">All Stores</MenuItem>
             {stores.map((s) => (
               <MenuItem key={s.id} value={s.id}>
                 {s.name}
               </MenuItem>
             ))}
-          </TextField>
+          </InlineSelectFilter>
+        }
+        actions={
+          <Stack direction="row" spacing={1.5}>
+            {hasPermission('inventory.adjust') && (
+              <Button variant="contained" onClick={openAdjust}>
+                Adjust Stock
+              </Button>
+            )}
+            {hasPermission('inventory.transfer') && (
+              <Button variant="contained" onClick={openTransfer}>
+                Transfer Stock
+              </Button>
+            )}
+          </Stack>
         }
       />
-      <Stack direction="row" spacing={1.5} sx={{ mt: -1.25, mb: 2 }}>
-        <Stack direction="row" sx={{ flex: 1 }} />
-        {hasPermission('inventory.adjust') && (
-          <Button variant="contained" onClick={openAdjust}>
-            Adjust Stock
-          </Button>
-        )}
-        {hasPermission('inventory.transfer') && (
-          <Button variant="contained" onClick={openTransfer}>
-            Transfer Stock
-          </Button>
-        )}
-      </Stack>
 
       <DataTable
         columns={columns}

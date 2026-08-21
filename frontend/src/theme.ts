@@ -27,7 +27,7 @@ export const theme = createTheme({
     },
   },
   shape: {
-    borderRadius: 8,
+    borderRadius: 6,
   },
   typography: {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -43,7 +43,7 @@ export const theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
+          borderRadius: 6,
         },
       },
     },
@@ -90,7 +90,7 @@ export const theme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 10,
+          borderRadius: 8,
         },
         notchedOutline: {
           // No label ever sits on the border line anymore, so the notch
@@ -111,7 +111,7 @@ export const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: {
-          padding: '11px 16px',
+          padding: '8px 16px',
         },
         head: ({ theme }) => ({
           fontSize: 12.5,
@@ -120,9 +120,9 @@ export const theme = createTheme({
           backgroundColor: theme.palette.action.hover,
         }),
         sizeSmall: {
-          padding: '9px 16px',
-          '&:first-of-type': { paddingLeft: 20 },
-          '&:last-of-type': { paddingRight: 20 },
+          padding: '6px 12px',
+          '&:first-of-type': { paddingLeft: 16 },
+          '&:last-of-type': { paddingRight: 16 },
         },
       },
     },
@@ -170,7 +170,7 @@ export const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          borderRadius: 18,
+          borderRadius: 14,
           boxShadow: '0 24px 48px -12px rgba(16, 24, 40, 0.25), 0 4px 16px rgba(16, 24, 40, 0.1)',
         },
       },

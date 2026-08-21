@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../api/client';
 import type { AdminUser, Role, Store } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -12,6 +12,7 @@ import { Modal } from './Modal';
 import { useRetained } from './useRetained';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
+import Avatar from '@mui/material/Avatar';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
@@ -23,15 +24,13 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
-import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
-import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
-import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
@@ -47,6 +46,33 @@ interface CreateForm {
 }
 
 const EMPTY_CREATE: CreateForm = { name: '', email: '', username: '', phone: '', password: '', role_id: '' };
+
+type SectionColor = 'primary' | 'warning' | 'success' | 'error';
+
+function SectionHeader({ icon, label, color }: { icon: ReactNode; label: string; color: SectionColor }) {
+  return (
+    <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', mb: 2 }}>
+      <Box
+        sx={{
+          width: 30,
+          height: 30,
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          bgcolor: `color-mix(in srgb, var(--mui-palette-${color}-main) 15%, transparent)`,
+          color: `${color}.main`,
+        }}
+      >
+        {icon}
+      </Box>
+      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+        {label}
+      </Typography>
+    </Stack>
+  );
+}
 
 export function UsersScreen() {
   const { user, hasPermission } = useAuth();
@@ -66,7 +92,6 @@ export function UsersScreen() {
   const managingR = useRetained(managing);
   const [detailsForm, setDetailsForm] = useState({ name: '', email: '', username: '', phone: '' });
   const [savingDetails, setSavingDetails] = useState(false);
-  const [detailsSaved, setDetailsSaved] = useState(false);
   const {
     fieldErrors: detailsFieldErrors,
     formError: detailsFormError,
@@ -76,14 +101,20 @@ export function UsersScreen() {
   } = useFormErrors();
   const [manageRoleId, setManageRoleId] = useState('');
   const [manageStoreIds, setManageStoreIds] = useState<number[]>([]);
+  const [loadingStoreAccess, setLoadingStoreAccess] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
-  const [savingRole, setSavingRole] = useState(false);
-  const [roleSaved, setRoleSaved] = useState(false);
   const [savingStores, setSavingStores] = useState(false);
-  const [storesSaved, setStoresSaved] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [passwordCopied, setPasswordCopied] = useState(false);
+
+  const [storeAccessUser, setStoreAccessUser] = useState<AdminUser | null>(null);
+  const storeAccessUserR = useRetained(storeAccessUser);
+  const [storeAccessError, setStoreAccessError] = useState<string | null>(null);
+
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
+  const passwordUserR = useRetained(passwordUser);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<Role[]>('/roles?per_page=50').then(setRoles);
@@ -142,38 +173,48 @@ export function UsersScreen() {
     }
   }
 
-  async function openManage(user: AdminUser) {
+  function openManage(user: AdminUser) {
     setManaging(user);
     setManageError(null);
-    setTempPassword(null);
-    setRoleSaved(false);
-    setStoresSaved(false);
-    setPasswordCopied(false);
     setDetailsForm({ name: user.name, email: user.email, username: user.username, phone: user.phone ?? '' });
-    setDetailsSaved(false);
     clearDetailsErrors();
     setManageRoleId(user.role_id ? String(user.role_id) : '');
-    const assigned = await api.get<Array<{ id: number }>>(`/users/${user.id}/stores`);
-    setManageStoreIds(assigned.map((s) => s.id));
+  }
+
+  function openPassword(user: AdminUser) {
+    setPasswordUser(user);
+    setPasswordError(null);
+    setTempPassword(null);
+    setPasswordCopied(false);
+  }
+
+  async function openStoreAccess(user: AdminUser) {
+    setStoreAccessUser(user);
+    setStoreAccessError(null);
+    setLoadingStoreAccess(true);
+    try {
+      const assigned = await api.get<Array<{ id: number }>>(`/users/${user.id}/stores`);
+      setManageStoreIds(assigned.map((s) => s.id));
+    } finally {
+      setLoadingStoreAccess(false);
+    }
   }
 
   async function saveDetails() {
     if (!managing) return;
     setSavingDetails(true);
     clearDetailsErrors();
-    setDetailsSaved(false);
     try {
-      const updated = await api.put<AdminUser>(`/users/${managing.id}`, {
+      await api.put<AdminUser>(`/users/${managing.id}`, {
         name: detailsForm.name,
         email: detailsForm.email,
         username: detailsForm.username,
         phone: detailsForm.phone || null,
+        role_id: manageRoleId || null,
       });
-      setManaging(updated);
       reload();
-      setDetailsSaved(true);
       notify('User details updated');
-      setTimeout(() => setDetailsSaved(false), 2000);
+      setManaging(null);
     } catch (err) {
       reportDetailsError(err, 'Failed to update details');
     } finally {
@@ -181,56 +222,38 @@ export function UsersScreen() {
     }
   }
 
-  async function saveRole() {
-    if (!managing) return;
-    setManageError(null);
-    setSavingRole(true);
-    setRoleSaved(false);
-    try {
-      await api.put(`/users/${managing.id}/role`, { role_id: manageRoleId || null });
-      reload();
-      setRoleSaved(true);
-      setTimeout(() => setRoleSaved(false), 2000);
-    } catch (err) {
-      setManageError(err instanceof ApiError ? err.message : 'Failed to update role');
-    } finally {
-      setSavingRole(false);
-    }
-  }
-
   async function saveStores() {
-    if (!managing) return;
-    setManageError(null);
+    if (!storeAccessUser) return;
+    setStoreAccessError(null);
     setSavingStores(true);
-    setStoresSaved(false);
     try {
-      await api.put(`/users/${managing.id}/stores`, { store_ids: manageStoreIds });
-      setStoresSaved(true);
-      setTimeout(() => setStoresSaved(false), 2000);
+      await api.put(`/users/${storeAccessUser.id}/stores`, { store_ids: manageStoreIds });
+      notify('Store access updated');
+      setStoreAccessUser(null);
     } catch (err) {
-      setManageError(err instanceof ApiError ? err.message : 'Failed to update store access');
+      setStoreAccessError(err instanceof ApiError ? err.message : 'Failed to update store access');
     } finally {
       setSavingStores(false);
     }
   }
 
   async function resetPassword() {
-    if (!managing) return;
+    if (!passwordUser) return;
     if (
-      !(await confirm(`Reset password for ${managing.name}? This invalidates all their current sessions.`, {
+      !(await confirm(`Reset password for ${passwordUser.name}? This invalidates all their current sessions.`, {
         title: 'Reset Password',
         confirmLabel: 'Reset Password',
       }))
     )
       return;
-    setManageError(null);
+    setPasswordError(null);
     setResettingPassword(true);
     setPasswordCopied(false);
     try {
-      const result = await api.post<{ temporary_password?: string }>(`/users/${managing.id}/reset-password`);
+      const result = await api.post<{ temporary_password?: string }>(`/users/${passwordUser.id}/reset-password`);
       setTempPassword(result.temporary_password ?? null);
     } catch (err) {
-      setManageError(err instanceof ApiError ? err.message : 'Failed to reset password');
+      setPasswordError(err instanceof ApiError ? err.message : 'Failed to reset password');
     } finally {
       setResettingPassword(false);
     }
@@ -292,21 +315,38 @@ export function UsersScreen() {
         onSortChange={setSort}
         rowActions={
           hasPermission('users.update')
-            ? (u) => (
-                <>
-                  <IconButton size="small" aria-label="Manage" onClick={() => openManage(u)}>
-                    <ManageAccountsOutlinedIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    aria-label={Number(u.is_active) === 1 ? 'Deactivate' : 'Activate'}
-                    color={Number(u.is_active) === 1 ? 'error' : 'success'}
-                    onClick={() => toggleActive(u)}
-                  >
-                    {Number(u.is_active) === 1 ? <BlockOutlinedIcon fontSize="small" /> : <CheckCircleOutlinedIcon fontSize="small" />}
-                  </IconButton>
-                </>
-              )
+            ? (u) => {
+                const active = Number(u.is_active) === 1;
+                return (
+                  <>
+                    <Tooltip title="Manage">
+                      <IconButton size="small" aria-label="Manage" onClick={() => openManage(u)}>
+                        <EditOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Store Access">
+                      <IconButton size="small" aria-label="Store Access" onClick={() => openStoreAccess(u)}>
+                        <StorefrontOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Password">
+                      <IconButton size="small" aria-label="Password" onClick={() => openPassword(u)}>
+                        <LockOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={active ? 'Deactivate' : 'Activate'}>
+                      <IconButton
+                        size="small"
+                        aria-label={active ? 'Deactivate' : 'Activate'}
+                        color={active ? 'error' : 'success'}
+                        onClick={() => toggleActive(u)}
+                      >
+                        {active ? <BlockOutlinedIcon fontSize="small" /> : <CheckCircleOutlinedIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                );
+              }
             : undefined
         }
       />
@@ -429,15 +469,31 @@ export function UsersScreen() {
           </form>
       </Modal>
 
-      <Modal open={managing !== null} title={managingR ? `Manage: ${managingR.name}` : ''} onClose={() => setManaging(null)} wide>
-          <Stack spacing={3}>
-            <Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                <PersonOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Details
-                </Typography>
+      <Modal open={managing !== null} title="Manage User" onClose={() => setManaging(null)} wide>
+          <Stack spacing={2.5}>
+            {managingR && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                <Avatar sx={{ width: 48, height: 48, fontSize: 18, fontWeight: 700, bgcolor: 'primary.main' }}>
+                  {managingR.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 17 }} noWrap>
+                    {managingR.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {managingR.email}
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  label={Number(managingR.is_active) === 1 ? 'Active' : 'Inactive'}
+                  color={Number(managingR.is_active) === 1 ? 'success' : 'default'}
+                />
               </Stack>
+            )}
+
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+              <SectionHeader icon={<PersonOutlinedIcon fontSize="small" />} label="Details" color="primary" />
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12 }}>
                   <TextField
@@ -495,115 +551,120 @@ export function UsersScreen() {
                     helperText={detailsFieldErrors?.phone}
                   />
                 </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField select label="Role" value={manageRoleId} onChange={(e) => setManageRoleId(e.target.value)} fullWidth>
+                    <MenuItem value="">— None —</MenuItem>
+                    {assignableRoles.map((r) => (
+                      <MenuItem key={r.id} value={r.id}>
+                        {r.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
                 {detailsFormError && (
                   <Grid size={{ xs: 12 }}>
                     <Alert severity="error">{detailsFormError}</Alert>
                   </Grid>
                 )}
-                <Grid size={{ xs: 12 }}>
-                  <Button variant="outlined" onClick={saveDetails} disabled={savingDetails} sx={{ minWidth: 148 }}>
-                    {savingDetails ? (
-                      <CircularProgress size={18} />
-                    ) : detailsSaved ? (
-                      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                        <CheckOutlinedIcon fontSize="small" color="success" />
-                        Saved
-                      </Stack>
-                    ) : (
-                      'Save Details'
-                    )}
-                  </Button>
-                </Grid>
               </Grid>
-            </Box>
+            </Paper>
 
-            <Divider />
+            {manageError && <Alert severity="error">{manageError}</Alert>}
+          </Stack>
 
-            <Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                <BadgeOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Role
-                </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end', mt: 3 }}>
+            <Button type="button" variant="text" onClick={() => setManaging(null)}>
+              Close
+            </Button>
+            <Button variant="contained" onClick={saveDetails} disabled={savingDetails} sx={{ minWidth: 148 }}>
+              {savingDetails ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Save Details'}
+            </Button>
+          </Stack>
+      </Modal>
+
+      <Modal open={storeAccessUser !== null} title="Store Access" onClose={() => setStoreAccessUser(null)}>
+          <Stack spacing={2.5}>
+            {storeAccessUserR && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                <Avatar sx={{ width: 40, height: 40, fontSize: 16, fontWeight: 700, bgcolor: 'primary.main' }}>
+                  {storeAccessUserR.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 15 }} noWrap>
+                    {storeAccessUserR.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {storeAccessUserR.email}
+                  </Typography>
+                </Box>
               </Stack>
-              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                <TextField select label="Role" value={manageRoleId} onChange={(e) => setManageRoleId(e.target.value)} fullWidth>
-                  <MenuItem value="">— None —</MenuItem>
-                  {assignableRoles.map((r) => (
-                    <MenuItem key={r.id} value={r.id}>
-                      {r.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <Button variant="outlined" onClick={saveRole} disabled={savingRole} sx={{ flexShrink: 0, minWidth: 128 }}>
-                  {savingRole ? (
-                    <CircularProgress size={18} />
-                  ) : roleSaved ? (
-                    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                      <CheckOutlinedIcon fontSize="small" color="success" />
-                      Saved
-                    </Stack>
-                  ) : (
-                    'Save Role'
-                  )}
-                </Button>
-              </Stack>
-            </Box>
+            )}
 
-            <Divider />
-
-            <Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-                <StorefrontOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Store Access
-                </Typography>
-              </Stack>
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+              <SectionHeader icon={<StorefrontOutlinedIcon fontSize="small" />} label="Store Access" color="success" />
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                 Leave every box unchecked for unrestricted access to every store in the company — check specific stores to
                 limit this user to just those.
               </Typography>
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.5 }}>
-                <FormGroup row sx={{ gap: 1.5 }}>
-                  {stores.map((store) => (
-                    <FormControlLabel
-                      key={store.id}
-                      control={<Checkbox checked={manageStoreIds.includes(store.id)} onChange={() => toggleStore(store.id)} />}
-                      label={store.name}
-                      sx={{ mr: 0 }}
-                    />
-                  ))}
-                  {stores.length === 0 && (
-                    <Typography variant="body2" color="text.secondary">
-                      No stores yet.
-                    </Typography>
-                  )}
-                </FormGroup>
-              </Paper>
-              <Button variant="outlined" onClick={saveStores} disabled={savingStores} sx={{ minWidth: 172 }}>
-                {savingStores ? (
-                  <CircularProgress size={18} />
-                ) : storesSaved ? (
-                  <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                    <CheckOutlinedIcon fontSize="small" color="success" />
-                    Saved
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.5, bgcolor: 'action.hover' }}>
+                {loadingStoreAccess ? (
+                  <Stack sx={{ alignItems: 'center', py: 1.5 }}>
+                    <CircularProgress size={20} />
                   </Stack>
                 ) : (
-                  'Save Store Access'
+                  <FormGroup row sx={{ gap: 1.5 }}>
+                    {stores.map((store) => (
+                      <FormControlLabel
+                        key={store.id}
+                        control={<Checkbox checked={manageStoreIds.includes(store.id)} onChange={() => toggleStore(store.id)} />}
+                        label={store.name}
+                        sx={{ mr: 0 }}
+                      />
+                    ))}
+                    {stores.length === 0 && (
+                      <Typography variant="body2" color="text.secondary">
+                        No stores yet.
+                      </Typography>
+                    )}
+                  </FormGroup>
                 )}
-              </Button>
-            </Box>
+              </Paper>
+            </Paper>
 
-            <Divider />
+            {storeAccessError && <Alert severity="error">{storeAccessError}</Alert>}
+          </Stack>
 
-            <Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                <LockOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Password
-                </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end', mt: 3 }}>
+            <Button type="button" variant="text" onClick={() => setStoreAccessUser(null)}>
+              Close
+            </Button>
+            <Button variant="contained" onClick={saveStores} disabled={savingStores || loadingStoreAccess} sx={{ minWidth: 172 }}>
+              {savingStores ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Save Store Access'}
+            </Button>
+          </Stack>
+      </Modal>
+
+      <Modal open={passwordUser !== null} title="Password" onClose={() => setPasswordUser(null)}>
+          <Stack spacing={2.5}>
+            {passwordUserR && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                <Avatar sx={{ width: 40, height: 40, fontSize: 16, fontWeight: 700, bgcolor: 'primary.main' }}>
+                  {passwordUserR.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 15 }} noWrap>
+                    {passwordUserR.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {passwordUserR.email}
+                  </Typography>
+                </Box>
               </Stack>
-              <Button variant="outlined" onClick={resetPassword} disabled={resettingPassword} sx={{ minWidth: 160 }}>
+            )}
+
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+              <SectionHeader icon={<LockOutlinedIcon fontSize="small" />} label="Password" color="error" />
+              <Button variant="outlined" color="error" onClick={resetPassword} disabled={resettingPassword} sx={{ minWidth: 160 }}>
                 {resettingPassword ? <CircularProgress size={18} /> : 'Reset Password'}
               </Button>
               {tempPassword && (
@@ -621,13 +682,13 @@ export function UsersScreen() {
                   </Stack>
                 </Paper>
               )}
-            </Box>
+            </Paper>
 
-            {manageError && <Alert severity="error">{manageError}</Alert>}
+            {passwordError && <Alert severity="error">{passwordError}</Alert>}
           </Stack>
 
           <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
-            <Button type="button" variant="text" onClick={() => setManaging(null)}>
+            <Button type="button" variant="text" onClick={() => setPasswordUser(null)}>
               Close
             </Button>
           </Stack>

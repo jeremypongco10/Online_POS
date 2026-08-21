@@ -198,6 +198,21 @@ export interface Inventory {
   store_name?: string;
 }
 
+export interface InventoryTransaction {
+  id: number;
+  inventory_id: number;
+  product_id: number;
+  store_id: number;
+  type: 'purchase' | 'sale' | 'return' | 'adjustment' | 'transfer_in' | 'transfer_out';
+  quantity: string;
+  balance_after: string;
+  reference_type: string | null;
+  reference_id: number | null;
+  user_id: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
 export interface PurchaseOrder {
   id: number;
   company_id: number;

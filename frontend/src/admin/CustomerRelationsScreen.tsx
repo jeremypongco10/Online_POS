@@ -1,7 +1,5 @@
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { SectionTabs } from './SectionTabs';
 import { CustomersScreen } from './CustomersScreen';
 import { ReturnsScreen } from './ReturnsScreen';
 import { useRouteState } from '../routing';
@@ -14,18 +12,10 @@ export function CustomerRelationsScreen() {
 
   return (
     <div>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Customers</Typography>
-      </Stack>
-
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        sx={{ mb: 2.25, borderBottom: '1px solid', borderColor: 'divider', minHeight: 40 }}
-      >
-        <Tab value="customers" label="Customers" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="returns" label="Returns" sx={{ minHeight: 40, textTransform: 'none' }} />
-      </Tabs>
+      <SectionTabs value={tab} onChange={setTab}>
+        <Tab value="customers" label="Customers" />
+        <Tab value="returns" label="Returns" />
+      </SectionTabs>
 
       {tab === 'customers' && <CustomersScreen />}
       {tab === 'returns' && <ReturnsScreen />}

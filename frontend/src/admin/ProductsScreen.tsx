@@ -9,6 +9,7 @@ import { useFormErrors } from './useFormErrors';
 import { useRetained } from './useRetained';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
@@ -223,19 +224,14 @@ export function ProductsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <TextField
-            select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            sx={{ minWidth: 180 }}
-          >
+          <InlineSelectFilter label="Category" value={categoryFilter} onChange={setCategoryFilter}>
             <MenuItem value="">All Categories</MenuItem>
             {categories.map((c) => (
               <MenuItem key={c.id} value={c.id}>
                 {c.name}
               </MenuItem>
             ))}
-          </TextField>
+          </InlineSelectFilter>
         }
       />
 

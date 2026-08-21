@@ -1,7 +1,5 @@
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { SectionTabs } from './SectionTabs';
 import { SuppliersScreen } from './SuppliersScreen';
 import { PurchaseOrdersScreen } from './PurchaseOrdersScreen';
 import { useRouteState } from '../routing';
@@ -14,18 +12,10 @@ export function PurchasingScreen() {
 
   return (
     <div>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Purchasing</Typography>
-      </Stack>
-
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        sx={{ mb: 2.25, borderBottom: '1px solid', borderColor: 'divider', minHeight: 40 }}
-      >
-        <Tab value="suppliers" label="Suppliers" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="purchase-orders" label="Purchase Orders" sx={{ minHeight: 40, textTransform: 'none' }} />
-      </Tabs>
+      <SectionTabs value={tab} onChange={setTab}>
+        <Tab value="suppliers" label="Suppliers" />
+        <Tab value="purchase-orders" label="Purchase Orders" />
+      </SectionTabs>
 
       {tab === 'suppliers' && <SuppliersScreen />}
       {tab === 'purchase-orders' && <PurchaseOrdersScreen />}

@@ -10,9 +10,9 @@ import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
 import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { SectionTabs } from './SectionTabs';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
@@ -34,20 +34,12 @@ export function SettingsScreen() {
 
   return (
     <div>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Settings</Typography>
-      </Stack>
-
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        sx={{ mb: 2.25, borderBottom: '1px solid', borderColor: 'divider', minHeight: 40 }}
-      >
-        <Tab value="stores" label="Stores" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="registers" label="Registers" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="taxes" label="Taxes" sx={{ minHeight: 40, textTransform: 'none' }} />
-        <Tab value="units" label="Units" sx={{ minHeight: 40, textTransform: 'none' }} />
-      </Tabs>
+      <SectionTabs value={tab} onChange={setTab}>
+        <Tab value="stores" label="Stores" />
+        <Tab value="registers" label="Registers" />
+        <Tab value="taxes" label="Taxes" />
+        <Tab value="units" label="Units" />
+      </SectionTabs>
 
       {tab === 'stores' && <StoresTab />}
       {tab === 'registers' && <RegistersTab />}
@@ -364,14 +356,14 @@ function RegistersTab() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <TextField select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} sx={{ minWidth: 180 }}>
+          <InlineSelectFilter label="Store" value={storeFilter} onChange={setStoreFilter}>
             <MenuItem value="">All Stores</MenuItem>
             {stores.map((s) => (
               <MenuItem key={s.id} value={s.id}>
                 {s.name}
               </MenuItem>
             ))}
-          </TextField>
+          </InlineSelectFilter>
         }
       />
 

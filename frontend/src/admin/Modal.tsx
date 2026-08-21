@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import Dialog from '@mui/material/Dialog';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import IconButton from '@mui/material/IconButton';
@@ -24,8 +26,20 @@ interface Props {
 }
 
 export function Modal({ title, onClose, children, wide, maxWidth, open = true }: Props) {
+  const theme = useTheme();
+  // A centred dialog leaves too little room for these forms on a phone —
+  // going full-screen gives the fields the whole viewport instead.
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth={maxWidth ?? (wide ? 'md' : 'sm')} fullWidth slots={{ transition: PopTransition }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth={maxWidth ?? (wide ? 'md' : 'sm')}
+      fullWidth
+      fullScreen={fullScreen}
+      slots={{ transition: PopTransition }}
+    >
       <Stack
         direction="row"
         sx={{

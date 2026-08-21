@@ -905,3 +905,11 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 600px) {
+  /* Fixed 320px would overflow the modal it sits in on a ~320px screen. */
+  .receipt-card {
+    width: 100%;
+    max-width: 320px;
+  }
+}

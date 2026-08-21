@@ -7,6 +7,7 @@ import { useList } from './useList';
 import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { useRetained } from './useRetained';
 import { formatMoney } from '../pos/format';
@@ -167,13 +168,13 @@ export function PurchaseOrdersScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <TextField select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} sx={{ minWidth: 180 }}>
+          <InlineSelectFilter label="Status" value={statusFilter} onChange={setStatusFilter}>
             <MenuItem value="">All Statuses</MenuItem>
             <MenuItem value="draft">Draft</MenuItem>
             <MenuItem value="approved">Approved</MenuItem>
             <MenuItem value="received">Received</MenuItem>
             <MenuItem value="cancelled">Cancelled</MenuItem>
-          </TextField>
+          </InlineSelectFilter>
         }
       />
 
