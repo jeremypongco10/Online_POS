@@ -63,6 +63,11 @@ Vagrantfile
 /writable/debugbar/*
 !/writable/debugbar/index.html
 
+# User-uploaded product photos — served directly from public/ (see
+# ProductsController::uploadImage), not committed like everything else here.
+/public/uploads/products/*
+!/public/uploads/products/index.html
+
 php_errors.log
 
 #-------------------------

@@ -1,0 +1,472 @@
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { api, ApiError, assetUrl } from '../api/client';
+import type { Category, Inventory, Product, StoreProductPrice, TaxRate, Unit } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
+import { useSnackbar } from '../Snackbar';
+import { DetailView, StatusChip } from './DetailView';
+import { ProductEditModal } from './ProductEditModal';
+import { formatMoney } from '../pos/format';
+import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import Button from '@mui/material/Button';
+import Avatar from '@mui/material/Avatar';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
+import CircularProgress from '@mui/material/CircularProgress';
+import SearchIcon from '@mui/icons-material/Search';
+import QrCodeScannerOutlinedIcon from '@mui/icons-material/QrCodeScannerOutlined';
+import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
+import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
+import ReplayOutlinedIcon from '@mui/icons-material/ReplayOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+
+interface StoreRow {
+  store_id: number;
+  store_name: string;
+  quantity: string | null;
+  reorder_level: string | null;
+  cost_price: string | null;
+  selling_price: string | null;
+}
+
+/**
+ * A scan-and-lookup tool, distinct from the Products tab's paginated list:
+ * one search resolves to one product, shown with everything a cashier or
+ * stocktaker would otherwise have to open two separate screens for — the
+ * product's own fields, AND its stock level and price at every store,
+ * combined into a single table.
+ */
+export function ProductLookupScreen() {
+  const notify = useSnackbar();
+  const { hasPermission } = useAuth();
+  const canViewInventory = hasPermission('inventory.view');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [taxes, setTaxes] = useState<TaxRate[]>([]);
+
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [candidates, setCandidates] = useState<Product[]>([]);
+
+  const [selected, setSelected] = useState<Product | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [storeRows, setStoreRows] = useState<StoreRow[]>([]);
+  const [editing, setEditing] = useState<Product | null>(null);
+
+  useEffect(() => {
+    api.get<Category[]>('/categories?per_page=200').then(setCategories);
+    api.get<Unit[]>('/units?per_page=100').then(setUnits);
+    api.get<TaxRate[]>('/taxes?per_page=100').then(setTaxes);
+    inputRef.current?.focus();
+  }, []);
+
+  const categoryName = (id: number | null) => categories.find((c) => c.id === id)?.name ?? '—';
+  const unitName = (id: number | null) => units.find((u) => u.id === id)?.name ?? '—';
+  const taxName = (id: number | null) => {
+    const t = taxes.find((tax) => tax.id === id);
+    return t ? `${t.name} (${t.rate}%)` : '—';
+  };
+
+  async function runSearch() {
+    const term = query.trim();
+    if (!term) return;
+
+    setSearching(true);
+    setSearched(false);
+    setCandidates([]);
+    setSelected(null);
+    try {
+      const { data } = await api.getPaged<Product>(`/products?q=${encodeURIComponent(term)}&per_page=25`);
+
+      // A scanned barcode (or a typed exact SKU) should resolve straight to
+      // the product, not force a pick from a list it happens to also be in.
+      const exact = data.find(
+        (p) => p.sku.toLowerCase() === term.toLowerCase() || (p.barcode ?? '').toLowerCase() === term.toLowerCase()
+      );
+
+      if (exact) {
+        await selectProduct(exact);
+      } else if (data.length === 1) {
+        await selectProduct(data[0]);
+      } else {
+        setCandidates(data);
+        setSearched(true);
+      }
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Search failed', 'error');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function selectProduct(product: Product) {
+    setSelected(product);
+    setCandidates([]);
+    setSearched(true);
+    setDetailLoading(true);
+    try {
+      // Fetched independently, not via Promise.all — a viewer who can see
+      // prices (products.view, already required just to be on this tab)
+      // but lacks inventory.view would otherwise have the whole detail
+      // view fail because of the one call they're not allowed to make.
+      const pricesPromise = api.get<StoreProductPrice[]>(`/products/${product.id}/prices`);
+      const inventoryPromise = canViewInventory
+        ? api.get<Inventory[]>(`/inventory?product_id=${product.id}&per_page=100`).catch(() => [] as Inventory[])
+        : Promise.resolve([] as Inventory[]);
+
+      const [prices, inventory] = await Promise.all([pricesPromise, inventoryPromise]);
+      const invByStore = new Map(inventory.map((row) => [row.store_id, row]));
+      setStoreRows(
+        prices.map((p) => ({
+          store_id: p.store_id,
+          store_name: p.store_name,
+          cost_price: p.cost_price,
+          selling_price: p.selling_price,
+          quantity: invByStore.get(p.store_id)?.quantity ?? null,
+          reorder_level: invByStore.get(p.store_id)?.reorder_level ?? null,
+        }))
+      );
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to load product detail', 'error');
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function reset() {
+    setQuery('');
+    setSearched(false);
+    setCandidates([]);
+    setSelected(null);
+    setStoreRows([]);
+    inputRef.current?.focus();
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runSearch();
+    }
+  }
+
+  // Also fires for a photo upload/remove, which don't close the modal
+  // (ProductEditModal only calls onClose() itself after a field save) —
+  // so this keeps `editing` set to the fresh product rather than clearing
+  // it, and refreshes the detail header (candidates.length is 0 here since
+  // this only ever runs while a single product is already selected).
+  function handleSaved(updated: Product) {
+    setSelected(updated);
+    setEditing(updated);
+  }
+
+  const idle = !searched && !searching;
+
+  return (
+    <Box sx={{ maxWidth: 900 }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 1,
+          mb: 3,
+          borderRadius: 4,
+          background: 'linear-gradient(135deg, color-mix(in srgb, var(--mui-palette-primary-main) 6%, var(--mui-palette-background-paper)), var(--mui-palette-background-paper))',
+        }}
+      >
+        <Stack direction="row" spacing={1.25}>
+          <TextField
+            inputRef={inputRef}
+            fullWidth
+            placeholder="Scan a barcode, or type a SKU / name…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onKeyDown}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <QrCodeScannerOutlinedIcon fontSize="small" sx={{ color: 'primary.main' }} />
+                  </InputAdornment>
+                ),
+                sx: { bgcolor: 'background.paper', borderRadius: 3, height: 48, fontSize: '0.95rem' },
+              },
+            }}
+          />
+          <Button
+            variant="contained"
+            startIcon={!searching ? <SearchIcon fontSize="small" /> : undefined}
+            onClick={runSearch}
+            disabled={searching || !query.trim()}
+            sx={{ borderRadius: 3, px: 2.5, flexShrink: 0 }}
+          >
+            {searching ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Search'}
+          </Button>
+          {(selected || candidates.length > 0) && (
+            <Button startIcon={<ReplayOutlinedIcon fontSize="small" />} onClick={reset} sx={{ borderRadius: 3, flexShrink: 0 }}>
+              New Search
+            </Button>
+          )}
+        </Stack>
+      </Paper>
+
+      {idle && (
+        <Paper variant="outlined" sx={{ p: 6, borderRadius: 4, textAlign: 'center' }}>
+          <Box
+            sx={{
+              width: 64,
+              height: 64,
+              mx: 'auto',
+              mb: 2,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 12%, transparent)',
+            }}
+          >
+            <QrCodeScannerOutlinedIcon sx={{ fontSize: 30, color: 'primary.main' }} />
+          </Box>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            Find any product instantly
+          </Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 420, mx: 'auto' }}>
+            Search by name, SKU, or scan a barcode to see full details, stock, and pricing across every store.
+          </Typography>
+        </Paper>
+      )}
+
+      {searched && !selected && candidates.length === 0 && (
+        <Paper variant="outlined" sx={{ p: 4, borderRadius: 4, textAlign: 'center' }}>
+          <SearchOffOutlinedIcon sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
+          <Typography color="text.secondary">No product matches "{query}".</Typography>
+        </Paper>
+      )}
+
+      {candidates.length > 0 && (
+        <Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            {candidates.length} matches — pick one
+          </Typography>
+          <Grid container spacing={1.5}>
+            {candidates.map((p) => (
+              <Grid key={p.id} size={{ xs: 12, sm: 6 }}>
+                <Paper
+                  variant="outlined"
+                  onClick={() => selectProduct(p)}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 3,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                    cursor: 'pointer',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
+                    '&:hover': {
+                      borderColor: 'primary.main',
+                      boxShadow: '0 8px 20px -8px rgba(16, 24, 40, 0.18)',
+                      transform: 'translateY(-1px)',
+                    },
+                  }}
+                >
+                  <Avatar
+                    variant="rounded"
+                    src={p.image_path ? assetUrl(p.image_path) : undefined}
+                    sx={{ width: 44, height: 44, bgcolor: 'action.hover', color: 'text.disabled', flexShrink: 0 }}
+                  >
+                    <ImageNotSupportedOutlinedIcon fontSize="small" />
+                  </Avatar>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                      {p.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                      {p.sku}
+                      {p.barcode ? ` · ${p.barcode}` : ''}
+                    </Typography>
+                  </Box>
+                  <ChevronRightRoundedIcon sx={{ color: 'text.disabled', flexShrink: 0 }} />
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
+
+      {selected && (
+        <Paper variant="outlined" sx={{ borderRadius: 4, overflow: 'hidden' }}>
+          <Box
+            sx={{
+              p: 3,
+              background: 'linear-gradient(135deg, color-mix(in srgb, var(--mui-palette-primary-main) 8%, transparent), transparent)',
+            }}
+          >
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+              <Avatar
+                variant="rounded"
+                src={selected.image_path ? assetUrl(selected.image_path) : undefined}
+                sx={{
+                  width: 72,
+                  height: 72,
+                  bgcolor: 'action.hover',
+                  color: 'text.disabled',
+                  boxShadow: '0 0 0 3px var(--mui-palette-background-paper), 0 0 0 4px color-mix(in srgb, var(--mui-palette-primary-main) 25%, transparent)',
+                }}
+              >
+                <ImageNotSupportedOutlinedIcon />
+              </Avatar>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700 }} noWrap>
+                  {selected.name}
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}>
+                  <Chip size="small" label={`SKU: ${selected.sku}`} />
+                  {selected.barcode && <Chip size="small" label={`Barcode: ${selected.barcode}`} />}
+                  <StatusChip active={Number(selected.is_active) === 1} />
+                </Stack>
+              </Box>
+              {hasPermission('products.update') && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<EditOutlinedIcon fontSize="small" />}
+                  onClick={() => setEditing(selected)}
+                  sx={{ flexShrink: 0, borderRadius: 3, bgcolor: 'background.paper' }}
+                >
+                  Edit
+                </Button>
+              )}
+            </Stack>
+          </Box>
+
+          <Box sx={{ p: 3, pt: 2.5 }}>
+            <DetailView
+              fields={[
+                { label: 'Category', value: categoryName(selected.category_id) },
+                { label: 'Unit', value: unitName(selected.unit_id) },
+                { label: 'Tax Rate', value: taxName(selected.tax_rate_id) },
+                { label: 'Minimum Stock', value: selected.minimum_stock },
+                { label: 'Track Inventory', value: Number(selected.track_inventory) === 1 ? 'Yes' : 'No' },
+                { label: 'Description', value: selected.description, fullWidth: true },
+              ]}
+            />
+
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 3, mb: 1.5 }}>
+              <StorefrontOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Stock &amp; Price by Store
+              </Typography>
+            </Stack>
+
+            {detailLoading ? (
+              <Stack sx={{ alignItems: 'center', py: 3 }}>
+                <CircularProgress size={22} />
+              </Stack>
+            ) : (
+              <Grid container spacing={1.5}>
+                {storeRows.map((row) => {
+                  const qty = row.quantity !== null ? parseFloat(row.quantity) : null;
+                  const reorder = row.reorder_level !== null ? parseFloat(row.reorder_level) : null;
+                  const low = qty !== null && reorder !== null && qty <= reorder;
+                  const cost = parseFloat(row.cost_price ?? '') || 0;
+                  const price = parseFloat(row.selling_price ?? '') || 0;
+                  const profit = price - cost;
+                  const hasPrice = !!(row.cost_price || row.selling_price);
+                  const profitColor = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
+
+                  return (
+                    <Grid key={row.store_id} size={{ xs: 12, sm: 6, md: 4 }}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 2,
+                          borderRadius: 3,
+                          height: '100%',
+                          borderColor: low ? 'warning.main' : undefined,
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 700, mb: 1.25 }} noWrap>
+                          {row.store_name}
+                        </Typography>
+
+                        <Stack direction="row" sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Stock
+                          </Typography>
+                          {qty === null ? (
+                            <Typography variant="body2" color="text.secondary">
+                              —
+                            </Typography>
+                          ) : (
+                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                              <Typography variant="body1" sx={{ fontWeight: 700, color: low ? 'warning.main' : 'text.primary' }}>
+                                {qty}
+                              </Typography>
+                              {low && <WarningAmberRoundedIcon sx={{ fontSize: 16, color: 'warning.main' }} />}
+                            </Stack>
+                          )}
+                        </Stack>
+                        {reorder !== null && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'right', mt: -0.25 }}>
+                            reorder at {reorder}
+                          </Typography>
+                        )}
+
+                        <Divider sx={{ my: 1.25 }} />
+
+                        <Stack spacing={0.5}>
+                          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Cost
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                              {row.cost_price ? formatMoney(cost) : '—'}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Price
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                              {row.selling_price ? formatMoney(price) : '—'}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Profit
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: hasPrice ? profitColor : 'text.secondary' }}>
+                              {hasPrice ? formatMoney(profit) : '—'}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            )}
+          </Box>
+        </Paper>
+      )}
+
+      <ProductEditModal
+        product={editing}
+        categories={categories}
+        units={units}
+        taxes={taxes}
+        onClose={() => setEditing(null)}
+        onSaved={handleSaved}
+      />
+    </Box>
+  );
+}

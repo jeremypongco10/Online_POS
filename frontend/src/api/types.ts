@@ -41,9 +41,25 @@ export interface Product {
   barcode: string | null;
   name: string;
   description: string | null;
+  /** Relative to the backend's public/ root — build a loadable URL with assetUrl() from api/client. */
+  image_path: string | null;
   minimum_stock: string;
   is_active: string | number;
   track_inventory: string | number;
+}
+
+/** One row's outcome from `POST /products/bulk` — used by both the Bulk Add grid and the CSV import preview. */
+export interface BulkProductResult {
+  index: number;
+  success: boolean;
+  data?: Product;
+  error?: string;
+}
+
+export interface BulkProductResponse {
+  results: BulkProductResult[];
+  created: number;
+  failed: number;
 }
 
 /** A Product as returned by `GET /products?store_id=` — price resolved for that one store, null if unpriced there. */

@@ -16,7 +16,7 @@ class ProductModel extends Model
 
     protected $allowedFields = [
         'company_id', 'category_id', 'unit_id', 'tax_rate_id',
-        'sku', 'barcode', 'name', 'description',
+        'sku', 'barcode', 'name', 'description', 'image_path',
         'minimum_stock', 'is_active', 'track_inventory',
     ];
 

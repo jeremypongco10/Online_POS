@@ -82,12 +82,15 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('products', static function (RouteCollection $routes) {
             $routes->get('', 'ProductsController::index', ['filter' => 'permission:products.view']);
+            $routes->post('bulk', 'ProductsController::bulkCreate', ['filter' => 'permission:products.create']);
             $routes->get('(:num)', 'ProductsController::show/$1', ['filter' => 'permission:products.view']);
             $routes->post('', 'ProductsController::create', ['filter' => 'permission:products.create']);
             $routes->put('(:num)', 'ProductsController::update/$1', ['filter' => 'permission:products.update']);
             $routes->delete('(:num)', 'ProductsController::delete/$1', ['filter' => 'permission:products.delete']);
             $routes->get('(:num)/prices', 'ProductsController::prices/$1', ['filter' => 'permission:products.view']);
             $routes->put('(:num)/prices', 'ProductsController::updatePrices/$1', ['filter' => 'permission:products.update']);
+            $routes->post('(:num)/image', 'ProductsController::uploadImage/$1', ['filter' => 'permission:products.update']);
+            $routes->delete('(:num)/image', 'ProductsController::deleteImage/$1', ['filter' => 'permission:products.update']);
         });
 
         $routes->group('categories', static function (RouteCollection $routes) {

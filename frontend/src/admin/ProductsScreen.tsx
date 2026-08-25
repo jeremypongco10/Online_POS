@@ -1,23 +1,22 @@
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, assetUrl } from '../api/client';
 import type { Category, Product, StoreProductPrice, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
 import { useList } from './useList';
-import { useFormErrors } from './useFormErrors';
 import { useRetained } from './useRetained';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
-import { SearchableSelect } from './SearchableSelect';
+import { ProductEditModal } from './ProductEditModal';
 import { DetailView, StatusChip } from './DetailView';
+import { formatMoney } from '../pos/format';
 import Stack from '@mui/material/Stack';
-import Grid from '@mui/material/Grid';
+import Typography from '@mui/material/Typography';
+import Avatar from '@mui/material/Avatar';
 import TextField from '@mui/material/TextField';
-import Checkbox from '@mui/material/Checkbox';
-import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
@@ -33,32 +32,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PriceChangeIcon from '@mui/icons-material/PriceChange';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
-
-interface FormState {
-  sku: string;
-  barcode: string;
-  name: string;
-  description: string;
-  category_id: string;
-  unit_id: string;
-  tax_rate_id: string;
-  minimum_stock: string;
-  is_active: boolean;
-  track_inventory: boolean;
-}
-
-const EMPTY_FORM: FormState = {
-  sku: '',
-  barcode: '',
-  name: '',
-  description: '',
-  category_id: '',
-  unit_id: '',
-  tax_rate_id: '',
-  minimum_stock: '0',
-  is_active: true,
-  track_inventory: true,
-};
+import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
 
 export function ProductsScreen() {
   const { hasPermission } = useAuth();
@@ -75,10 +49,6 @@ export function ProductsScreen() {
 
   const [editing, setEditing] = useState<Product | null>(null);
   const [viewing, setViewing] = useState<Product | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
   const [pricing, setPricing] = useState<Product | null>(null);
   const pricingR = useRetained(pricing);
@@ -100,63 +70,14 @@ export function ProductsScreen() {
     return t ? `${t.name} (${t.rate}%)` : '—';
   };
 
-  function openCreate() {
-    setEditing(null);
-    const defaultTax = taxes.find((t) => Number(t.is_default) === 1);
-    setForm({ ...EMPTY_FORM, tax_rate_id: defaultTax ? String(defaultTax.id) : '' });
-    clearErrors();
-    setShowForm(true);
-  }
-
-  function openEdit(product: Product) {
-    setEditing(product);
-    setForm({
-      sku: product.sku,
-      barcode: product.barcode ?? '',
-      name: product.name,
-      description: product.description ?? '',
-      category_id: product.category_id ? String(product.category_id) : '',
-      unit_id: product.unit_id ? String(product.unit_id) : '',
-      tax_rate_id: product.tax_rate_id ? String(product.tax_rate_id) : '',
-      minimum_stock: product.minimum_stock,
-      is_active: Number(product.is_active) === 1,
-      track_inventory: Number(product.track_inventory) === 1,
-    });
-    clearErrors();
-    setShowForm(true);
-  }
-
-  async function submitForm() {
-    setSaving(true);
-    clearErrors();
-
-    const payload = {
-      sku: form.sku,
-      barcode: form.barcode || null,
-      name: form.name,
-      description: form.description || null,
-      category_id: form.category_id || null,
-      unit_id: form.unit_id || null,
-      tax_rate_id: form.tax_rate_id || null,
-      minimum_stock: form.minimum_stock,
-      is_active: form.is_active ? 1 : 0,
-      track_inventory: form.track_inventory ? 1 : 0,
-    };
-
-    try {
-      if (editing) {
-        await api.put(`/products/${editing.id}`, payload);
-      } else {
-        await api.post('/products', payload);
-      }
-      setShowForm(false);
-      reload();
-      notify(editing ? 'Product updated' : 'Product created');
-    } catch (err) {
-      reportError(err, 'Failed to save product');
-    } finally {
-      setSaving(false);
-    }
+  // Fires for a field save AND for a photo upload/remove — the latter two
+  // don't close the modal (ProductEditModal only calls onClose() itself
+  // after a successful field save), so this must keep it open with the
+  // fresh product rather than unconditionally clearing `editing`.
+  function handleSaved(updated: Product) {
+    setEditing(updated);
+    reload();
+    if (viewing?.id === updated.id) setViewing(updated);
   }
 
   async function deactivate(product: Product) {
@@ -207,6 +128,20 @@ export function ProductsScreen() {
   }
 
   const columns: Column<Product>[] = [
+    {
+      key: 'image',
+      label: '',
+      width: 52,
+      render: (p) => (
+        <Avatar
+          variant="rounded"
+          src={p.image_path ? assetUrl(p.image_path) : undefined}
+          sx={{ width: 36, height: 36, bgcolor: 'action.hover', color: 'text.disabled' }}
+        >
+          <ImageNotSupportedOutlinedIcon fontSize="small" />
+        </Avatar>
+      ),
+    },
     { key: 'sku', label: 'SKU', sortKey: 'sku' },
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'category', label: 'Category', render: (p) => categoryName(p.category_id) },
@@ -229,8 +164,6 @@ export function ProductsScreen() {
       <ListToolbar
         search={q}
         onSearchChange={setQ}
-        onAdd={hasPermission('products.create') ? openCreate : undefined}
-        addLabel="Add Product"
         onRefresh={reload}
         refreshing={loading}
         extra={
@@ -272,7 +205,7 @@ export function ProductsScreen() {
             )}
             {hasPermission('products.update') && (
               <Tooltip title="Edit">
-                <IconButton size="small" aria-label="Edit" onClick={() => openEdit(p)}>
+                <IconButton size="small" aria-label="Edit" onClick={() => setEditing(p)}>
                   <EditIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -288,156 +221,7 @@ export function ProductsScreen() {
         )}
       />
 
-      <Modal open={showForm} title={editing ? 'Edit Product' : 'Add Product'} onClose={() => setShowForm(false)} wide>
-          <form
-            noValidate
-            onSubmit={(e) => {
-              e.preventDefault();
-              submitForm();
-            }}
-          >
-            <Grid container spacing={2} sx={{ pt: 1 }}>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label="SKU"
-                  fullWidth
-                  value={form.sku}
-                  onChange={(e) => {
-                    setForm({ ...form, sku: e.target.value });
-                    clearField('sku');
-                  }}
-                  error={!!fieldErrors?.sku}
-                  helperText={fieldErrors?.sku}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label="Barcode"
-                  fullWidth
-                  value={form.barcode}
-                  onChange={(e) => {
-                    setForm({ ...form, barcode: e.target.value });
-                    clearField('barcode');
-                  }}
-                  error={!!fieldErrors?.barcode}
-                  helperText={fieldErrors?.barcode}
-                />
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="Name"
-                  fullWidth
-                  value={form.name}
-                  onChange={(e) => {
-                    setForm({ ...form, name: e.target.value });
-                    clearField('name');
-                  }}
-                  error={!!fieldErrors?.name}
-                  helperText={fieldErrors?.name}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  label="Description"
-                  fullWidth
-                  multiline
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <SearchableSelect
-                  label="Category"
-                  fullWidth
-                  value={form.category_id}
-                  onChange={(v) => setForm({ ...form, category_id: v })}
-                  options={[{ value: '', label: '— None —' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <SearchableSelect
-                  label="Unit"
-                  fullWidth
-                  value={form.unit_id}
-                  onChange={(v) => setForm({ ...form, unit_id: v })}
-                  options={[
-                    { value: '', label: '— None —' },
-                    ...units.map((u) => ({ value: String(u.id), label: `${u.name} (${u.abbreviation})` })),
-                  ]}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <SearchableSelect
-                  label="Tax Rate"
-                  fullWidth
-                  value={form.tax_rate_id}
-                  onChange={(v) => setForm({ ...form, tax_rate_id: v })}
-                  options={[
-                    { value: '', label: '— None —' },
-                    ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` })),
-                  ]}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label="Minimum Stock"
-                  type="number"
-                  fullWidth
-                  slotProps={{ htmlInput: { step: '0.0001' } }}
-                  value={form.minimum_stock}
-                  onChange={(e) => {
-                    setForm({ ...form, minimum_stock: e.target.value });
-                    clearField('minimum_stock');
-                  }}
-                  error={!!fieldErrors?.minimum_stock}
-                  helperText={fieldErrors?.minimum_stock}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={form.is_active}
-                      onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                    />
-                  }
-                  label="Active"
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={form.track_inventory}
-                      onChange={(e) => setForm({ ...form, track_inventory: e.target.checked })}
-                    />
-                  }
-                  label="Track Inventory"
-                />
-              </Grid>
-
-              {formError && (
-                <Grid size={{ xs: 12 }}>
-                  <Alert severity="error">{formError}</Alert>
-                </Grid>
-              )}
-
-              <Grid size={{ xs: 12 }}>
-                <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
-                  <Button type="button" variant="text" onClick={() => setShowForm(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="contained" disabled={saving}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </Button>
-                </Stack>
-              </Grid>
-            </Grid>
-          </form>
-      </Modal>
+      <ProductEditModal product={editing} categories={categories} units={units} taxes={taxes} onClose={() => setEditing(null)} onSaved={handleSaved} />
 
       <Modal open={pricing !== null} title={pricingR ? `Prices: ${pricingR.name}` : ''} onClose={() => setPricing(null)}>
         {pricingR && (
@@ -453,6 +237,7 @@ export function ProductsScreen() {
                     <TableCell>Store</TableCell>
                     <TableCell align="right">Cost</TableCell>
                     <TableCell align="right">Price</TableCell>
+                    <TableCell align="right">Profit</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -479,6 +264,29 @@ export function ProductsScreen() {
                           sx={{ width: 110 }}
                         />
                       </TableCell>
+                      <TableCell align="right">
+                        {(() => {
+                          const cost = parseFloat(row.cost_price ?? '') || 0;
+                          const price = parseFloat(row.selling_price ?? '') || 0;
+                          const profit = price - cost;
+                          // Margin is relative to the selling price (not cost) — the
+                          // conventional definition, and undefined at price 0.
+                          const margin = price > 0 ? (profit / price) * 100 : null;
+                          const color = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
+                          return (
+                            <Stack sx={{ alignItems: 'flex-end' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color }}>
+                                {formatMoney(profit)}
+                              </Typography>
+                              {margin !== null && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                  {margin.toFixed(1)}%
+                                </Typography>
+                              )}
+                            </Stack>
+                          );
+                        })()}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -504,6 +312,13 @@ export function ProductsScreen() {
       </Modal>
 
       <Modal open={!!viewing} title="View Product" onClose={() => setViewing(null)}>
+        <Avatar
+          variant="rounded"
+          src={viewing?.image_path ? assetUrl(viewing.image_path) : undefined}
+          sx={{ width: 96, height: 96, mb: 2, bgcolor: 'action.hover', color: 'text.disabled' }}
+        >
+          <ImageNotSupportedOutlinedIcon />
+        </Avatar>
         <DetailView
           fields={[
             { label: 'SKU', value: viewing?.sku },

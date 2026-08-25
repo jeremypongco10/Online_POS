@@ -5,6 +5,17 @@ import type { ApiEnvelope } from './types';
 // env file present.
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1';
 
+// Uploaded files (product photos) are served as plain static files from
+// the backend's public/ root, not under /api/v1 — so a path the API
+// returns (e.g. "uploads/products/12_ab3f.jpg") needs the "/api/v1" suffix
+// stripped off BASE_URL rather than appended to it.
+const ASSET_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, '');
+
+/** Builds a browser-loadable URL for a relative asset path the API returned (e.g. a product's image_path). */
+export function assetUrl(path: string): string {
+  return `${ASSET_ORIGIN}/${path.replace(/^\/+/, '')}`;
+}
+
 export class ApiError extends Error {
   status: number;
   errors: Record<string, string> | null;
@@ -48,13 +59,18 @@ async function requestEnvelope<T>(
   body?: unknown,
   retry = true
 ): Promise<ApiEnvelope<T>> {
+  // FormData (file uploads) must NOT get a JSON Content-Type or be
+  // stringified — the browser sets its own multipart boundary header,
+  // and setting one manually here would omit that boundary and break it.
+  const isFormData = body instanceof FormData;
+
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
   });
 
   const envelope = (await res.json()) as ApiEnvelope<T>;
@@ -120,6 +136,7 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   del: <T>(path: string) => request<T>('DELETE', path),
+  upload: <T>(path: string, formData: FormData) => request<T>('POST', path, formData),
   // Admin list screens need the pagination meta (total/last_page)
   // alongside the rows, which the plain data-only helpers above discard.
   getPaged: async <T>(path: string): Promise<{ data: T[]; meta: ApiEnvelope<T[]>['meta'] }> => {

@@ -14,7 +14,6 @@ import { formatMoney } from '../pos/format';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import type { ChipProps } from '@mui/material/Chip';
