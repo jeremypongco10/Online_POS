@@ -58,7 +58,7 @@ class RoleSeeder extends Seeder
                     'sales.create', 'sales.view', 'sales.void', 'sales.refund',
                     'customers.view', 'customers.create', 'customers.update',
                     'loyalty.view', 'loyalty.manage',
-                    'reports.view',
+                    'dashboard.view', 'reports.view',
                     'users.view',
                     'stores.view', 'stores.manage',
                     'categories.view', 'categories.manage',

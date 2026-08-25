@@ -13,9 +13,8 @@ import type { DashboardData } from '../../api/types';
 import { formatMoney } from '../../pos/format';
 import { ReportFilters } from './ReportFilters';
 import { ReportTable } from './ReportTable';
+import { SearchableSelect } from '../SearchableSelect';
 import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
@@ -91,35 +90,28 @@ export function InventoryReportsScreen() {
   return (
     <div>
       <ReportFilters stores={stores} storeId={storeId} onStoreChange={setStoreId} from={from} onFromChange={setFrom} to={to} onToChange={setTo}>
-        <TextField
-          select
+        <SearchableSelect
           label="Report"
           value={reportType}
-          onChange={(e) => {
+          onChange={(v) => {
             // Clear rows in the same update as the type change — otherwise
             // there's one render where the new columns pair with the old
             // (differently-shaped) rows, since the effect that reloads
             // data only runs after that render has already committed.
             setRows([]);
-            setReportType(e.target.value as ReportType);
+            setReportType(v as ReportType);
           }}
           sx={{ minWidth: 180 }}
-        >
-          {REPORT_OPTIONS.map((o) => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
-          ))}
-        </TextField>
+          options={REPORT_OPTIONS}
+        />
         {reportType === 'current-stock' && (
-          <TextField select label="Category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} sx={{ minWidth: 160 }}>
-            <MenuItem value="">All Categories</MenuItem>
-            {categories.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                {c.name}
-              </MenuItem>
-            ))}
-          </TextField>
+          <SearchableSelect
+            label="Category"
+            value={categoryId}
+            onChange={setCategoryId}
+            sx={{ minWidth: 160 }}
+            options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
+          />
         )}
       </ReportFilters>
 

@@ -34,7 +34,12 @@ class PurchasesController extends BaseCrudController
     protected string $defaultSort = '-created_at';
     protected ?string $storeColumn = 'store_id';
 
-    /** GET /api/v1/purchases/{id}/items */
+    /**
+     * GET /api/v1/purchases/{id}/items
+     * Each item comes back with product_name/product_sku already resolved
+     * so the PO detail view never needs its own full-catalog fetch just
+     * to label a handful of line items.
+     */
     public function items($id = null)
     {
         if (! $this->applyScope()->find($id)) {
@@ -42,6 +47,20 @@ class PurchasesController extends BaseCrudController
         }
 
         $items = model(PurchaseOrderItemModel::class)->where('purchase_order_id', $id)->findAll();
+
+        $productIds = array_values(array_unique(array_map(static fn ($i) => (int) $i->product_id, $items)));
+        $productsById = [];
+        if ($productIds !== []) {
+            foreach (model(ProductModel::class)->whereIn('id', $productIds)->findAll() as $product) {
+                $productsById[(int) $product->id] = $product;
+            }
+        }
+
+        foreach ($items as $item) {
+            $product = $productsById[(int) $item->product_id] ?? null;
+            $item->product_name = $product->name ?? null;
+            $item->product_sku = $product->sku ?? null;
+        }
 
         return $this->ok($items);
     }

@@ -1,6 +1,7 @@
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import type { SxProps, Theme } from '@mui/material/styles';
@@ -49,9 +50,11 @@ export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth
           ),
           endAdornment: value ? (
             <InputAdornment position="end">
-              <IconButton size="small" onClick={() => onChange('')} aria-label="Clear search" edge="end">
-                <ClearIcon fontSize="small" />
-              </IconButton>
+              <Tooltip title="Clear search">
+                <IconButton size="small" onClick={() => onChange('')} aria-label="Clear search" edge="end">
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             </InputAdornment>
           ) : undefined,
         },

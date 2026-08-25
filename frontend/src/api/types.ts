@@ -107,6 +107,21 @@ export interface Customer {
   email: string | null;
   mobile: string | null;
   is_active: string | number;
+  points?: number | null;
+  loyalty_card_id?: number | null;
+  card_number?: string | null;
+}
+
+export interface PointsHistoryEntry {
+  id: number;
+  customer_id: number;
+  loyalty_card_id: number;
+  points_delta: number;
+  balance_after: number;
+  note: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  created_at: string;
 }
 
 export interface LoyaltyCard {
@@ -234,6 +249,8 @@ export interface PurchaseOrderItem {
   id: number;
   purchase_order_id: number;
   product_id: number;
+  product_name: string | null;
+  product_sku: string | null;
   tax_rate_id: number | null;
   quantity: string;
   unit_cost: string;

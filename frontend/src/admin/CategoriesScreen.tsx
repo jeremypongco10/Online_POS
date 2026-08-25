@@ -9,18 +9,21 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
+import { SearchableSelect } from './SearchableSelect';
+import { DetailView, StatusChip } from './DetailView';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
-import Checkbox from '@mui/material/Checkbox';
-import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import BlockIcon from '@mui/icons-material/Block';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface FormState {
   name: string;
@@ -32,12 +35,14 @@ interface FormState {
 const EMPTY_FORM: FormState = { name: '', description: '', parent_id: '', is_active: true };
 
 export function CategoriesScreen() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const isSuperAdmin = user?.role_name === 'Super Admin';
   const confirm = useConfirm();
   const notify = useSnackbar();
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Category>('/categories');
 
   const [editing, setEditing] = useState<Category | null>(null);
+  const [viewing, setViewing] = useState<Category | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -97,6 +102,19 @@ export function CategoriesScreen() {
     }
   }
 
+  async function toggleActive(category: Category) {
+    const activating = Number(category.is_active) !== 1;
+    const verb = activating ? 'Activate' : 'Deactivate';
+    if (!(await confirm(`${verb} category "${category.name}"?`, { title: `${verb} Category`, confirmLabel: verb }))) return;
+    try {
+      await api.put(`/categories/${category.id}`, { is_active: activating ? 1 : 0 });
+      reload();
+      notify(`Category ${activating ? 'activated' : 'deactivated'}`);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to update category', 'error');
+    }
+  }
+
   const columns: Column<Category>[] = [
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'parent', label: 'Parent', render: (c) => parentName(c.parent_id) },
@@ -139,20 +157,44 @@ export function CategoriesScreen() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
-        rowActions={
-          hasPermission('categories.manage')
-            ? (c) => (
+        rowActions={(c) => {
+          const active = Number(c.is_active) === 1;
+          return (
+            <>
+              <Tooltip title="View">
+                <IconButton size="small" aria-label="View" onClick={() => setViewing(c)}>
+                  <VisibilityOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {hasPermission('categories.manage') && (
                 <>
-                  <IconButton size="small" aria-label="Edit" onClick={() => openEdit(c)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(c)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
+                  <Tooltip title="Edit">
+                    <IconButton size="small" aria-label="Edit" onClick={() => openEdit(c)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={active ? 'Deactivate' : 'Activate'}>
+                    <IconButton
+                      size="small"
+                      aria-label={active ? 'Deactivate' : 'Activate'}
+                      color={active ? 'error' : 'success'}
+                      onClick={() => toggleActive(c)}
+                    >
+                      {active ? <BlockIcon fontSize="small" /> : <CheckCircleIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                  {isSuperAdmin && (
+                    <Tooltip title="Delete">
+                      <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(c)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </>
-              )
-            : undefined
-        }
+              )}
+            </>
+          );
+        }}
       />
 
       <Modal open={showForm} title={editing ? 'Edit Category' : 'Add Category'} onClose={() => setShowForm(false)}>
@@ -194,35 +236,17 @@ export function CategoriesScreen() {
                 />
               </Grid>
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Parent Category"
                   fullWidth
                   value={form.parent_id}
-                  onChange={(e) => setForm({ ...form, parent_id: e.target.value })}
-                >
-                  <MenuItem value="">— None (top level) —</MenuItem>
-                  {data
-                    .filter((c) => c.id !== editing?.id)
-                    .map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        {c.name}
-                      </MenuItem>
-                    ))}
-                </TextField>
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={form.is_active}
-                      onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                    />
-                  }
-                  label="Active"
+                  onChange={(v) => setForm({ ...form, parent_id: v })}
+                  options={[
+                    { value: '', label: '— None (top level) —' },
+                    ...data.filter((c) => c.id !== editing?.id).map((c) => ({ value: String(c.id), label: c.name })),
+                  ]}
                 />
               </Grid>
-
               {formError && (
                 <Grid size={{ xs: 12 }}>
                   <Alert severity="error">{formError}</Alert>
@@ -241,6 +265,22 @@ export function CategoriesScreen() {
               </Grid>
             </Grid>
           </form>
+      </Modal>
+
+      <Modal open={!!viewing} title="View Category" onClose={() => setViewing(null)}>
+        <DetailView
+          fields={[
+            { label: 'Name', value: viewing?.name },
+            { label: 'Parent', value: viewing ? parentName(viewing.parent_id) : undefined },
+            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
+            { label: 'Description', value: viewing?.description, fullWidth: true },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
       </Modal>
     </div>
   );

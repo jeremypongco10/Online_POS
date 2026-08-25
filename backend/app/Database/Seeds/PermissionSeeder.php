@@ -31,6 +31,10 @@ class PermissionSeeder extends Seeder
         'loyalty.view' => ['View Loyalty', 'Can view loyalty card balances and points'],
         'loyalty.manage' => ['Manage Loyalty', 'Can issue cards and adjust points/balance'],
 
+        // Deliberately separate from reports.view: the Dashboard is a
+        // quick daily snapshot, while Reports is the full historical
+        // report set — a role can be given one without the other.
+        'dashboard.view' => ['View Dashboard', "Can view the dashboard's daily snapshot"],
         'reports.view' => ['View Reports', 'Can view sales and inventory reports'],
 
         'users.view' => ['View Users', 'Can view user accounts'],

@@ -9,6 +9,7 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
+import { DetailView, StatusChip } from './DetailView';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
@@ -16,10 +17,12 @@ import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface FormState {
   name: string;
@@ -48,6 +51,7 @@ export function SuppliersScreen() {
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Supplier>('/suppliers');
 
   const [editing, setEditing] = useState<Supplier | null>(null);
+  const [viewing, setViewing] = useState<Supplier | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -154,20 +158,29 @@ export function SuppliersScreen() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
-        rowActions={
-          hasPermission('suppliers.manage')
-            ? (s) => (
-                <>
+        rowActions={(s) => (
+          <>
+            <Tooltip title="View">
+              <IconButton size="small" aria-label="View" onClick={() => setViewing(s)}>
+                <VisibilityOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {hasPermission('suppliers.manage') && (
+              <>
+                <Tooltip title="Edit">
                   <IconButton size="small" aria-label="Edit" onClick={() => openEdit(s)}>
                     <EditIcon fontSize="small" />
                   </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
                   <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(s)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
-                </>
-              )
-            : undefined
-        }
+                </Tooltip>
+              </>
+            )}
+          </>
+        )}
       />
 
       <Modal open={showForm} title={editing ? 'Edit Supplier' : 'Add Supplier'} onClose={() => setShowForm(false)}>
@@ -274,6 +287,25 @@ export function SuppliersScreen() {
               </Grid>
             </Grid>
           </form>
+      </Modal>
+
+      <Modal open={!!viewing} title="View Supplier" onClose={() => setViewing(null)}>
+        <DetailView
+          fields={[
+            { label: 'Name', value: viewing?.name },
+            { label: 'Contact Name', value: viewing?.contact_name },
+            { label: 'Phone', value: viewing?.phone },
+            { label: 'Email', value: viewing?.email },
+            { label: 'Tax ID', value: viewing?.tax_id },
+            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
+            { label: 'Address', value: viewing?.address, fullWidth: true },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
       </Modal>
     </div>
   );

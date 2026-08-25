@@ -11,14 +11,16 @@ import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
+import { SearchableSelect } from './SearchableSelect';
+import { DetailView, StatusChip } from './DetailView';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import Table from '@mui/material/Table';
@@ -30,6 +32,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PriceChangeIcon from '@mui/icons-material/PriceChange';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface FormState {
   sku: string;
@@ -71,6 +74,7 @@ export function ProductsScreen() {
   const [taxes, setTaxes] = useState<TaxRate[]>([]);
 
   const [editing, setEditing] = useState<Product | null>(null);
+  const [viewing, setViewing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -90,10 +94,16 @@ export function ProductsScreen() {
   }, []);
 
   const categoryName = (id: number | null) => categories.find((c) => c.id === id)?.name ?? '—';
+  const unitName = (id: number | null) => units.find((u) => u.id === id)?.name ?? '—';
+  const taxName = (id: number | null) => {
+    const t = taxes.find((tax) => tax.id === id);
+    return t ? `${t.name} (${t.rate}%)` : '—';
+  };
 
   function openCreate() {
     setEditing(null);
-    setForm(EMPTY_FORM);
+    const defaultTax = taxes.find((t) => Number(t.is_default) === 1);
+    setForm({ ...EMPTY_FORM, tax_rate_id: defaultTax ? String(defaultTax.id) : '' });
     clearErrors();
     setShowForm(true);
   }
@@ -224,14 +234,12 @@ export function ProductsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter label="Category" value={categoryFilter} onChange={setCategoryFilter}>
-            <MenuItem value="">All Categories</MenuItem>
-            {categories.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                {c.name}
-              </MenuItem>
-            ))}
-          </InlineSelectFilter>
+          <InlineSelectFilter
+            label="Category"
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
+          />
         }
       />
 
@@ -248,29 +256,36 @@ export function ProductsScreen() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
-        rowActions={
-          hasPermission('products.update') || hasPermission('products.delete')
-            ? (p) => (
-                <>
-                  {hasPermission('products.update') && (
-                    <IconButton size="small" aria-label="Prices" onClick={() => openPricing(p)}>
-                      <PriceChangeIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                  {hasPermission('products.update') && (
-                    <IconButton size="small" aria-label="Edit" onClick={() => openEdit(p)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                  {hasPermission('products.delete') && (
-                    <IconButton size="small" aria-label="Delete" color="error" onClick={() => deactivate(p)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </>
-              )
-            : undefined
-        }
+        rowActions={(p) => (
+          <>
+            <Tooltip title="View">
+              <IconButton size="small" aria-label="View" onClick={() => setViewing(p)}>
+                <VisibilityOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {hasPermission('products.update') && (
+              <Tooltip title="Prices">
+                <IconButton size="small" aria-label="Prices" onClick={() => openPricing(p)}>
+                  <PriceChangeIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {hasPermission('products.update') && (
+              <Tooltip title="Edit">
+                <IconButton size="small" aria-label="Edit" onClick={() => openEdit(p)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {hasPermission('products.delete') && (
+              <Tooltip title="Delete">
+                <IconButton size="small" aria-label="Delete" color="error" onClick={() => deactivate(p)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </>
+        )}
       />
 
       <Modal open={showForm} title={editing ? 'Edit Product' : 'Add Product'} onClose={() => setShowForm(false)} wide>
@@ -334,52 +349,37 @@ export function ProductsScreen() {
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Category"
                   fullWidth
                   value={form.category_id}
-                  onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                >
-                  <MenuItem value="">— None —</MenuItem>
-                  {categories.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(v) => setForm({ ...form, category_id: v })}
+                  options={[{ value: '', label: '— None —' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Unit"
                   fullWidth
                   value={form.unit_id}
-                  onChange={(e) => setForm({ ...form, unit_id: e.target.value })}
-                >
-                  <MenuItem value="">— None —</MenuItem>
-                  {units.map((u) => (
-                    <MenuItem key={u.id} value={u.id}>
-                      {u.name} ({u.abbreviation})
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(v) => setForm({ ...form, unit_id: v })}
+                  options={[
+                    { value: '', label: '— None —' },
+                    ...units.map((u) => ({ value: String(u.id), label: `${u.name} (${u.abbreviation})` })),
+                  ]}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Tax Rate"
                   fullWidth
                   value={form.tax_rate_id}
-                  onChange={(e) => setForm({ ...form, tax_rate_id: e.target.value })}
-                >
-                  <MenuItem value="">— None —</MenuItem>
-                  {taxes.map((t) => (
-                    <MenuItem key={t.id} value={t.id}>
-                      {t.name} ({t.rate}%)
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(v) => setForm({ ...form, tax_rate_id: v })}
+                  options={[
+                    { value: '', label: '— None —' },
+                    ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` })),
+                  ]}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
@@ -501,6 +501,28 @@ export function ProductsScreen() {
             </Stack>
           </>
         )}
+      </Modal>
+
+      <Modal open={!!viewing} title="View Product" onClose={() => setViewing(null)}>
+        <DetailView
+          fields={[
+            { label: 'SKU', value: viewing?.sku },
+            { label: 'Barcode', value: viewing?.barcode },
+            { label: 'Name', value: viewing?.name },
+            { label: 'Category', value: viewing ? categoryName(viewing.category_id) : undefined },
+            { label: 'Unit', value: viewing ? unitName(viewing.unit_id) : undefined },
+            { label: 'Tax Rate', value: viewing ? taxName(viewing.tax_rate_id) : undefined },
+            { label: 'Minimum Stock', value: viewing?.minimum_stock },
+            { label: 'Track Inventory', value: viewing ? (Number(viewing.track_inventory) === 1 ? 'Yes' : 'No') : undefined },
+            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
+            { label: 'Description', value: viewing?.description, fullWidth: true },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
       </Modal>
     </div>
   );

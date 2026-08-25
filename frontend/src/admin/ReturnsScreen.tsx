@@ -27,6 +27,7 @@ import TableCell from '@mui/material/TableCell';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface EligibleItem {
@@ -169,12 +170,17 @@ export function ReturnsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter label="Status" value={statusFilter} onChange={setStatusFilter}>
-            <MenuItem value="">All Statuses</MenuItem>
-            <MenuItem value="pending">Pending</MenuItem>
-            <MenuItem value="completed">Completed</MenuItem>
-            <MenuItem value="cancelled">Cancelled</MenuItem>
-          </InlineSelectFilter>
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+          />
         }
       />
 
@@ -192,9 +198,11 @@ export function ReturnsScreen() {
         sort={sort}
         onSortChange={setSort}
         rowActions={(r) => (
-          <IconButton size="small" aria-label="View" onClick={() => openDetail(r)}>
-            <VisibilityOutlinedIcon fontSize="small" />
-          </IconButton>
+          <Tooltip title="View">
+            <IconButton size="small" aria-label="View" onClick={() => openDetail(r)}>
+              <VisibilityOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         )}
       />
 

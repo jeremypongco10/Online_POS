@@ -72,11 +72,34 @@ class CustomerModel extends Model
         return $data;
     }
 
+    /**
+     * Format: YYYYMM followed by a 10-digit sequence number that resets
+     * each calendar month, scoped per company (e.g. 202608 + 0000000001).
+     * The sequence is derived from the highest existing code for this
+     * company + month rather than a row count, so a deleted customer
+     * mid-month doesn't cause a later insert to reuse its number.
+     */
     protected function generateCustomerCode(array $data): array
     {
-        if (empty($data['data']['customer_code'])) {
-            $data['data']['customer_code'] = 'CUST-' . strtoupper(bin2hex(random_bytes(4)));
+        if (! empty($data['data']['customer_code'])) {
+            return $data;
         }
+
+        $companyId = $data['data']['company_id'] ?? null;
+        $prefix = date('Ym');
+
+        $last = $this->select('customer_code')
+            ->where('company_id', $companyId)
+            ->like('customer_code', $prefix, 'after')
+            ->orderBy('customer_code', 'DESC')
+            ->first();
+
+        $next = 1;
+        if ($last && preg_match('/^\d{16}$/', $last->customer_code)) {
+            $next = ((int) substr($last->customer_code, 6)) + 1;
+        }
+
+        $data['data']['customer_code'] = $prefix . str_pad((string) $next, 10, '0', STR_PAD_LEFT);
 
         return $data;
     }

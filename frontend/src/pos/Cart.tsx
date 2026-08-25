@@ -8,6 +8,7 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import type { CartLine } from './posTypes';
@@ -110,9 +111,11 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton size="small" color="error" onClick={() => onRemove(line.key)} aria-label="Remove">
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
+                    <Tooltip title="Remove">
+                      <IconButton size="small" color="error" onClick={() => onRemove(line.key)} aria-label="Remove">
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               );

@@ -129,6 +129,8 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->get('(:num)', 'CustomersController::show/$1', ['filter' => 'permission:customers.view']);
             $routes->post('', 'CustomersController::create', ['filter' => 'permission:customers.create']);
             $routes->put('(:num)', 'CustomersController::update/$1', ['filter' => 'permission:customers.update']);
+            $routes->post('(:num)/points', 'CustomersController::points/$1', ['filter' => 'permission:loyalty.manage']);
+            $routes->get('(:num)/points-history', 'CustomersController::pointsHistory/$1', ['filter' => 'permission:loyalty.view']);
             $routes->delete('(:num)', 'CustomersController::delete/$1', ['filter' => 'permission:customers.update']);
         });
 
@@ -170,6 +172,7 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
         });
 
         $routes->group('registers', static function (RouteCollection $routes) {
+            $routes->get('stores/assignable', 'RegistersController::assignableStores', ['filter' => 'permission:registers.view']);
             $routes->get('', 'RegistersController::index', ['filter' => 'permission:registers.view']);
             $routes->get('(:num)', 'RegistersController::show/$1', ['filter' => 'permission:registers.view']);
             $routes->post('', 'RegistersController::create', ['filter' => 'permission:registers.manage']);
@@ -214,7 +217,7 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('reports', static function (RouteCollection $routes) {
             // Step 38 — Dashboard
-            $routes->get('dashboard', 'ReportsController::dashboard', ['filter' => 'permission:reports.view']);
+            $routes->get('dashboard', 'ReportsController::dashboard', ['filter' => 'permission:dashboard.view']);
 
             // Step 35 — Sales reports
             $routes->get('sales-summary', 'ReportsController::salesSummary', ['filter' => 'permission:reports.view']);

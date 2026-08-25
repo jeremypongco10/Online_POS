@@ -3,12 +3,12 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Alert from '@mui/material/Alert';
 import { api, ApiError } from '../api/client';
 import type { CashSession } from '../api/types';
 import { formatMoney } from './format';
+import { SearchableSelect } from '../admin/SearchableSelect';
 
 interface Props {
   session: CashSession;
@@ -47,16 +47,16 @@ export function CashMovementPanel({ session }: Props) {
         Cash Movements
       </Typography>
       <Stack spacing={1.5} sx={{ mt: 1.25 }}>
-        <TextField
-          select
+        <SearchableSelect
           label="Type"
           value={type}
-          onChange={(e) => setType(e.target.value as 'cash_in' | 'cash_out')}
+          onChange={(v) => setType(v as 'cash_in' | 'cash_out')}
           fullWidth
-        >
-          <MenuItem value="cash_out">Cash Out (paid out)</MenuItem>
-          <MenuItem value="cash_in">Cash In (paid in)</MenuItem>
-        </TextField>
+          options={[
+            { value: 'cash_out', label: 'Cash Out (paid out)' },
+            { value: 'cash_in', label: 'Cash In (paid in)' },
+          ]}
+        />
         <TextField
           label="Amount"
           type="number"

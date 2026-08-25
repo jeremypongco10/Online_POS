@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
+import { SearchableSelect } from '../SearchableSelect';
 import type { Store } from '../../api/types';
 
 interface Props {
@@ -21,14 +21,13 @@ export function ReportFilters({ stores, storeId, onStoreChange, from, onFromChan
   return (
     <Stack direction="row" spacing={1.5} sx={{ mb: 2.25, flexWrap: 'wrap' }}>
       {!hideStore && (
-        <TextField select label="Store" value={storeId} onChange={(e) => onStoreChange(e.target.value)} sx={{ minWidth: 160 }}>
-          <MenuItem value="">All Stores</MenuItem>
-          {stores.map((s) => (
-            <MenuItem key={s.id} value={s.id}>
-              {s.name}
-            </MenuItem>
-          ))}
-        </TextField>
+        <SearchableSelect
+          label="Store"
+          value={storeId}
+          onChange={onStoreChange}
+          sx={{ minWidth: 160 }}
+          options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+        />
       )}
       <TextField
         label="From"

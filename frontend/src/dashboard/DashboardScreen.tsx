@@ -2,8 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Grid from '@mui/material/Grid';
 import Table from '@mui/material/Table';
@@ -18,6 +16,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
+import { SearchableSelect } from '../admin/SearchableSelect';
 import type { DashboardData, Store } from '../api/types';
 import { formatMoney } from '../pos/format';
 import { METHOD_LABELS, type PaymentMethod } from '../pos/PaymentPanel';
@@ -112,7 +111,7 @@ function DashPanel({
 /** Phase 21: Today's Sales, Today's Transactions, Average Transaction, Top Products, Low Stock, Payment Breakdown, Sales by Store. */
 export function DashboardBody() {
   const { user, hasPermission } = useAuth();
-  const canView = hasPermission('reports.view');
+  const canView = hasPermission('dashboard.view');
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreId] = useState<number | ''>('');
   const [data, setData] = useState<DashboardData | null>(null);
@@ -137,7 +136,7 @@ export function DashboardBody() {
 
   // Reachable even without a "Dashboard" nav entry — it's the section
   // the Back Office lands on by default for every non-cashier role,
-  // regardless of whether they actually hold reports.view.
+  // regardless of whether they actually hold dashboard.view.
   if (!canView) {
     return (
       <Stack sx={{ alignItems: 'center', justifyContent: 'center', py: 10, gap: 1.5 }}>
@@ -153,20 +152,12 @@ export function DashboardBody() {
     <Box>
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
         <Typography variant="h5">Dashboard</Typography>
-        <Select<number | ''>
-          size="small"
-          value={storeId}
-          onChange={(e) => setStoreId(e.target.value === '' ? '' : Number(e.target.value))}
-          displayEmpty
+        <SearchableSelect
+          value={storeId === '' ? '' : String(storeId)}
+          onChange={(v) => setStoreId(v === '' ? '' : Number(v))}
           sx={{ minWidth: 160 }}
-        >
-          <MenuItem value="">All Stores</MenuItem>
-          {stores.map((s) => (
-            <MenuItem key={s.id} value={s.id}>
-              {s.name}
-            </MenuItem>
-          ))}
-        </Select>
+          options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+        />
       </Stack>
 
       {loading || !data ? (

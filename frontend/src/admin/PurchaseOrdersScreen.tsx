@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Product, PurchaseOrder, PurchaseOrderItem, Store, Supplier, TaxRate } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -8,36 +8,41 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { InlineSelectFilter } from './InlineSelectFilter';
+import { SectionTabs } from './SectionTabs';
 import { Modal } from './Modal';
+import { SearchableSelect } from './SearchableSelect';
+import { SearchField } from '../SearchField';
 import { useRetained } from './useRetained';
 import { formatMoney } from '../pos/format';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import type { ChipProps } from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
+import Paper from '@mui/material/Paper';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
 import Table from '@mui/material/Table';
 import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
-import AddIcon from '@mui/icons-material/Add';
+import Tab from '@mui/material/Tab';
 import CloseIcon from '@mui/icons-material/Close';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface LineDraft {
   product_id: string;
+  product_label: string;
   quantity: string;
   unit_cost: string;
   tax_rate_id: string;
 }
-
-const EMPTY_LINE: LineDraft = { product_id: '', quantity: '1', unit_cost: '0', tax_rate_id: '' };
 
 function statusColor(status: string): ChipProps['color'] {
   if (['completed', 'approved', 'received', 'active'].includes(status)) return 'success';
@@ -55,16 +60,24 @@ export function PurchaseOrdersScreen() {
 
   const [stores, setStores] = useState<Store[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [taxes, setTaxes] = useState<TaxRate[]>([]);
 
   const [showCreate, setShowCreate] = useState(false);
+  const [createTab, setCreateTab] = useState<'details' | 'products'>('details');
   const [storeId, setStoreId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }]);
+  const [lines, setLines] = useState<LineDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+
+  // Type-to-search product picker for the Products tab — never loads the
+  // full catalog, only the handful of matches for the current query, same
+  // pattern as the POS product search.
+  const [productQuery, setProductQuery] = useState('');
+  const [productResults, setProductResults] = useState<Product[]>([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const productDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [detail, setDetail] = useState<PurchaseOrder | null>(null);
   const detailR = useRetained(detail);
@@ -74,22 +87,52 @@ export function PurchaseOrdersScreen() {
   useEffect(() => {
     api.get<Store[]>('/stores?per_page=50').then(setStores);
     api.get<Supplier[]>('/suppliers?per_page=200&is_active=1').then(setSuppliers);
-    api.get<Product[]>('/products?per_page=200&is_active=1').then(setProducts);
     api.get<TaxRate[]>('/taxes?per_page=100').then(setTaxes);
   }, []);
 
+  useEffect(() => {
+    if (productDebounceRef.current) clearTimeout(productDebounceRef.current);
+
+    if (productQuery.trim() === '') {
+      setProductResults([]);
+      return;
+    }
+
+    productDebounceRef.current = setTimeout(() => {
+      setProductSearchLoading(true);
+      api
+        .get<Product[]>(`/products?is_active=1&per_page=8&q=${encodeURIComponent(productQuery)}`)
+        .then(setProductResults)
+        .catch(() => setProductResults([]))
+        .finally(() => setProductSearchLoading(false));
+    }, 250);
+
+    return () => {
+      if (productDebounceRef.current) clearTimeout(productDebounceRef.current);
+    };
+  }, [productQuery]);
+
   const storeName = (id: number) => stores.find((s) => s.id === id)?.name ?? `#${id}`;
   const supplierName = (id: number) => suppliers.find((s) => s.id === id)?.name ?? `#${id}`;
-  const productName = (id: number) => {
-    const p = products.find((x) => x.id === id);
-    return p ? `${p.name} (${p.sku})` : `#${id}`;
-  };
+
+  function addProductLine(product: Product) {
+    if (lines.some((l) => l.product_id === String(product.id))) return;
+    setLines((prev) => [
+      ...prev,
+      { product_id: String(product.id), product_label: `${product.name} (${product.sku})`, quantity: '1', unit_cost: '0', tax_rate_id: '' },
+    ]);
+    setProductQuery('');
+    setProductResults([]);
+  }
 
   function openCreate() {
     setStoreId('');
     setSupplierId('');
     setNotes('');
-    setLines([{ ...EMPTY_LINE }]);
+    setLines([]);
+    setCreateTab('details');
+    setProductQuery('');
+    setProductResults([]);
     clearErrors();
     setShowCreate(true);
   }
@@ -168,13 +211,18 @@ export function PurchaseOrdersScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter label="Status" value={statusFilter} onChange={setStatusFilter}>
-            <MenuItem value="">All Statuses</MenuItem>
-            <MenuItem value="draft">Draft</MenuItem>
-            <MenuItem value="approved">Approved</MenuItem>
-            <MenuItem value="received">Received</MenuItem>
-            <MenuItem value="cancelled">Cancelled</MenuItem>
-          </InlineSelectFilter>
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'draft', label: 'Draft' },
+              { value: 'approved', label: 'Approved' },
+              { value: 'received', label: 'Received' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+          />
         }
       />
 
@@ -192,9 +240,11 @@ export function PurchaseOrdersScreen() {
         sort={sort}
         onSortChange={setSort}
         rowActions={(po) => (
-          <IconButton size="small" aria-label="View" onClick={() => openDetail(po)}>
-            <VisibilityOutlinedIcon fontSize="small" />
-          </IconButton>
+          <Tooltip title="View">
+            <IconButton size="small" aria-label="View" onClick={() => openDetail(po)}>
+              <VisibilityOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         )}
       />
 
@@ -206,164 +256,165 @@ export function PurchaseOrdersScreen() {
               submitCreate();
             }}
           >
-            <Grid container spacing={2} sx={{ pt: 1 }}>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
-                  label="Store"
-                  fullWidth
-                  value={storeId}
-                  onChange={(e) => {
-                    setStoreId(e.target.value);
-                    clearField('store_id');
-                  }}
-                  error={!!fieldErrors?.store_id}
-                  helperText={fieldErrors?.store_id}
-                  required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {stores.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
-                  label="Supplier"
-                  fullWidth
-                  value={supplierId}
-                  onChange={(e) => {
-                    setSupplierId(e.target.value);
-                    clearField('supplier_id');
-                  }}
-                  error={!!fieldErrors?.supplier_id}
-                  helperText={fieldErrors?.supplier_id}
-                  required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {suppliers.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid size={{ xs: 12 }}>
-                <TextField label="Notes" fullWidth value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </Grid>
+            <SectionTabs value={createTab} onChange={setCreateTab}>
+              <Tab value="details" label="Details" />
+              <Tab value="products" label={lines.length > 0 ? `Products (${lines.length})` : 'Products'} />
+            </SectionTabs>
 
-              <Grid size={{ xs: 12 }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Product</TableCell>
-                      <TableCell sx={{ width: 100 }}>Qty</TableCell>
-                      <TableCell sx={{ width: 120 }}>Unit Cost</TableCell>
-                      <TableCell sx={{ width: 160 }}>Tax Rate</TableCell>
-                      <TableCell sx={{ width: 40 }} />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {lines.map((line, i) => (
-                      <TableRow key={i}>
-                        <TableCell>
-                          <TextField
-                            select
-                            fullWidth
-                            value={line.product_id}
-                            onChange={(e) => updateLine(i, { product_id: e.target.value })}
-                            required
-                          >
-                            <MenuItem value="">— Select —</MenuItem>
-                            {products.map((p) => (
-                              <MenuItem key={p.id} value={p.id}>
-                                {p.name} ({p.sku})
-                              </MenuItem>
-                            ))}
-                          </TextField>
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            type="number"
-                            fullWidth
-                            slotProps={{ htmlInput: { step: '0.0001', min: '0.0001' } }}
-                            value={line.quantity}
-                            onChange={(e) => updateLine(i, { quantity: e.target.value })}
-                            required
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            type="number"
-                            fullWidth
-                            slotProps={{ htmlInput: { step: '0.01' } }}
-                            value={line.unit_cost}
-                            onChange={(e) => updateLine(i, { unit_cost: e.target.value })}
-                            required
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            select
-                            fullWidth
-                            value={line.tax_rate_id}
-                            onChange={(e) => updateLine(i, { tax_rate_id: e.target.value })}
-                          >
-                            <MenuItem value="">None</MenuItem>
-                            {taxes.map((t) => (
-                              <MenuItem key={t.id} value={t.id}>
-                                {t.name} ({t.rate}%)
-                              </MenuItem>
-                            ))}
-                          </TextField>
-                        </TableCell>
-                        <TableCell>
-                          {lines.length > 1 && (
-                            <IconButton
-                              size="small"
-                              aria-label="Remove line"
-                              onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
-                            >
-                              <CloseIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => setLines((prev) => [...prev, { ...EMPTY_LINE }])}
-                  sx={{ mt: 1, borderStyle: 'dashed' }}
-                >
-                  Add Line
-                </Button>
-              </Grid>
-
-              {formError && (
-                <Grid size={{ xs: 12 }}>
-                  <Alert severity="error">{formError}</Alert>
+            {createTab === 'details' ? (
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <SearchableSelect
+                    label="Store"
+                    fullWidth
+                    value={storeId}
+                    onChange={(v) => {
+                      setStoreId(v);
+                      clearField('store_id');
+                    }}
+                    error={!!fieldErrors?.store_id}
+                    helperText={fieldErrors?.store_id}
+                    required
+                    options={[{ value: '', label: '— Select —' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+                  />
                 </Grid>
-              )}
-
-              <Grid size={{ xs: 12 }}>
-                <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
-                  <Button type="button" variant="text" onClick={() => setShowCreate(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="contained" disabled={saving}>
-                    {saving ? 'Creating…' : 'Create'}
-                  </Button>
-                </Stack>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <SearchableSelect
+                    label="Supplier"
+                    fullWidth
+                    value={supplierId}
+                    onChange={(v) => {
+                      setSupplierId(v);
+                      clearField('supplier_id');
+                    }}
+                    error={!!fieldErrors?.supplier_id}
+                    helperText={fieldErrors?.supplier_id}
+                    required
+                    options={[{ value: '', label: '— Select —' }, ...suppliers.map((s) => ({ value: String(s.id), label: s.name }))]}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField label="Notes" fullWidth value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </Grid>
               </Grid>
-            </Grid>
+            ) : (
+              <Stack spacing={2}>
+                <div>
+                  <SearchField
+                    value={productQuery}
+                    onChange={setProductQuery}
+                    placeholder="Search products by SKU or name…"
+                    fullWidth
+                    autoFocus
+                  />
+                  {productSearchLoading && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Searching…
+                    </Typography>
+                  )}
+                  {productResults.length > 0 && (
+                    <Paper variant="outlined" sx={{ mt: 1, borderRadius: 1, overflow: 'hidden' }}>
+                      <List disablePadding>
+                        {productResults.map((p) => (
+                          <ListItemButton key={p.id} divider onClick={() => addProductLine(p)}>
+                            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.25 }}>
+                              <Typography variant="body2" sx={{ flex: 1 }}>
+                                {p.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {p.sku}
+                              </Typography>
+                            </Stack>
+                          </ListItemButton>
+                        ))}
+                      </List>
+                    </Paper>
+                  )}
+                </div>
+
+                {lines.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    No products added yet — search above to add a line.
+                  </Typography>
+                ) : (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Product</TableCell>
+                        <TableCell sx={{ width: 100 }}>Qty</TableCell>
+                        <TableCell sx={{ width: 120 }}>Unit Cost</TableCell>
+                        <TableCell sx={{ width: 160 }}>Tax Rate</TableCell>
+                        <TableCell sx={{ width: 40 }} />
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {lines.map((line, i) => (
+                        <TableRow key={line.product_id}>
+                          <TableCell>{line.product_label}</TableCell>
+                          <TableCell>
+                            <TextField
+                              type="number"
+                              fullWidth
+                              slotProps={{ htmlInput: { step: '0.0001', min: '0.0001' } }}
+                              value={line.quantity}
+                              onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                              required
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              type="number"
+                              fullWidth
+                              slotProps={{ htmlInput: { step: '0.01' } }}
+                              value={line.unit_cost}
+                              onChange={(e) => updateLine(i, { unit_cost: e.target.value })}
+                              required
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <SearchableSelect
+                              fullWidth
+                              value={line.tax_rate_id}
+                              onChange={(v) => updateLine(i, { tax_rate_id: v })}
+                              options={[
+                                { value: '', label: 'None' },
+                                ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` })),
+                              ]}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="Remove line">
+                              <IconButton
+                                size="small"
+                                aria-label="Remove line"
+                                onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
+                              >
+                                <CloseIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Stack>
+            )}
+
+            {formError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {formError}
+              </Alert>
+            )}
+
+            <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end', mt: 2 }}>
+              <Button type="button" variant="text" onClick={() => setShowCreate(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="contained" disabled={saving || lines.length === 0}>
+                {saving ? 'Creating…' : 'Create'}
+              </Button>
+            </Stack>
           </form>
       </Modal>
 
@@ -390,7 +441,7 @@ export function PurchaseOrdersScreen() {
             <TableBody>
               {detailItems.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell>{productName(item.product_id)}</TableCell>
+                  <TableCell>{item.product_name ? `${item.product_name} (${item.product_sku})` : `#${item.product_id}`}</TableCell>
                   <TableCell align="right">{parseFloat(item.quantity)}</TableCell>
                   <TableCell align="right">{formatMoney(parseFloat(item.unit_cost))}</TableCell>
                   <TableCell align="right">{formatMoney(parseFloat(item.line_total))}</TableCell>

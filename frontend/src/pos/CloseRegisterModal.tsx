@@ -4,6 +4,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Divider from '@mui/material/Divider';
@@ -57,14 +58,16 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
         sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}
       >
         <DialogTitle sx={{ p: 0, fontSize: 17, fontWeight: 700 }}>Close Register</DialogTitle>
-        <IconButton
-          onClick={onCancel}
-          aria-label="Close"
-          size="small"
-          sx={{ color: 'text.secondary', bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
+        <Tooltip title="Close">
+          <IconButton
+            onClick={onCancel}
+            aria-label="Close"
+            size="small"
+            sx={{ color: 'text.secondary', bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Stack>
       <DialogContent sx={{ px: 3, py: 2.5 }}>
         {!summary ? (

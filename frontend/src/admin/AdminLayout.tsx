@@ -44,6 +44,7 @@ interface NavItem {
 }
 
 export const ADMIN_NAV_PERMISSIONS = [
+  'dashboard.view',
   'reports.view',
   'products.view',
   'categories.view',
@@ -55,6 +56,9 @@ export const ADMIN_NAV_PERMISSIONS = [
   'users.view',
   'roles.view',
   'stores.view',
+  'registers.view',
+  'taxes.view',
+  'units.view',
 ];
 
 const NAV_ITEMS: NavItem[] = [
@@ -62,7 +66,7 @@ const NAV_ITEMS: NavItem[] = [
     section: 'dashboard',
     label: 'Dashboard',
     description: "Overview of today's sales, inventory alerts, and store performance.",
-    permissions: ['reports.view'],
+    permissions: ['dashboard.view'],
     icon: IconChart,
   },
   {
@@ -111,7 +115,11 @@ const NAV_ITEMS: NavItem[] = [
     section: 'settings',
     label: 'Settings',
     description: 'Configure stores, registers, tax rates, and units.',
-    permissions: ['stores.view'],
+    // Settings bundles four sub-tabs (Stores/Registers/Taxes/Units) — the
+    // nav entry itself needs to show up for any one of them, not just
+    // stores.view, or a role granted only e.g. registers.view has no way
+    // to reach the tab it was actually given permission for.
+    permissions: ['stores.view', 'registers.view', 'taxes.view', 'units.view'],
     icon: IconSettings,
   },
 ];
@@ -120,7 +128,8 @@ const NAV_ITEMS: NavItem[] = [
 // this just clusters related ones under a small label the way most modern
 // admin dashboards do instead of one long undifferentiated list.
 const NAV_GROUPS: { label: string; sections: AdminSection[] }[] = [
-  { label: 'Overview', sections: ['dashboard', 'reports'] },
+  { label: 'Overview', sections: ['dashboard'] },
+  { label: 'Reports', sections: ['reports'] },
   { label: 'Operations', sections: ['catalog', 'inventory', 'purchasing', 'customers'] },
   { label: 'Administration', sections: ['team', 'settings'] },
 ];
@@ -219,13 +228,15 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
               </Typography>
             </Stack>
           )}
-          <IconButton
-            size="small"
-            onClick={isMobile ? () => setMobileNavOpen(false) : toggleCollapsed}
-            aria-label={isMobile ? 'Close navigation' : isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
-          </IconButton>
+          <Tooltip title={isMobile ? 'Close navigation' : isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <IconButton
+              size="small"
+              onClick={isMobile ? () => setMobileNavOpen(false) : toggleCollapsed}
+              aria-label={isMobile ? 'Close navigation' : isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         </Toolbar>
         <Divider />
         <Box sx={{ flex: 1, py: 1, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -347,9 +358,11 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
           <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Stack direction="row" spacing={{ xs: 1.5, sm: 2 }} sx={{ alignItems: 'center', minWidth: 0 }}>
               {isMobile && (
-                <IconButton size="small" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" edge="start">
-                  <MenuIcon fontSize="small" />
-                </IconButton>
+                <Tooltip title="Open navigation">
+                  <IconButton size="small" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation" edge="start">
+                    <MenuIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               )}
               {CurrentIcon && (
                 <Box

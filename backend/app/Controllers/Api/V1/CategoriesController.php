@@ -4,6 +4,7 @@ namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
 use App\Models\CategoryModel;
+use App\Models\RoleModel;
 use Config\Services;
 
 class CategoriesController extends BaseCrudController
@@ -51,5 +52,34 @@ class CategoriesController extends BaseCrudController
         }
 
         return parent::update($id);
+    }
+
+    /**
+     * Deleting a category is permanent and can orphan any products still
+     * assigned to it, so — unlike a plain deactivate — it's restricted to
+     * Super Admins even though everyone with categories.manage can create,
+     * edit, and deactivate one. Same reasoning/pattern as
+     * UsersController::roleAssignmentAllowed().
+     */
+    public function delete($id = null)
+    {
+        if ($this->callerRoleName() !== 'Super Admin') {
+            return $this->apiFail('Only a Super Admin can delete a category', 403);
+        }
+
+        return parent::delete($id);
+    }
+
+    private function callerRoleName(): ?string
+    {
+        $roleId = Services::authContext()->roleId;
+
+        if ($roleId === null) {
+            return null;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null ? $role->name : null;
     }
 }

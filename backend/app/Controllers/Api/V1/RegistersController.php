@@ -34,4 +34,22 @@ class RegistersController extends BaseCrudController
 
         return parent::create();
     }
+
+    /**
+     * GET /api/v1/registers/stores/assignable — the stores this caller can
+     * pick from when filtering or creating a register. Gated by
+     * registers.view rather than stores.view, since a role can manage
+     * registers without being able to browse the Stores list.
+     */
+    public function assignableStores()
+    {
+        $auth = Services::authContext();
+        $query = model(StoreModel::class)->where('company_id', $auth->companyId);
+
+        if ($auth->allowedStoreIds !== null) {
+            $query->whereIn('id', $auth->allowedStoreIds ?: [0]);
+        }
+
+        return $this->ok($query->orderBy('name')->findAll());
+    }
 }

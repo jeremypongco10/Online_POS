@@ -9,6 +9,8 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
+import { SearchableSelect } from './SearchableSelect';
+import { DetailView, StatusChip } from './DetailView';
 import { useRetained } from './useRetained';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
@@ -16,7 +18,6 @@ import Avatar from '@mui/material/Avatar';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
@@ -35,6 +36,7 @@ import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckOutlinedIcon from '@mui/icons-material/CheckOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 interface CreateForm {
   name: string;
@@ -89,6 +91,7 @@ export function UsersScreen() {
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
   const [managing, setManaging] = useState<AdminUser | null>(null);
+  const [viewing, setViewing] = useState<AdminUser | null>(null);
   const managingR = useRetained(managing);
   const [detailsForm, setDetailsForm] = useState({ name: '', email: '', username: '', phone: '' });
   const [savingDetails, setSavingDetails] = useState(false);
@@ -164,6 +167,8 @@ export function UsersScreen() {
 
   async function toggleActive(user: AdminUser) {
     const action = Number(user.is_active) === 1 ? 'deactivate' : 'activate';
+    const verb = action === 'activate' ? 'Activate' : 'Deactivate';
+    if (!(await confirm(`${verb} user "${user.name}"?`, { title: `${verb} User`, confirmLabel: verb }))) return;
     try {
       await api.post(`/users/${user.id}/${action}`);
       reload();
@@ -313,42 +318,47 @@ export function UsersScreen() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
-        rowActions={
-          hasPermission('users.update')
-            ? (u) => {
-                const active = Number(u.is_active) === 1;
-                return (
-                  <>
-                    <Tooltip title="Manage">
-                      <IconButton size="small" aria-label="Manage" onClick={() => openManage(u)}>
-                        <EditOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Store Access">
-                      <IconButton size="small" aria-label="Store Access" onClick={() => openStoreAccess(u)}>
-                        <StorefrontOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Password">
-                      <IconButton size="small" aria-label="Password" onClick={() => openPassword(u)}>
-                        <LockOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={active ? 'Deactivate' : 'Activate'}>
-                      <IconButton
-                        size="small"
-                        aria-label={active ? 'Deactivate' : 'Activate'}
-                        color={active ? 'error' : 'success'}
-                        onClick={() => toggleActive(u)}
-                      >
-                        {active ? <BlockOutlinedIcon fontSize="small" /> : <CheckCircleOutlinedIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                );
-              }
-            : undefined
-        }
+        rowActions={(u) => {
+          const active = Number(u.is_active) === 1;
+          return (
+            <>
+              <Tooltip title="View">
+                <IconButton size="small" aria-label="View" onClick={() => setViewing(u)}>
+                  <VisibilityOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {hasPermission('users.update') && (
+                <>
+                  <Tooltip title="Manage">
+                    <IconButton size="small" aria-label="Manage" onClick={() => openManage(u)}>
+                      <EditOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Store Access">
+                    <IconButton size="small" aria-label="Store Access" onClick={() => openStoreAccess(u)}>
+                      <StorefrontOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Password">
+                    <IconButton size="small" aria-label="Password" onClick={() => openPassword(u)}>
+                      <LockOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={active ? 'Deactivate' : 'Activate'}>
+                    <IconButton
+                      size="small"
+                      aria-label={active ? 'Deactivate' : 'Activate'}
+                      color={active ? 'error' : 'success'}
+                      onClick={() => toggleActive(u)}
+                    >
+                      {active ? <BlockOutlinedIcon fontSize="small" /> : <CheckCircleOutlinedIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            </>
+          );
+        }}
       />
 
       <Modal open={showCreate} title="Add User" onClose={() => setShowCreate(false)}>
@@ -417,20 +427,13 @@ export function UsersScreen() {
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Role"
                   fullWidth
                   value={createForm.role_id}
-                  onChange={(e) => setCreateForm({ ...createForm, role_id: e.target.value })}
-                >
-                  <MenuItem value="">— None —</MenuItem>
-                  {assignableRoles.map((r) => (
-                    <MenuItem key={r.id} value={r.id}>
-                      {r.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(v) => setCreateForm({ ...createForm, role_id: v })}
+                  options={[{ value: '', label: '— None —' }, ...assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))]}
+                />
               </Grid>
               <Grid size={{ xs: 12 }}>
                 <TextField
@@ -552,14 +555,13 @@ export function UsersScreen() {
                   />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField select label="Role" value={manageRoleId} onChange={(e) => setManageRoleId(e.target.value)} fullWidth>
-                    <MenuItem value="">— None —</MenuItem>
-                    {assignableRoles.map((r) => (
-                      <MenuItem key={r.id} value={r.id}>
-                        {r.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  <SearchableSelect
+                    label="Role"
+                    value={manageRoleId}
+                    onChange={setManageRoleId}
+                    fullWidth
+                    options={[{ value: '', label: '— None —' }, ...assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))]}
+                  />
                 </Grid>
                 {detailsFormError && (
                   <Grid size={{ xs: 12 }}>
@@ -692,6 +694,25 @@ export function UsersScreen() {
               Close
             </Button>
           </Stack>
+      </Modal>
+
+      <Modal open={!!viewing} title="View User" onClose={() => setViewing(null)}>
+        <DetailView
+          fields={[
+            { label: 'Name', value: viewing?.name },
+            { label: 'Email', value: viewing?.email },
+            { label: 'Username', value: viewing?.username },
+            { label: 'Phone', value: viewing?.phone },
+            { label: 'Role', value: viewing ? roleName(viewing.role_id) : undefined },
+            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
+            { label: 'Last Login', value: viewing?.last_login_at ? new Date(viewing.last_login_at).toLocaleString() : undefined },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
       </Modal>
     </div>
   );

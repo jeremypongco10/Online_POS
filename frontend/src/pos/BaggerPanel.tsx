@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import { api } from '../api/client';
 import type { Bagger } from '../api/types';
+import { SearchableSelect } from '../admin/SearchableSelect';
 
 interface Props {
   storeId: number | null;
@@ -40,26 +39,19 @@ export function BaggerPanel({ storeId, bagger, onSelect }: Props) {
           {bagger ? bagger.name : '—'}
         </Typography>
       </Stack>
-      <TextField
-        select
-        value={bagger?.id ?? ''}
-        onChange={(e) => {
+      <SearchableSelect
+        value={bagger?.id ? String(bagger.id) : ''}
+        onChange={(v) => {
           // Backend JSON encodes bigint columns as strings (e.g. "3"), so
           // compare numerically rather than with strict === — a plain
-          // `b.id === Number(e.target.value)` would always be false and
-          // silently reset the selection back to "No bagger".
-          const selected = baggers.find((b) => Number(b.id) === Number(e.target.value)) ?? null;
+          // `b.id === Number(v)` would always be false and silently reset
+          // the selection back to "No bagger".
+          const selected = baggers.find((b) => Number(b.id) === Number(v)) ?? null;
           onSelect(selected);
         }}
         fullWidth
-      >
-        <MenuItem value="">No bagger</MenuItem>
-        {baggers.map((b) => (
-          <MenuItem key={b.id} value={b.id}>
-            {b.name}
-          </MenuItem>
-        ))}
-      </TextField>
+        options={[{ value: '', label: 'No bagger' }, ...baggers.map((b) => ({ value: String(b.id), label: b.name }))]}
+      />
       {storeId && baggers.length === 0 && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           No active baggers assigned to this store.

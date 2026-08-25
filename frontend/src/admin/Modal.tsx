@@ -6,6 +6,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 import CloseIcon from '@mui/icons-material/Close';
 import { PopTransition } from '../PopTransition';
 
@@ -52,14 +53,16 @@ export function Modal({ title, onClose, children, wide, maxWidth, open = true }:
         }}
       >
         <DialogTitle sx={{ p: 0, fontSize: 17, fontWeight: 700 }}>{title}</DialogTitle>
-        <IconButton
-          onClick={onClose}
-          aria-label="Close"
-          size="small"
-          sx={{ color: 'text.secondary', bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
+        <Tooltip title="Close">
+          <IconButton
+            onClick={onClose}
+            aria-label="Close"
+            size="small"
+            sx={{ color: 'text.secondary', bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Stack>
       <DialogContent sx={{ px: 3, py: 2.5 }}>{children}</DialogContent>
     </Dialog>

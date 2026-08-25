@@ -11,11 +11,11 @@ import { Modal } from './Modal';
 import { SectionTabs } from './SectionTabs';
 import { InventoryMovementsScreen } from './InventoryMovementsScreen';
 import { InlineSelectFilter } from './InlineSelectFilter';
+import { SearchableSelect } from './SearchableSelect';
 import { useRouteState } from '../routing';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
@@ -154,14 +154,12 @@ function StockLevelsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter label="Store" value={storeFilter} onChange={setStoreFilter}>
-            <MenuItem value="">All Stores</MenuItem>
-            {stores.map((s) => (
-              <MenuItem key={s.id} value={s.id}>
-                {s.name}
-              </MenuItem>
-            ))}
-          </InlineSelectFilter>
+          <InlineSelectFilter
+            label="Store"
+            value={storeFilter}
+            onChange={setStoreFilter}
+            options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+          />
         }
         actions={
           <Stack direction="row" spacing={1.5}>
@@ -205,48 +203,37 @@ function StockLevelsScreen() {
           >
             <Grid container spacing={2} sx={{ pt: 1 }}>
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Product"
                   fullWidth
                   value={adjustForm.product_id}
-                  onChange={(e) => {
-                    setAdjustForm({ ...adjustForm, product_id: e.target.value });
+                  onChange={(v) => {
+                    setAdjustForm({ ...adjustForm, product_id: v });
                     clearField('product_id');
                   }}
                   error={!!fieldErrors?.product_id}
                   helperText={fieldErrors?.product_id}
                   required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {products.map((p) => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  options={[
+                    { value: '', label: '— Select —' },
+                    ...products.map((p) => ({ value: String(p.id), label: `${p.name} (${p.sku})` })),
+                  ]}
+                />
               </Grid>
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Store"
                   fullWidth
                   value={adjustForm.store_id}
-                  onChange={(e) => {
-                    setAdjustForm({ ...adjustForm, store_id: e.target.value });
+                  onChange={(v) => {
+                    setAdjustForm({ ...adjustForm, store_id: v });
                     clearField('store_id');
                   }}
                   error={!!fieldErrors?.store_id}
                   helperText={fieldErrors?.store_id}
                   required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {stores.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  options={[{ value: '', label: '— Select —' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+                />
               </Grid>
               <Grid size={{ xs: 12 }}>
                 <TextField
@@ -305,70 +292,52 @@ function StockLevelsScreen() {
           >
             <Grid container spacing={2} sx={{ pt: 1 }}>
               <Grid size={{ xs: 12 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="Product"
                   fullWidth
                   value={transferForm.product_id}
-                  onChange={(e) => {
-                    setTransferForm({ ...transferForm, product_id: e.target.value });
+                  onChange={(v) => {
+                    setTransferForm({ ...transferForm, product_id: v });
                     clearField('product_id');
                   }}
                   error={!!fieldErrors?.product_id}
                   helperText={fieldErrors?.product_id}
                   required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {products.map((p) => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  options={[
+                    { value: '', label: '— Select —' },
+                    ...products.map((p) => ({ value: String(p.id), label: `${p.name} (${p.sku})` })),
+                  ]}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="From Store"
                   fullWidth
                   value={transferForm.from_store_id}
-                  onChange={(e) => {
-                    setTransferForm({ ...transferForm, from_store_id: e.target.value });
+                  onChange={(v) => {
+                    setTransferForm({ ...transferForm, from_store_id: v });
                     clearField('from_store_id');
                   }}
                   error={!!fieldErrors?.from_store_id}
                   helperText={fieldErrors?.from_store_id}
                   required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {stores.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  options={[{ value: '', label: '— Select —' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  select
+                <SearchableSelect
                   label="To Store"
                   fullWidth
                   value={transferForm.to_store_id}
-                  onChange={(e) => {
-                    setTransferForm({ ...transferForm, to_store_id: e.target.value });
+                  onChange={(v) => {
+                    setTransferForm({ ...transferForm, to_store_id: v });
                     clearField('to_store_id');
                   }}
                   error={!!fieldErrors?.to_store_id}
                   helperText={fieldErrors?.to_store_id}
                   required
-                >
-                  <MenuItem value="">— Select —</MenuItem>
-                  {stores.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  options={[{ value: '', label: '— Select —' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+                />
               </Grid>
               <Grid size={{ xs: 12 }}>
                 <TextField

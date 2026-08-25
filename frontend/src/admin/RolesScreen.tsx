@@ -9,6 +9,7 @@ import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
+import { DetailView } from './DetailView';
 import { SearchField } from '../SearchField';
 import { useRetained } from './useRetained';
 import Stack from '@mui/material/Stack';
@@ -28,6 +29,7 @@ import Tooltip from '@mui/material/Tooltip';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SecurityIcon from '@mui/icons-material/Security';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 export function RolesScreen() {
   const { hasPermission } = useAuth();
@@ -38,6 +40,7 @@ export function RolesScreen() {
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
 
   const [editing, setEditing] = useState<Role | null>(null);
+  const [viewing, setViewing] = useState<Role | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -202,25 +205,36 @@ export function RolesScreen() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
-        rowActions={
-          hasPermission('roles.manage')
-            ? (r) => (
-                <>
+        rowActions={(r) => (
+          <>
+            <Tooltip title="View">
+              <IconButton size="small" aria-label="View" onClick={() => setViewing(r)}>
+                <VisibilityOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {hasPermission('roles.manage') && (
+              <>
+                <Tooltip title="Permissions">
                   <IconButton size="small" aria-label="Permissions" onClick={() => openManage(r)}>
                     <SecurityIcon fontSize="small" />
                   </IconButton>
+                </Tooltip>
+                <Tooltip title="Edit">
                   <IconButton size="small" aria-label="Edit" onClick={() => openEdit(r)}>
                     <EditIcon fontSize="small" />
                   </IconButton>
-                  {Number(r.is_system) !== 1 && (
+                </Tooltip>
+                {Number(r.is_system) !== 1 && (
+                  <Tooltip title="Delete">
                     <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(r)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
-                  )}
-                </>
-              )
-            : undefined
-        }
+                  </Tooltip>
+                )}
+              </>
+            )}
+          </>
+        )}
       />
 
       <Modal open={showForm} title={editing ? 'Edit Role' : 'Add Role'} onClose={() => setShowForm(false)}>
@@ -278,6 +292,21 @@ export function RolesScreen() {
               </Grid>
             </Grid>
           </form>
+      </Modal>
+
+      <Modal open={!!viewing} title="View Role" onClose={() => setViewing(null)}>
+        <DetailView
+          fields={[
+            { label: 'Name', value: viewing?.name },
+            { label: 'Type', value: viewing ? (Number(viewing.is_system) === 1 ? 'System' : 'Custom') : undefined },
+            { label: 'Description', value: viewing?.description, fullWidth: true },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
       </Modal>
 
       <Modal open={managing !== null} title={managingR ? `Permissions: ${managingR.name}` : ''} onClose={() => setManaging(null)} maxWidth="lg">

@@ -16,11 +16,10 @@ import type {
 import { formatMoney } from '../../pos/format';
 import { ReportFilters } from './ReportFilters';
 import { ReportTable, type ReportColumn } from './ReportTable';
+import { SearchableSelect } from '../SearchableSelect';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
-import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 
 type ReportType =
   | 'summary'
@@ -135,11 +134,10 @@ export function SalesReportsScreen() {
         onToChange={setTo}
         hideStore={reportType === 'store'}
       >
-        <TextField
-          select
+        <SearchableSelect
           label="Report"
           value={reportType}
-          onChange={(e) => {
+          onChange={(v) => {
             // Clear all result state in the same update as the type change
             // — otherwise there's one render where the new columns pair
             // with the old (differently-shaped) rows/summary/vat, since
@@ -148,16 +146,11 @@ export function SalesReportsScreen() {
             setRows([]);
             setSummary(null);
             setVat(null);
-            setReportType(e.target.value as ReportType);
+            setReportType(v as ReportType);
           }}
           sx={{ minWidth: 180 }}
-        >
-          {REPORT_OPTIONS.map((o) => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
-          ))}
-        </TextField>
+          options={REPORT_OPTIONS}
+        />
       </ReportFilters>
 
       {reportType === 'summary' &&

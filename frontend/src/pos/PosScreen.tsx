@@ -4,8 +4,6 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Alert from '@mui/material/Alert';
@@ -13,6 +11,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../auth/AuthContext';
 import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordButton } from '../ChangePasswordModal';
+import { SearchableSelect } from '../admin/SearchableSelect';
 import { api, ApiError } from '../api/client';
 import type {
   Bagger,
@@ -221,30 +220,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
               spacing={0.75}
               sx={{ alignItems: 'center', bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}
             >
-              <Select
-                size="small"
-                value={storeId ?? ''}
-                onChange={(e) => setStoreId(Number(e.target.value))}
-                sx={{ bgcolor: 'background.paper', fontSize: 13, fontWeight: 500, boxShadow: 1 }}
-              >
-                {stores.map((s) => (
-                  <MenuItem key={s.id} value={s.id}>
-                    {s.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <Select
-                size="small"
-                value={registerId ?? ''}
-                onChange={(e) => setRegisterId(Number(e.target.value))}
-                sx={{ bgcolor: 'background.paper', fontSize: 13, fontWeight: 500, boxShadow: 1 }}
-              >
-                {registers.map((r) => (
-                  <MenuItem key={r.id} value={r.id}>
-                    {r.name}
-                  </MenuItem>
-                ))}
-              </Select>
+              <SearchableSelect
+                value={storeId ? String(storeId) : ''}
+                onChange={(v) => setStoreId(Number(v))}
+                sx={{ minWidth: 180, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
+                options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+              />
+              <SearchableSelect
+                value={registerId ? String(registerId) : ''}
+                onChange={(v) => setRegisterId(Number(v))}
+                sx={{ minWidth: 180, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
+                options={registers.map((r) => ({ value: String(r.id), label: r.name }))}
+              />
             </Stack>
           </Stack>
 

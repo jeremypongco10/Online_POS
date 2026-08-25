@@ -47,4 +47,50 @@ class LoyaltyCardModel extends Model
     {
         return $this->where('card_number', $cardNumber)->first();
     }
+
+    /**
+     * One card per customer id, keyed by customer_id, for attaching a
+     * `points` figure to a list of customers without an N+1 query per
+     * row. A customer with no card simply has no entry in the result.
+     */
+    public function forCustomerIds(array $customerIds): array
+    {
+        if ($customerIds === []) {
+            return [];
+        }
+
+        $cards = $this->whereIn('customer_id', $customerIds)->orderBy('id', 'ASC')->findAll();
+
+        $byCustomer = [];
+        foreach ($cards as $card) {
+            $byCustomer[(int) $card->customer_id] = $card;
+        }
+
+        return $byCustomer;
+    }
+
+    /**
+     * The customer's card if they already have one, otherwise a freshly
+     * issued one — so every customer can have points adjusted from the
+     * Customers page without a separate "issue a card first" step.
+     */
+    public function firstOrCreateForCustomer(int $customerId): object
+    {
+        $existing = $this->where('customer_id', $customerId)->orderBy('id', 'ASC')->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $id = $this->insert([
+            'customer_id' => $customerId,
+            'card_number' => 'LC-' . strtoupper(bin2hex(random_bytes(6))),
+            'status' => self::STATUS_ACTIVE,
+            'points' => 0,
+            'issued_at' => date('Y-m-d H:i:s'),
+            'activated_at' => date('Y-m-d H:i:s'),
+        ], true);
+
+        return $this->find($id);
+    }
 }

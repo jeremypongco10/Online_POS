@@ -6,11 +6,12 @@ import Divider from '@mui/material/Divider';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import TextField from '@mui/material/TextField';
-import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import CloseIcon from '@mui/icons-material/Close';
 import { formatMoney } from './format';
+import { SearchableSelect } from '../admin/SearchableSelect';
 
 export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'bank_transfer' | 'other';
 
@@ -79,9 +80,11 @@ export function PaymentPanel({ total, disabled, submitting, onCheckout }: Props)
                 key={i}
                 divider={i < payments.length - 1}
                 secondaryAction={
-                  <IconButton size="small" color="error" onClick={() => removePayment(i)} aria-label="Remove">
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
+                  <Tooltip title="Remove">
+                    <IconButton size="small" color="error" onClick={() => removePayment(i)} aria-label="Remove">
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 }
               >
                 <Stack direction="row" sx={{ justifyContent: 'space-between', width: '100%', pr: 4 }}>
@@ -95,19 +98,13 @@ export function PaymentPanel({ total, disabled, submitting, onCheckout }: Props)
       )}
 
       <Stack spacing={1.5} sx={{ mt: payments.length > 0 ? 0 : 1.25 }}>
-        <TextField
-          select
+        <SearchableSelect
           label="Method"
           value={method}
-          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+          onChange={(v) => setMethod(v as PaymentMethod)}
           fullWidth
-        >
-          {(Object.keys(METHOD_LABELS) as PaymentMethod[]).map((m) => (
-            <MenuItem key={m} value={m}>
-              {METHOD_LABELS[m]}
-            </MenuItem>
-          ))}
-        </TextField>
+          options={(Object.keys(METHOD_LABELS) as PaymentMethod[]).map((m) => ({ value: m, label: METHOD_LABELS[m] }))}
+        />
         <TextField
           label="Amount"
           type="number"
