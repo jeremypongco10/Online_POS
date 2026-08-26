@@ -32,7 +32,7 @@ export function CatalogScreen() {
   // versa) — the tab list, and which one it opens to by default, has to
   // reflect whichever this particular user actually has.
   const availableTabs = TABS.filter((t) => hasPermission(TAB_PERMISSIONS[t]));
-  const [tab, setTab] = useRouteState<Tab>(2, TABS, availableTabs[0] ?? 'search', (t) => `/admin/catalog/${t}`);
+  const [tab, setTab] = useRouteState<Tab>(2, TABS, availableTabs[0] ?? 'search', (t) => `/admin/products/${t}`);
 
   useEffect(() => {
     if (availableTabs.length > 0 && !availableTabs.includes(tab)) {

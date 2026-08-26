@@ -31,7 +31,7 @@ import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordModal } from '../ChangePasswordModal';
 import { IconBox, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconShoppingBag, IconTruck, IconUsers } from './icons';
 
-export type AdminSection = 'dashboard' | 'catalog' | 'inventory' | 'purchasing' | 'customers' | 'team' | 'reports' | 'settings';
+export type AdminSection = 'dashboard' | 'products' | 'inventory' | 'purchasing' | 'customers' | 'team' | 'reports' | 'settings';
 
 interface NavItem {
   section: AdminSection;
@@ -70,8 +70,8 @@ const NAV_ITEMS: NavItem[] = [
     icon: IconChart,
   },
   {
-    section: 'catalog',
-    label: 'Catalog',
+    section: 'products',
+    label: 'Products',
     description: 'Manage products, categories, and pricing across your stores.',
     permissions: ['products.view', 'categories.view'],
     icon: IconBox,
@@ -130,7 +130,7 @@ const NAV_ITEMS: NavItem[] = [
 const NAV_GROUPS: { label: string; sections: AdminSection[] }[] = [
   { label: 'Overview', sections: ['dashboard'] },
   { label: 'Reports', sections: ['reports'] },
-  { label: 'Operations', sections: ['catalog', 'inventory', 'purchasing', 'customers'] },
+  { label: 'Operations', sections: ['products', 'inventory', 'purchasing', 'customers'] },
   { label: 'Administration', sections: ['team', 'settings'] },
 ];
 
@@ -182,7 +182,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
   const CurrentIcon = itemsBySection.get(section)?.icon;
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100svh' }}>
+    <Box sx={{ display: 'flex', height: '100svh', overflow: 'hidden' }}>
       <Drawer
         variant={isMobile ? 'temporary' : 'permanent'}
         open={isMobile ? mobileNavOpen : true}
@@ -354,7 +354,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <ChangePasswordModal open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
-        <Box sx={{ flex: 1, p: { xs: 2.5, sm: 3, md: 4 }, overflowX: 'auto' }}>
+        <Box sx={{ flex: 1, p: { xs: 2.5, sm: 3, md: 4 }, overflow: 'auto' }}>
           <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Stack direction="row" spacing={{ xs: 1.5, sm: 2 }} sx={{ alignItems: 'center', minWidth: 0 }}>
               {isMobile && (
@@ -458,6 +458,22 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
           </Stack>
 
           {children}
+        </Box>
+
+        <Box
+          component="footer"
+          sx={{
+            flexShrink: 0,
+            px: { xs: 2.5, sm: 3, md: 4 },
+            py: 2,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            © {new Date().getFullYear()} POS System. All rights reserved.
+          </Typography>
         </Box>
       </Box>
     </Box>

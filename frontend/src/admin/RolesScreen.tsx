@@ -237,7 +237,7 @@ export function RolesScreen() {
         )}
       />
 
-      <Modal open={showForm} title={editing ? 'Edit Role' : 'Add Role'} onClose={() => setShowForm(false)}>
+      <Modal open={showForm} title={editing ? 'Edit Role' : 'Add Role'} onClose={() => setShowForm(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -294,7 +294,7 @@ export function RolesScreen() {
           </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Role" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Role" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
@@ -310,17 +310,19 @@ export function RolesScreen() {
       </Modal>
 
       <Modal open={managing !== null} title={managingR ? `Permissions: ${managingR.name}` : ''} onClose={() => setManaging(null)} maxWidth="lg">
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, mb: 2 }}>
             <SearchField value={permSearch} onChange={setPermSearch} placeholder="Search permissions…" fullWidth />
-            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-              {rolePermissions.length} of {allPermissions.length} selected
-            </Typography>
-            <Button size="small" onClick={selectAllPermissions}>
-              Select All
-            </Button>
-            <Button size="small" onClick={clearAllPermissions}>
-              Clear All
-            </Button>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                {rolePermissions.length} of {allPermissions.length} selected
+              </Typography>
+              <Button size="small" onClick={selectAllPermissions}>
+                Select All
+              </Button>
+              <Button size="small" onClick={clearAllPermissions}>
+                Clear All
+              </Button>
+            </Stack>
           </Stack>
 
           <Box sx={{ maxHeight: '55vh', overflowY: 'auto', pr: 0.5 }}>

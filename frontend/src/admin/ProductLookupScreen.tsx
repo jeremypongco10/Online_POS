@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useSnackbar } from '../Snackbar';
 import { DetailView, StatusChip } from './DetailView';
 import { ProductEditModal } from './ProductEditModal';
+import { SearchableSelect } from './SearchableSelect';
 import { formatMoney } from '../pos/format';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
@@ -37,6 +38,21 @@ interface StoreRow {
   selling_price: string | null;
 }
 
+// Chrome/Safari draw a spinner overlapping the right edge of a number
+// input, and Firefox reserves space for one even when hidden — both push
+// right-aligned digits left of where they'd otherwise sit, so they no
+// longer line up with the plain (non-editable) Typography values above
+// and below them in the same card. Hiding the spinner altogether keeps
+// every amount flush against the same right edge.
+const priceFieldSx = {
+  width: 84,
+  '& input[type=number]': { MozAppearance: 'textfield' },
+  '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
+    WebkitAppearance: 'none',
+    margin: 0,
+  },
+};
+
 /**
  * A scan-and-lookup tool, distinct from the Products tab's paginated list:
  * one search resolves to one product, shown with everything a cashier or
@@ -56,6 +72,7 @@ export function ProductLookupScreen() {
   const [taxes, setTaxes] = useState<TaxRate[]>([]);
 
   const [query, setQuery] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [candidates, setCandidates] = useState<Product[]>([]);
@@ -83,20 +100,25 @@ export function ProductLookupScreen() {
 
   async function runSearch() {
     const term = query.trim();
-    if (!term) return;
+    if (!term && !categoryId) return;
 
     setSearching(true);
     setSearched(false);
     setCandidates([]);
     setSelected(null);
     try {
-      const { data } = await api.getPaged<Product>(`/products?q=${encodeURIComponent(term)}&per_page=25`);
+      const params = new URLSearchParams({ per_page: '25' });
+      if (term) params.set('q', term);
+      if (categoryId) params.set('category_id', categoryId);
+      const { data } = await api.getPaged<Product>(`/products?${params.toString()}`);
 
       // A scanned barcode (or a typed exact SKU) should resolve straight to
-      // the product, not force a pick from a list it happens to also be in.
-      const exact = data.find(
-        (p) => p.sku.toLowerCase() === term.toLowerCase() || (p.barcode ?? '').toLowerCase() === term.toLowerCase()
-      );
+      // the product, not force a pick from a list it happens to also be in
+      // — only meaningful when the caller actually typed/scanned something,
+      // not when they're just browsing a category.
+      const exact = term
+        ? data.find((p) => p.sku.toLowerCase() === term.toLowerCase() || (p.barcode ?? '').toLowerCase() === term.toLowerCase())
+        : undefined;
 
       if (exact) {
         await selectProduct(exact);
@@ -181,6 +203,7 @@ export function ProductLookupScreen() {
 
   function reset() {
     setQuery('');
+    setCategoryId('');
     setSearched(false);
     setCandidates([]);
     setSelected(null);
@@ -207,63 +230,81 @@ export function ProductLookupScreen() {
   }
 
   const idle = !searched && !searching;
+  const selectedCategoryName = categories.find((c) => String(c.id) === categoryId)?.name;
+
+  const searchBar = (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+      <TextField
+        inputRef={inputRef}
+        fullWidth
+        placeholder="Scan a barcode, or type a SKU / name…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={onKeyDown}
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <QrCodeScannerOutlinedIcon fontSize="small" sx={{ color: 'primary.main' }} />
+              </InputAdornment>
+            ),
+            sx: { bgcolor: 'background.paper', borderRadius: 3, height: 48, fontSize: '0.95rem' },
+          },
+        }}
+      />
+      <SearchableSelect
+        placeholder="All categories"
+        value={categoryId}
+        onChange={setCategoryId}
+        options={categories.map((c) => ({ value: String(c.id), label: c.name }))}
+        sx={{
+          width: { xs: '100%', sm: 220 },
+          flexShrink: 0,
+          '& .MuiInputBase-root': { bgcolor: 'background.paper', borderRadius: 3, height: 48 },
+        }}
+      />
+      <Stack direction="row" spacing={1.25}>
+        <Button
+          variant="contained"
+          startIcon={!searching ? <SearchIcon fontSize="small" /> : undefined}
+          onClick={runSearch}
+          disabled={searching || (!query.trim() && !categoryId)}
+          sx={{ borderRadius: 3, px: 2.5, flexShrink: 0, flex: { xs: 1, sm: 'initial' } }}
+        >
+          {searching ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Search'}
+        </Button>
+        {(selected || candidates.length > 0) && (
+          <Button
+            startIcon={<ReplayOutlinedIcon fontSize="small" />}
+            onClick={reset}
+            sx={{ borderRadius: 3, flexShrink: 0, flex: { xs: 1, sm: 'initial' } }}
+          >
+            New Search
+          </Button>
+        )}
+      </Stack>
+    </Stack>
+  );
 
   return (
     <Box>
-      <Paper
-        variant="outlined"
-        sx={{
-          p: 1,
-          mb: 3,
-          maxWidth: 640,
-          borderRadius: 4,
-          background: 'linear-gradient(135deg, color-mix(in srgb, var(--mui-palette-primary-main) 6%, var(--mui-palette-background-paper)), var(--mui-palette-background-paper))',
-        }}
-      >
-        <Stack direction="row" spacing={1.25}>
-          <TextField
-            inputRef={inputRef}
-            fullWidth
-            placeholder="Scan a barcode, or type a SKU / name…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <QrCodeScannerOutlinedIcon fontSize="small" sx={{ color: 'primary.main' }} />
-                  </InputAdornment>
-                ),
-                sx: { bgcolor: 'background.paper', borderRadius: 3, height: 48, fontSize: '0.95rem' },
-              },
-            }}
-          />
-          <Button
-            variant="contained"
-            startIcon={!searching ? <SearchIcon fontSize="small" /> : undefined}
-            onClick={runSearch}
-            disabled={searching || !query.trim()}
-            sx={{ borderRadius: 3, px: 2.5, flexShrink: 0 }}
-          >
-            {searching ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Search'}
-          </Button>
-          {(selected || candidates.length > 0) && (
-            <Button startIcon={<ReplayOutlinedIcon fontSize="small" />} onClick={reset} sx={{ borderRadius: 3, flexShrink: 0 }}>
-              New Search
-            </Button>
-          )}
-        </Stack>
-      </Paper>
-
-      {idle && (
-        <Paper variant="outlined" sx={{ p: 6, maxWidth: 640, borderRadius: 4, textAlign: 'center' }}>
+      {idle ? (
+        <Box
+          sx={{
+            minHeight: '60vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            px: 2,
+          }}
+        >
           <Box
             sx={{
-              width: 64,
-              height: 64,
-              mx: 'auto',
-              mb: 2,
+              width: 72,
+              height: 72,
+              mb: 2.5,
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
@@ -271,21 +312,41 @@ export function ProductLookupScreen() {
               bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 12%, transparent)',
             }}
           >
-            <QrCodeScannerOutlinedIcon sx={{ fontSize: 30, color: 'primary.main' }} />
+            <QrCodeScannerOutlinedIcon sx={{ fontSize: 34, color: 'primary.main' }} />
           </Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Find any product instantly
           </Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 420, mx: 'auto' }}>
-            Search by name, SKU, or scan a barcode to see full details, stock, and pricing across every store.
+          <Typography color="text.secondary" sx={{ mt: 1, mb: 4, maxWidth: 460 }}>
+            Search by name, SKU, or scan a barcode — or narrow it down by category — to see full details, stock, and pricing
+            across every store.
           </Typography>
+          <Box sx={{ width: '100%', maxWidth: 780 }}>{searchBar}</Box>
+        </Box>
+      ) : (
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 1,
+            mb: 3,
+            borderRadius: 4,
+            background: 'linear-gradient(135deg, color-mix(in srgb, var(--mui-palette-primary-main) 6%, var(--mui-palette-background-paper)), var(--mui-palette-background-paper))',
+          }}
+        >
+          {searchBar}
         </Paper>
       )}
 
       {searched && !selected && candidates.length === 0 && (
-        <Paper variant="outlined" sx={{ p: 4, maxWidth: 640, borderRadius: 4, textAlign: 'center' }}>
+        <Paper variant="outlined" sx={{ p: 4, maxWidth: 640, mx: 'auto', borderRadius: 4, textAlign: 'center' }}>
           <SearchOffOutlinedIcon sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
-          <Typography color="text.secondary">No product matches "{query}".</Typography>
+          <Typography color="text.secondary">
+            {query.trim() && selectedCategoryName
+              ? `No product matches "${query.trim()}" in ${selectedCategoryName}.`
+              : query.trim()
+                ? `No product matches "${query.trim()}".`
+                : `No products found in ${selectedCategoryName}.`}
+          </Typography>
         </Paper>
       )}
 
@@ -387,6 +448,7 @@ export function ProductLookupScreen() {
 
           <Box sx={{ p: 3, pt: 2.5 }}>
             <DetailView
+              dense
               fields={[
                 { label: 'Category', value: categoryName(selected.category_id) },
                 { label: 'Unit', value: unitName(selected.unit_id) },
@@ -480,7 +542,7 @@ export function ProductLookupScreen() {
                                 slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } } }}
                                 value={row.cost_price ?? ''}
                                 onChange={(e) => updatePriceField(row.store_id, 'cost_price', e.target.value)}
-                                sx={{ width: 84 }}
+                                sx={priceFieldSx}
                               />
                             ) : (
                               <Typography variant="caption" sx={{ fontWeight: 600 }}>
@@ -500,7 +562,7 @@ export function ProductLookupScreen() {
                                 slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } } }}
                                 value={row.selling_price ?? ''}
                                 onChange={(e) => updatePriceField(row.store_id, 'selling_price', e.target.value)}
-                                sx={{ width: 84 }}
+                                sx={priceFieldSx}
                               />
                             ) : (
                               <Typography variant="caption" sx={{ fontWeight: 600 }}>

@@ -28,6 +28,7 @@ import Paper from '@mui/material/Paper';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import Table from '@mui/material/Table';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
@@ -337,66 +338,68 @@ export function PurchaseOrdersScreen() {
                     No products added yet — search above to add a line.
                   </Typography>
                 ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Product</TableCell>
-                        <TableCell sx={{ width: 100 }}>Qty</TableCell>
-                        <TableCell sx={{ width: 120 }}>Unit Cost</TableCell>
-                        <TableCell sx={{ width: 160 }}>Tax Rate</TableCell>
-                        <TableCell sx={{ width: 40 }} />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {lines.map((line, i) => (
-                        <TableRow key={line.product_id}>
-                          <TableCell>{line.product_label}</TableCell>
-                          <TableCell>
-                            <TextField
-                              type="number"
-                              fullWidth
-                              slotProps={{ htmlInput: { step: '0.0001', min: '0.0001' } }}
-                              value={line.quantity}
-                              onChange={(e) => updateLine(i, { quantity: e.target.value })}
-                              required
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              type="number"
-                              fullWidth
-                              slotProps={{ htmlInput: { step: '0.01' } }}
-                              value={line.unit_cost}
-                              onChange={(e) => updateLine(i, { unit_cost: e.target.value })}
-                              required
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <SearchableSelect
-                              fullWidth
-                              value={line.tax_rate_id}
-                              onChange={(v) => updateLine(i, { tax_rate_id: v })}
-                              options={[
-                                { value: '', label: 'None' },
-                                ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` })),
-                              ]}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Tooltip title="Remove line">
-                              <IconButton
-                                size="small"
-                                aria-label="Remove line"
-                                onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
-                              >
-                                <CloseIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
+                  <TableContainer>
+                    <Table size="small" sx={{ minWidth: 560 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Product</TableCell>
+                          <TableCell sx={{ width: 100 }}>Qty</TableCell>
+                          <TableCell sx={{ width: 120 }}>Unit Cost</TableCell>
+                          <TableCell sx={{ width: 160 }}>Tax Rate</TableCell>
+                          <TableCell sx={{ width: 40 }} />
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHead>
+                      <TableBody>
+                        {lines.map((line, i) => (
+                          <TableRow key={line.product_id}>
+                            <TableCell>{line.product_label}</TableCell>
+                            <TableCell>
+                              <TextField
+                                type="number"
+                                fullWidth
+                                slotProps={{ htmlInput: { step: '0.0001', min: '0.0001' } }}
+                                value={line.quantity}
+                                onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                                required
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                type="number"
+                                fullWidth
+                                slotProps={{ htmlInput: { step: '0.01' } }}
+                                value={line.unit_cost}
+                                onChange={(e) => updateLine(i, { unit_cost: e.target.value })}
+                                required
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <SearchableSelect
+                                fullWidth
+                                value={line.tax_rate_id}
+                                onChange={(v) => updateLine(i, { tax_rate_id: v })}
+                                options={[
+                                  { value: '', label: 'None' },
+                                  ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` })),
+                                ]}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Tooltip title="Remove line">
+                                <IconButton
+                                  size="small"
+                                  aria-label="Remove line"
+                                  onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 )}
               </Stack>
             )}
@@ -428,28 +431,30 @@ export function PurchaseOrdersScreen() {
             <Chip size="small" label={detailR.status} color={statusColor(detailR.status)} sx={{ textTransform: 'capitalize' }} />
           </Stack>
 
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Product</TableCell>
-                <TableCell align="right">Qty</TableCell>
-                <TableCell align="right">Unit Cost</TableCell>
-                <TableCell align="right">Line Total</TableCell>
-                <TableCell align="right">Received</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {detailItems.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.product_name ? `${item.product_name} (${item.product_sku})` : `#${item.product_id}`}</TableCell>
-                  <TableCell align="right">{parseFloat(item.quantity)}</TableCell>
-                  <TableCell align="right">{formatMoney(parseFloat(item.unit_cost))}</TableCell>
-                  <TableCell align="right">{formatMoney(parseFloat(item.line_total))}</TableCell>
-                  <TableCell align="right">{parseFloat(item.received_quantity)}</TableCell>
+          <TableContainer>
+            <Table size="small" sx={{ minWidth: 520 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product</TableCell>
+                  <TableCell align="right">Qty</TableCell>
+                  <TableCell align="right">Unit Cost</TableCell>
+                  <TableCell align="right">Line Total</TableCell>
+                  <TableCell align="right">Received</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {detailItems.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.product_name ? `${item.product_name} (${item.product_sku})` : `#${item.product_id}`}</TableCell>
+                    <TableCell align="right">{parseFloat(item.quantity)}</TableCell>
+                    <TableCell align="right">{formatMoney(parseFloat(item.unit_cost))}</TableCell>
+                    <TableCell align="right">{formatMoney(parseFloat(item.line_total))}</TableCell>
+                    <TableCell align="right">{parseFloat(item.received_quantity)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
           <Stack direction="row" sx={{ justifyContent: 'space-between', mt: 1.5, mb: 1 }}>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>

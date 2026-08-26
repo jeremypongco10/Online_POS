@@ -7,12 +7,15 @@ interface Props<T extends string> {
   children: ReactNode;
 }
 
-/** Classic underline-style tab switcher — the shared look for every tabbed admin screen (Customers, Team, Catalog, etc). */
+/** Classic underline-style tab switcher — the shared look for every tabbed admin screen (Customers, Team, Products, etc). */
 export function SectionTabs<T extends string>({ value, onChange, children }: Props<T>) {
   return (
     <Tabs
       value={value}
       onChange={(_, v) => onChange(v)}
+      variant="scrollable"
+      scrollButtons="auto"
+      allowScrollButtonsMobile
       sx={{
         mb: 3,
         minHeight: 40,

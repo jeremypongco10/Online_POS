@@ -9,7 +9,7 @@ import { ReportsScreen } from './ReportsScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { useRouteState } from '../routing';
 
-const SECTIONS: AdminSection[] = ['dashboard', 'catalog', 'inventory', 'purchasing', 'customers', 'team', 'reports', 'settings'];
+const SECTIONS: AdminSection[] = ['dashboard', 'products', 'inventory', 'purchasing', 'customers', 'team', 'reports', 'settings'];
 
 interface Props {
   onBackToPos: () => void;
@@ -21,7 +21,7 @@ export function AdminScreen({ onBackToPos }: Props) {
   return (
     <AdminLayout section={section} onSectionChange={setSection} onBackToPos={onBackToPos}>
       {section === 'dashboard' && <DashboardBody />}
-      {section === 'catalog' && <CatalogScreen />}
+      {section === 'products' && <CatalogScreen />}
       {section === 'inventory' && <InventoryScreen />}
       {section === 'purchasing' && <PurchasingScreen />}
       {section === 'customers' && <CustomerRelationsScreen />}

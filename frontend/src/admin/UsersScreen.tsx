@@ -361,7 +361,7 @@ export function UsersScreen() {
         }}
       />
 
-      <Modal open={showCreate} title="Add User" onClose={() => setShowCreate(false)}>
+      <Modal open={showCreate} title="Add User" onClose={() => setShowCreate(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -472,7 +472,7 @@ export function UsersScreen() {
           </form>
       </Modal>
 
-      <Modal open={managing !== null} title="Manage User" onClose={() => setManaging(null)} wide>
+      <Modal open={managing !== null} title="Manage User" onClose={() => setManaging(null)} wide compact>
           <Stack spacing={2.5}>
             {managingR && (
               <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -584,7 +584,7 @@ export function UsersScreen() {
           </Stack>
       </Modal>
 
-      <Modal open={storeAccessUser !== null} title="Store Access" onClose={() => setStoreAccessUser(null)}>
+      <Modal open={storeAccessUser !== null} title="Store Access" onClose={() => setStoreAccessUser(null)} compact>
           <Stack spacing={2.5}>
             {storeAccessUserR && (
               <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -646,7 +646,7 @@ export function UsersScreen() {
           </Stack>
       </Modal>
 
-      <Modal open={passwordUser !== null} title="Password" onClose={() => setPasswordUser(null)}>
+      <Modal open={passwordUser !== null} title="Password" onClose={() => setPasswordUser(null)} compact>
           <Stack spacing={2.5}>
             {passwordUserR && (
               <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -696,7 +696,7 @@ export function UsersScreen() {
           </Stack>
       </Modal>
 
-      <Modal open={!!viewing} title="View User" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View User" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },

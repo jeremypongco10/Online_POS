@@ -16,17 +16,30 @@ export function StatusChip({ active }: { active: boolean }) {
   return <Chip size="small" label={active ? 'Active' : 'Inactive'} color={active ? 'success' : 'default'} sx={{ fontWeight: 600 }} />;
 }
 
-/** A read-only label/value grid for a "View" modal — the counterpart to an Add/Edit form's fields, without any inputs. */
-export function DetailView({ fields }: { fields: DetailField[] }) {
+/**
+ * A read-only label/value grid for a "View" modal — the counterpart to an
+ * Add/Edit form's fields, without any inputs. `dense` trades the padded
+ * tinted-card look for a tighter, more fields-per-row layout — for a
+ * page-level detail panel (not a modal) where the full-size cards read as
+ * too much vertical space for what's mostly short values.
+ */
+export function DetailView({ fields, dense }: { fields: DetailField[]; dense?: boolean }) {
   return (
-    <Grid container spacing={1.5}>
+    <Grid container spacing={dense ? 1 : 1.5}>
       {fields.map((f) => (
-        <Grid key={f.label} size={{ xs: 12, sm: f.fullWidth ? 12 : 6 }}>
+        <Grid
+          key={f.label}
+          size={{
+            xs: 12,
+            sm: f.fullWidth ? 12 : dense ? 4 : 6,
+            md: dense ? (f.fullWidth ? 12 : 2) : undefined,
+          }}
+        >
           <Paper
             variant="outlined"
             sx={{
               height: '100%',
-              p: 1.5,
+              p: dense ? 1 : 1.5,
               borderRadius: 2,
               bgcolor: 'action.hover',
               borderColor: 'transparent',
@@ -35,7 +48,7 @@ export function DetailView({ fields }: { fields: DetailField[] }) {
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ fontWeight: 600, display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '0.6875rem' }}
+              sx={{ fontWeight: 600, display: 'block', mb: 0.25, textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '0.6875rem' }}
             >
               {f.label}
             </Typography>

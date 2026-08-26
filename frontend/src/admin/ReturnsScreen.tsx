@@ -19,6 +19,7 @@ import Chip from '@mui/material/Chip';
 import type { ChipProps } from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import Table from '@mui/material/Table';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
@@ -214,26 +215,28 @@ export function ReturnsScreen() {
             {detailR.reason && <span>· {detailR.reason}</span>}
           </Stack>
 
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Product</TableCell>
-                <TableCell align="right">Qty</TableCell>
-                <TableCell align="right">Unit Price</TableCell>
-                <TableCell align="right">Refund</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {detailItems.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.product_name ?? `#${item.product_id}`}</TableCell>
-                  <TableCell align="right">{parseFloat(item.quantity)}</TableCell>
-                  <TableCell align="right">{formatMoney(parseFloat(item.unit_price))}</TableCell>
-                  <TableCell align="right">{formatMoney(parseFloat(item.refund_amount))}</TableCell>
+          <TableContainer>
+            <Table size="small" sx={{ minWidth: 480 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Product</TableCell>
+                  <TableCell align="right">Qty</TableCell>
+                  <TableCell align="right">Unit Price</TableCell>
+                  <TableCell align="right">Refund</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {detailItems.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.product_name ?? `#${item.product_id}`}</TableCell>
+                    <TableCell align="right">{parseFloat(item.quantity)}</TableCell>
+                    <TableCell align="right">{formatMoney(parseFloat(item.unit_price))}</TableCell>
+                    <TableCell align="right">{formatMoney(parseFloat(item.refund_amount))}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
           <Stack direction="row" sx={{ justifyContent: 'space-between', mt: 1.5, mb: 1 }}>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -304,33 +307,35 @@ export function ReturnsScreen() {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                 Invoice: {selectedSale.invoice_number}
               </Typography>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Product</TableCell>
-                    <TableCell align="right">Remaining</TableCell>
-                    <TableCell sx={{ width: 120 }}>Return Qty</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {eligibleItems.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.product_name ?? `#${item.product_id}`}</TableCell>
-                      <TableCell align="right">{item.remaining_quantity}</TableCell>
-                      <TableCell>
-                        <TextField
-                          type="number"
-                          fullWidth
-                          slotProps={{ htmlInput: { min: '0', max: item.remaining_quantity, step: '0.0001' } }}
-                          value={returnQty[item.id] ?? ''}
-                          onChange={(e) => setReturnQty({ ...returnQty, [item.id]: e.target.value })}
-                          disabled={item.remaining_quantity <= 0}
-                        />
-                      </TableCell>
+              <TableContainer>
+                <Table size="small" sx={{ minWidth: 420 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Product</TableCell>
+                      <TableCell align="right">Remaining</TableCell>
+                      <TableCell sx={{ width: 120 }}>Return Qty</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHead>
+                  <TableBody>
+                    {eligibleItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.product_name ?? `#${item.product_id}`}</TableCell>
+                        <TableCell align="right">{item.remaining_quantity}</TableCell>
+                        <TableCell>
+                          <TextField
+                            type="number"
+                            fullWidth
+                            slotProps={{ htmlInput: { min: '0', max: item.remaining_quantity, step: '0.0001' } }}
+                            value={returnQty[item.id] ?? ''}
+                            onChange={(e) => setReturnQty({ ...returnQty, [item.id]: e.target.value })}
+                            disabled={item.remaining_quantity <= 0}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
               <TextField
                 label="Reason"
                 fullWidth

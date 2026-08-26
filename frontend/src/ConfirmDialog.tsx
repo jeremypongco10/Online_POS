@@ -45,7 +45,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <Modal open={pending !== null} title={pendingR?.options.title ?? 'Please confirm'} onClose={() => settle(false)}>
+      <Modal open={pending !== null} title={pendingR?.options.title ?? 'Please confirm'} onClose={() => settle(false)} compact>
         <Typography sx={{ mb: 3 }}>{pendingR?.message}</Typography>
         <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
           <Button variant="text" onClick={() => settle(false)}>

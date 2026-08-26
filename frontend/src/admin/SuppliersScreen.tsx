@@ -183,7 +183,7 @@ export function SuppliersScreen() {
         )}
       />
 
-      <Modal open={showForm} title={editing ? 'Edit Supplier' : 'Add Supplier'} onClose={() => setShowForm(false)}>
+      <Modal open={showForm} title={editing ? 'Edit Supplier' : 'Add Supplier'} onClose={() => setShowForm(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -289,7 +289,7 @@ export function SuppliersScreen() {
           </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Supplier" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Supplier" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },

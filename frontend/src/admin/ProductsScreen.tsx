@@ -23,6 +23,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import Table from '@mui/material/Table';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
@@ -231,7 +232,8 @@ export function ProductsScreen() {
                 <CircularProgress size={22} />
               </Stack>
             ) : (
-              <Table size="small">
+              <TableContainer>
+                <Table size="small" sx={{ minWidth: 460 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Store</TableCell>
@@ -290,7 +292,8 @@ export function ProductsScreen() {
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
+                </Table>
+              </TableContainer>
             )}
 
             {pricesError && (
@@ -311,7 +314,7 @@ export function ProductsScreen() {
         )}
       </Modal>
 
-      <Modal open={!!viewing} title="View Product" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Product" onClose={() => setViewing(null)} compact>
         <Avatar
           variant="rounded"
           src={viewing?.image_path ? assetUrl(viewing.image_path) : undefined}

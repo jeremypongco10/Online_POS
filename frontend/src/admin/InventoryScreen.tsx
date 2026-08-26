@@ -193,7 +193,7 @@ function StockLevelsScreen() {
         emptyLabel="No inventory records. Pick a store above, or adjust stock to create one."
       />
 
-      <Modal open={showAdjust} title="Adjust Stock" onClose={() => setShowAdjust(false)}>
+      <Modal open={showAdjust} title="Adjust Stock" onClose={() => setShowAdjust(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -282,7 +282,7 @@ function StockLevelsScreen() {
           </form>
       </Modal>
 
-      <Modal open={showTransfer} title="Transfer Stock" onClose={() => setShowTransfer(false)}>
+      <Modal open={showTransfer} title="Transfer Stock" onClose={() => setShowTransfer(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {

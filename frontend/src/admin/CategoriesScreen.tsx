@@ -197,7 +197,7 @@ export function CategoriesScreen() {
         }}
       />
 
-      <Modal open={showForm} title={editing ? 'Edit Category' : 'Add Category'} onClose={() => setShowForm(false)}>
+      <Modal open={showForm} title={editing ? 'Edit Category' : 'Add Category'} onClose={() => setShowForm(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -267,7 +267,7 @@ export function CategoriesScreen() {
           </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Category" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Category" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },

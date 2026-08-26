@@ -209,7 +209,7 @@ function StoresTab() {
         }}
       />
 
-      <Modal open={show} title={editing ? 'Edit Store' : 'Add Store'} onClose={() => setShow(false)}>
+      <Modal open={show} title={editing ? 'Edit Store' : 'Add Store'} onClose={() => setShow(false)} compact>
         <form
           noValidate
           onSubmit={(e) => {
@@ -304,7 +304,7 @@ function StoresTab() {
         </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Store" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Store" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
@@ -478,7 +478,7 @@ function RegistersTab() {
         }}
       />
 
-      <Modal open={show} title={editing ? 'Edit Register' : 'Add Register'} onClose={() => setShow(false)}>
+      <Modal open={show} title={editing ? 'Edit Register' : 'Add Register'} onClose={() => setShow(false)} compact>
         <form
           noValidate
           onSubmit={(e) => {
@@ -549,7 +549,7 @@ function RegistersTab() {
         </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Register" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Register" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
@@ -665,7 +665,7 @@ function TaxesTab() {
         )}
       />
 
-      <Modal open={show} title="Add Tax Rate" onClose={() => setShow(false)}>
+      <Modal open={show} title="Add Tax Rate" onClose={() => setShow(false)} compact>
         <form
           noValidate
           onSubmit={(e) => {
@@ -735,7 +735,7 @@ function TaxesTab() {
         </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Tax Rate" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Tax Rate" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
@@ -849,7 +849,7 @@ function UnitsTab() {
         )}
       />
 
-      <Modal open={show} title="Add Unit" onClose={() => setShow(false)}>
+      <Modal open={show} title="Add Unit" onClose={() => setShow(false)} compact>
         <form
           noValidate
           onSubmit={(e) => {
@@ -920,7 +920,7 @@ function UnitsTab() {
         </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Unit" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Unit" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },

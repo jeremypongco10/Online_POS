@@ -211,25 +211,26 @@ export function PosScreen({ onOpenAdmin }: Props) {
         sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
       >
         <Toolbar sx={{ justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', py: 1 }}>
-          <Stack direction="row" spacing={2.25} sx={{ alignItems: 'center' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 2.25 }} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
             <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>
               POS
             </Typography>
             <Stack
               direction="row"
               spacing={0.75}
-              sx={{ alignItems: 'center', bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}
+              useFlexGap
+              sx={{ alignItems: 'center', flexWrap: 'wrap', bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}
             >
               <SearchableSelect
                 value={storeId ? String(storeId) : ''}
                 onChange={(v) => setStoreId(Number(v))}
-                sx={{ minWidth: 180, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
+                sx={{ minWidth: { xs: 140, sm: 180 }, flex: { xs: 1, sm: 'initial' }, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
                 options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
               />
               <SearchableSelect
                 value={registerId ? String(registerId) : ''}
                 onChange={(v) => setRegisterId(Number(v))}
-                sx={{ minWidth: 180, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
+                sx={{ minWidth: { xs: 140, sm: 180 }, flex: { xs: 1, sm: 'initial' }, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
                 options={registers.map((r) => ({ value: String(r.id), label: r.name }))}
               />
             </Stack>

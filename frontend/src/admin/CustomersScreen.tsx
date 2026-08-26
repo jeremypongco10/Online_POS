@@ -257,7 +257,7 @@ export function CustomersScreen() {
         }}
       />
 
-      <Modal open={showForm} title={editing ? 'Edit Customer' : 'Add Customer'} onClose={() => setShowForm(false)}>
+      <Modal open={showForm} title={editing ? 'Edit Customer' : 'Add Customer'} onClose={() => setShowForm(false)} compact>
           <form
             noValidate
             onSubmit={(e) => {
@@ -367,7 +367,7 @@ export function CustomersScreen() {
           </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Customer" onClose={() => setViewing(null)}>
+      <Modal open={!!viewing} title="View Customer" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Customer No', value: viewing?.customer_code },

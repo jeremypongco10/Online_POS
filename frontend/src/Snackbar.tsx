@@ -21,8 +21,8 @@ export function useSnackbar(): NotifyFn {
   return ctx;
 }
 
-function SlideLeft(props: SlideProps) {
-  return <Slide {...props} direction="left" />;
+function SlideUp(props: SlideProps) {
+  return <Slide {...props} direction="up" />;
 }
 
 export function SnackbarProvider({ children }: { children: ReactNode }) {
@@ -42,32 +42,41 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
   return (
     <SnackbarContext.Provider value={notify}>
       {children}
+      {/* Anchored bottom-right rather than under the header — the header's
+          height isn't constant (it wraps on narrow screens, and differs
+          between the admin shell and the POS AppBar), so a fixed top offset
+          would drift out of place and overlap whatever sits just below it. */}
       <MuiSnackbar
         open={open}
         autoHideDuration={3000}
         onClose={handleClose}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        slots={{ transition: SlideLeft }}
-        sx={{ mt: 7.5, mr: 0.5 }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        slots={{ transition: SlideUp }}
+        sx={{ mb: { xs: 2, sm: 3 }, mr: { xs: 2, sm: 3 } }}
       >
         <Alert
           onClose={() => setOpen(false)}
           severity={state.severity}
-          variant="outlined"
+          variant="standard"
           sx={{
-            minWidth: 280,
-            maxWidth: 360,
+            minWidth: 300,
+            maxWidth: 400,
             alignItems: 'center',
-            bgcolor: 'background.paper',
-            borderRadius: 1.25,
-            borderColor: 'divider',
-            borderLeft: '3px solid',
-            borderLeftColor: `${state.severity}.main`,
-            boxShadow: '0 12px 28px -8px rgba(16, 24, 40, 0.18), 0 2px 8px rgba(16, 24, 40, 0.08)',
+            border: 0,
+            borderRadius: 3,
+            bgcolor: `color-mix(in srgb, var(--mui-palette-${state.severity}-main) 10%, var(--mui-palette-background-paper))`,
+            boxShadow: '0 16px 32px -12px rgba(16, 24, 40, 0.28), 0 4px 12px rgba(16, 24, 40, 0.1)',
             fontSize: 14,
             fontWeight: 600,
             color: 'text.primary',
-            '& .MuiAlert-icon': { color: `${state.severity}.main` },
+            '& .MuiAlert-icon': {
+              color: `${state.severity}.main`,
+              bgcolor: `color-mix(in srgb, var(--mui-palette-${state.severity}-main) 18%, transparent)`,
+              borderRadius: '50%',
+              p: 0.75,
+              mr: 1.5,
+            },
+            '& .MuiAlert-action': { pt: 0 },
           }}
         >
           {state.message}

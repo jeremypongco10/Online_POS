@@ -24,13 +24,23 @@ interface Props {
    * of the dialog just vanishing.
    */
   open?: boolean;
+  /**
+   * Opts out of the phone-width fullScreen behavior below — for a short
+   * read-only "View X" modal (a handful of DetailView fields + a Close
+   * button), going fullScreen just leaves most of the phone's screen
+   * empty under the content. Forms and content-heavy modals (tables,
+   * multi-field forms) should keep the default.
+   */
+  compact?: boolean;
 }
 
-export function Modal({ title, onClose, children, wide, maxWidth, open = true }: Props) {
+export function Modal({ title, onClose, children, wide, maxWidth, open = true, compact }: Props) {
   const theme = useTheme();
   // A centred dialog leaves too little room for these forms on a phone —
-  // going full-screen gives the fields the whole viewport instead.
-  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  // going full-screen gives the fields the whole viewport instead. Not
+  // worthwhile for `compact` modals, which are short enough that a
+  // centred dialog already fits comfortably.
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm')) && !compact;
 
   return (
     <Dialog

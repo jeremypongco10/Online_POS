@@ -2,6 +2,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Table from '@mui/material/Table';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
@@ -55,7 +56,8 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
           <Typography variant="body2">Search for a product above to get started</Typography>
         </Box>
       ) : (
-        <Table size="small">
+        <TableContainer>
+          <Table size="small" sx={{ minWidth: 620 }}>
           <TableHead>
             <TableRow>
               <TableCell>Item</TableCell>
@@ -121,7 +123,8 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
               );
             })}
           </TableBody>
-        </Table>
+          </Table>
+        </TableContainer>
       )}
     </Paper>
   );
