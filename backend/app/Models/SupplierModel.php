@@ -20,10 +20,10 @@ class SupplierModel extends Model
     ];
 
     protected $validationRules = [
-        'company_id' => 'required|is_natural_no_zero',
-        'name' => 'required|max_length[150]',
-        'email' => 'permit_empty|valid_email|max_length[150]',
-        'phone' => 'permit_empty|max_length[30]',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[150]'],
+        'email' => ['label' => 'Email', 'rules' => 'permit_empty|valid_email|max_length[150]'],
+        'phone' => ['label' => 'Phone', 'rules' => 'permit_empty|max_length[30]'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 }

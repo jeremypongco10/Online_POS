@@ -15,9 +15,9 @@ class RevokedTokenModel extends Model
     protected $allowedFields = ['jti', 'user_id', 'expires_at', 'revoked_at'];
 
     protected $validationRules = [
-        'jti' => 'required|max_length[36]',
-        'user_id' => 'required|is_natural_no_zero',
-        'expires_at' => 'required',
+        'jti' => ['label' => 'Token ID', 'rules' => 'required|max_length[36]'],
+        'user_id' => ['label' => 'User', 'rules' => 'required|is_natural_no_zero'],
+        'expires_at' => ['label' => 'Expiry date', 'rules' => 'required'],
     ];
 
     public function isRevoked(string $jti): bool

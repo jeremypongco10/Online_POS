@@ -45,7 +45,7 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
       await api.post(`/cash-sessions/${session.id}/close`, { closing_balance: actual });
       onClosed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not close register');
+      setError(err instanceof ApiError ? err.message : 'Failed to close register');
     } finally {
       setSubmitting(false);
     }

@@ -24,13 +24,13 @@ class UserModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'company_id' => 'required|is_natural_no_zero',
-        'role_id' => 'permit_empty|is_natural_no_zero',
-        'name' => 'required|min_length[2]|max_length[150]',
-        'email' => 'required|valid_email|max_length[150]|is_unique[users.email,id,{id}]',
-        'username' => 'required|alpha_numeric_punct|max_length[60]|is_unique[users.username,id,{id}]',
-        'phone' => 'permit_empty|max_length[30]',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'role_id' => ['label' => 'Role', 'rules' => 'permit_empty|is_natural_no_zero'],
+        'name' => ['label' => 'Name', 'rules' => 'required|min_length[2]|max_length[150]'],
+        'email' => ['label' => 'Email', 'rules' => 'required|valid_email|max_length[150]|is_unique[users.email,id,{id}]'],
+        'username' => ['label' => 'Username', 'rules' => 'required|alpha_numeric_punct|max_length[60]|is_unique[users.username,id,{id}]'],
+        'phone' => ['label' => 'Phone', 'rules' => 'permit_empty|max_length[30]'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     protected $beforeInsert = ['hashPassword'];

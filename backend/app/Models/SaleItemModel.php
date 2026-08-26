@@ -21,15 +21,15 @@ class SaleItemModel extends Model
     ];
 
     protected $validationRules = [
-        'sale_id' => 'required|is_natural_no_zero',
-        'product_id' => 'required|is_natural_no_zero',
-        'tax_rate_id' => 'permit_empty|is_natural_no_zero',
-        'tax_type' => 'permit_empty|in_list[vat,vat_exempt,zero_rated,non_vat]',
-        'quantity' => 'required|decimal',
-        'unit_price' => 'required|decimal',
-        'discount' => 'permit_empty|decimal',
-        'tax_rate' => 'permit_empty|decimal',
-        'tax_amount' => 'permit_empty|decimal',
-        'line_total' => 'required|decimal',
+        'sale_id' => ['label' => 'Sale', 'rules' => 'required|is_natural_no_zero'],
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'tax_rate_id' => ['label' => 'Tax rate', 'rules' => 'permit_empty|is_natural_no_zero'],
+        'tax_type' => ['label' => 'Tax type', 'rules' => 'permit_empty|in_list[vat,vat_exempt,zero_rated,non_vat]'],
+        'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal'],
+        'unit_price' => ['label' => 'Unit price', 'rules' => 'required|decimal'],
+        'discount' => ['label' => 'Discount', 'rules' => 'permit_empty|decimal'],
+        'tax_rate' => ['label' => 'Tax rate percentage', 'rules' => 'permit_empty|decimal'],
+        'tax_amount' => ['label' => 'Tax amount', 'rules' => 'permit_empty|decimal'],
+        'line_total' => ['label' => 'Line total', 'rules' => 'required|decimal'],
     ];
 }

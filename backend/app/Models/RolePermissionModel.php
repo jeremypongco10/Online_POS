@@ -15,8 +15,8 @@ class RolePermissionModel extends Model
     protected $allowedFields = ['role_id', 'permission_id', 'created_at'];
 
     protected $validationRules = [
-        'role_id' => 'required|is_natural_no_zero',
-        'permission_id' => 'required|is_natural_no_zero',
+        'role_id' => ['label' => 'Role', 'rules' => 'required|is_natural_no_zero'],
+        'permission_id' => ['label' => 'Permission', 'rules' => 'required|is_natural_no_zero'],
     ];
 
     protected $beforeInsert = ['setCreatedAt'];

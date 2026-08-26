@@ -19,10 +19,10 @@ class InventoryModel extends Model
     ];
 
     protected $validationRules = [
-        'product_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'quantity' => 'permit_empty|decimal',
-        'reorder_level' => 'permit_empty|decimal',
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'quantity' => ['label' => 'Quantity', 'rules' => 'permit_empty|decimal'],
+        'reorder_level' => ['label' => 'Reorder level', 'rules' => 'permit_empty|decimal'],
     ];
 
     public function forProductAtStore(int $productId, int $storeId): ?object

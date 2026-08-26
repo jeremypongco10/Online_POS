@@ -19,10 +19,10 @@ class RoleModel extends Model
     ];
 
     protected $validationRules = [
-        'company_id' => 'required|is_natural_no_zero',
-        'name' => 'required|min_length[2]|max_length[100]',
-        'description' => 'permit_empty|max_length[255]',
-        'is_system' => 'permit_empty|in_list[0,1]',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'name' => ['label' => 'Name', 'rules' => 'required|min_length[2]|max_length[100]'],
+        'description' => ['label' => 'Description', 'rules' => 'permit_empty|max_length[255]'],
+        'is_system' => ['label' => 'System role', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     public function permissionSlugs(int $roleId): array

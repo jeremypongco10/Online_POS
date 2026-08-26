@@ -26,13 +26,13 @@ class PurchaseOrderModel extends Model
     ];
 
     protected $validationRules = [
-        'company_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'supplier_id' => 'required|is_natural_no_zero',
-        'po_number' => 'required|max_length[40]',
-        'status' => 'permit_empty|in_list[draft,approved,received,cancelled]',
-        'subtotal' => 'permit_empty|decimal',
-        'tax_total' => 'permit_empty|decimal',
-        'total' => 'permit_empty|decimal',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'supplier_id' => ['label' => 'Supplier', 'rules' => 'required|is_natural_no_zero'],
+        'po_number' => ['label' => 'PO number', 'rules' => 'required|max_length[40]'],
+        'status' => ['label' => 'Status', 'rules' => 'permit_empty|in_list[draft,approved,received,cancelled]'],
+        'subtotal' => ['label' => 'Subtotal', 'rules' => 'permit_empty|decimal'],
+        'tax_total' => ['label' => 'Tax total', 'rules' => 'permit_empty|decimal'],
+        'total' => ['label' => 'Total', 'rules' => 'permit_empty|decimal'],
     ];
 }

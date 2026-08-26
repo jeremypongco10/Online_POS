@@ -16,8 +16,8 @@ class AuthController extends BaseApiController
     public function login()
     {
         $rules = [
-            'identifier' => 'required',
-            'password' => 'required',
+            'identifier' => ['label' => 'Email or username', 'rules' => 'required'],
+            'password' => ['label' => 'Password', 'rules' => 'required'],
         ];
 
         if (! $this->validateData($this->request->getJSON(true) ?? [], $rules)) {
@@ -29,12 +29,19 @@ class AuthController extends BaseApiController
         $user = $userModel->findByIdentifier($payload['identifier']);
         $authConfig = config(AuthConfig::class);
 
-        // Checked before verifying the password so a locked account
-        // doesn't leak whether the password itself was correct.
+        // Both checked before verifying the password — neither depends on
+        // what was submitted, so checking them first means a locked or
+        // deactivated account never leaks whether the password itself was
+        // correct (an attacker can't distinguish "right password, locked
+        // account" from "wrong password, locked account").
         if ($user && $userModel->isLocked($user)) {
             $minutesLeft = (int) ceil((strtotime($user->locked_until) - time()) / 60);
 
             return $this->apiFail("Account is locked due to too many failed login attempts. Try again in {$minutesLeft} minute(s).", 423);
+        }
+
+        if ($user && ! (bool) $user->is_active) {
+            return $this->unauthorized('Account is no longer active');
         }
 
         if (! $user || ! password_verify($payload['password'], $user->password_hash)) {
@@ -43,10 +50,6 @@ class AuthController extends BaseApiController
             }
 
             return $this->apiFail('Invalid credentials', 401);
-        }
-
-        if (! (bool) $user->is_active) {
-            return $this->apiFail('This account is deactivated', 403);
         }
 
         $userModel->clearLoginLock($user->id);
@@ -111,7 +114,7 @@ class AuthController extends BaseApiController
         $user = model(UserModel::class)->find((int) $claims->sub);
 
         if (! $user || ! (bool) $user->is_active) {
-            return $this->unauthorized('Account no longer active');
+            return $this->unauthorized('Account is no longer active');
         }
 
         // Rotate: the old refresh token is single-use.
@@ -136,8 +139,8 @@ class AuthController extends BaseApiController
     public function changePassword()
     {
         $rules = [
-            'current_password' => 'required',
-            'new_password' => 'required|min_length[8]',
+            'current_password' => ['label' => 'Current password', 'rules' => 'required'],
+            'new_password' => ['label' => 'New password', 'rules' => 'required|min_length[8]'],
         ];
 
         if (! $this->validateData($this->request->getJSON(true) ?? [], $rules)) {

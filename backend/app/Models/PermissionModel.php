@@ -18,8 +18,8 @@ class PermissionModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'name' => 'required|max_length[100]',
-        'slug' => 'required|max_length[100]|is_unique[permissions.slug,id,{id}]',
-        'description' => 'permit_empty|max_length[255]',
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
+        'slug' => ['label' => 'Slug', 'rules' => 'required|max_length[100]|is_unique[permissions.slug,id,{id}]'],
+        'description' => ['label' => 'Description', 'rules' => 'permit_empty|max_length[255]'],
     ];
 }

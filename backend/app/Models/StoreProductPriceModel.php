@@ -19,10 +19,10 @@ class StoreProductPriceModel extends Model
     ];
 
     protected $validationRules = [
-        'product_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'cost_price' => 'required|decimal',
-        'selling_price' => 'required|decimal',
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'cost_price' => ['label' => 'Cost price', 'rules' => 'required|decimal'],
+        'selling_price' => ['label' => 'Selling price', 'rules' => 'required|decimal'],
     ];
 
     /** One row per (product_id, store_id) — inserts or overwrites in a single upsert per store. */

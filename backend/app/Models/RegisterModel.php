@@ -17,9 +17,9 @@ class RegisterModel extends Model
     protected $allowedFields = ['store_id', 'name', 'code', 'is_active'];
 
     protected $validationRules = [
-        'store_id' => 'required|is_natural_no_zero',
-        'name' => 'required|max_length[100]',
-        'code' => 'required|max_length[30]',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
+        'code' => ['label' => 'Code', 'rules' => 'required|max_length[30]'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 }

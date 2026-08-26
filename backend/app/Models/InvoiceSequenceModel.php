@@ -19,11 +19,11 @@ class InvoiceSequenceModel extends Model
     ];
 
     protected $validationRules = [
-        'company_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'type' => 'required|in_list[sale,purchase_order,return]',
-        'prefix' => 'permit_empty|max_length[20]',
-        'last_number' => 'permit_empty|is_natural',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'type' => ['label' => 'Type', 'rules' => 'required|in_list[sale,purchase_order,return]'],
+        'prefix' => ['label' => 'Prefix', 'rules' => 'permit_empty|max_length[20]'],
+        'last_number' => ['label' => 'Last number', 'rules' => 'permit_empty|is_natural'],
     ];
 
     /**

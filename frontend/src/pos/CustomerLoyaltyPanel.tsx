@@ -44,7 +44,7 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
       onAttach(result.customer, result.card);
       setCardNumber('');
     } catch (err) {
-      setScanError(err instanceof ApiError ? err.message : 'Could not validate card');
+      setScanError(err instanceof ApiError ? err.message : 'Failed to validate card');
     } finally {
       setScanning(false);
     }

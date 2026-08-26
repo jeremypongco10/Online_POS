@@ -20,12 +20,12 @@ class ReturnItemModel extends Model
     ];
 
     protected $validationRules = [
-        'return_id' => 'required|is_natural_no_zero',
-        'sale_item_id' => 'required|is_natural_no_zero',
-        'product_id' => 'required|is_natural_no_zero',
-        'quantity' => 'required|decimal',
-        'unit_price' => 'required|decimal',
-        'refund_amount' => 'required|decimal',
+        'return_id' => ['label' => 'Return', 'rules' => 'required|is_natural_no_zero'],
+        'sale_item_id' => ['label' => 'Sale item', 'rules' => 'required|is_natural_no_zero'],
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal'],
+        'unit_price' => ['label' => 'Unit price', 'rules' => 'required|decimal'],
+        'refund_amount' => ['label' => 'Refund amount', 'rules' => 'required|decimal'],
     ];
 
     /**

@@ -31,7 +31,7 @@ class ApiExceptionHandler extends BaseExceptionHandler implements ExceptionHandl
             ]);
         }
 
-        $message = $this->publicMessage($exception, $statusCode);
+        $message = $this->publicMessage($exception);
 
         $body = [
             'success' => false,
@@ -56,7 +56,7 @@ class ApiExceptionHandler extends BaseExceptionHandler implements ExceptionHandl
         }
     }
 
-    private function publicMessage(Throwable $exception, int $statusCode): string
+    private function publicMessage(Throwable $exception): string
     {
         if ($exception instanceof PageNotFoundException) {
             return 'The requested resource was not found.';
@@ -66,8 +66,13 @@ class ApiExceptionHandler extends BaseExceptionHandler implements ExceptionHandl
             return $exception->getMessage();
         }
 
-        // Don't leak internal error detail for unexpected 500s in production.
-        if ($statusCode >= 500 && ENVIRONMENT !== 'development') {
+        // Anything else escaped every controller's own try/catch, so its
+        // message was never vetted for public consumption — it could be a
+        // raw DB/driver error, a file path, etc. Mask it outside
+        // development regardless of the status code it happened to map
+        // to; development still gets it here, on top of the exception
+        // class/file/line already attached in `errors` above.
+        if (ENVIRONMENT !== 'development') {
             return 'An unexpected error occurred. Please try again later.';
         }
 

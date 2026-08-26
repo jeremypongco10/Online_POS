@@ -24,11 +24,11 @@ class TaxRateModel extends Model
     ];
 
     protected $validationRules = [
-        'company_id' => 'required|is_natural_no_zero',
-        'name' => 'required|max_length[100]',
-        'rate' => 'required|decimal',
-        'is_default' => 'permit_empty|in_list[0,1]',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
+        'rate' => ['label' => 'Rate', 'rules' => 'required|decimal'],
+        'is_default' => ['label' => 'Default', 'rules' => 'permit_empty|in_list[0,1]'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     public function defaultForCompany(int $companyId): ?object

@@ -25,13 +25,13 @@ class CustomerModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'company_id' => 'required|is_natural_no_zero',
-        'first_name' => 'required|max_length[75]',
-        'last_name' => 'required|max_length[75]',
-        'email' => 'permit_empty|valid_email|max_length[150]',
-        'mobile' => 'permit_empty|max_length[30]',
-        'credit_limit' => 'permit_empty|decimal',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'first_name' => ['label' => 'First name', 'rules' => 'required|max_length[75]'],
+        'last_name' => ['label' => 'Last name', 'rules' => 'required|max_length[75]'],
+        'email' => ['label' => 'Email', 'rules' => 'permit_empty|valid_email|max_length[150]'],
+        'mobile' => ['label' => 'Mobile number', 'rules' => 'permit_empty|max_length[30]'],
+        'credit_limit' => ['label' => 'Credit limit', 'rules' => 'permit_empty|decimal'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     protected $beforeInsert = ['composeFullName', 'generateCustomerCode'];

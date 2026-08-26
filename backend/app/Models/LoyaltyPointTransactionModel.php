@@ -18,11 +18,11 @@ class LoyaltyPointTransactionModel extends Model
     ];
 
     protected $validationRules = [
-        'customer_id' => 'required|is_natural_no_zero',
-        'loyalty_card_id' => 'required|is_natural_no_zero',
-        'points_delta' => 'required|integer',
-        'balance_after' => 'required|integer',
-        'note' => 'permit_empty|max_length[255]',
+        'customer_id' => ['label' => 'Customer', 'rules' => 'required|is_natural_no_zero'],
+        'loyalty_card_id' => ['label' => 'Loyalty card', 'rules' => 'required|is_natural_no_zero'],
+        'points_delta' => ['label' => 'Points', 'rules' => 'required|integer'],
+        'balance_after' => ['label' => 'Balance after', 'rules' => 'required|integer'],
+        'note' => ['label' => 'Note', 'rules' => 'permit_empty|max_length[255]'],
     ];
 
     /** Current computed balance for one customer — the sum of every entry in their ledger, zero if they have none yet. */

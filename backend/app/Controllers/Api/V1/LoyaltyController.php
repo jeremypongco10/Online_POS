@@ -154,8 +154,8 @@ class LoyaltyController extends BaseCrudController
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
-            'points_delta' => 'permit_empty|integer',
-            'balance_delta' => 'permit_empty|decimal',
+            'points_delta' => ['label' => 'Points', 'rules' => 'permit_empty|integer'],
+            'balance_delta' => ['label' => 'Balance adjustment', 'rules' => 'permit_empty|decimal'],
         ];
 
         if (! $this->validateData($payload, $rules)) {

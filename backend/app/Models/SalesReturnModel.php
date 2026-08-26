@@ -29,13 +29,13 @@ class SalesReturnModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'sale_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'user_id' => 'required|is_natural_no_zero',
-        'approved_by' => 'permit_empty|is_natural_no_zero',
-        'return_number' => 'required|max_length[40]|is_unique[returns.return_number,id,{id}]',
-        'status' => 'permit_empty|in_list[pending,completed,cancelled]',
-        'total_refund' => 'permit_empty|decimal',
-        'return_date' => 'required',
+        'sale_id' => ['label' => 'Sale', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'user_id' => ['label' => 'User', 'rules' => 'required|is_natural_no_zero'],
+        'approved_by' => ['label' => 'Approver', 'rules' => 'permit_empty|is_natural_no_zero'],
+        'return_number' => ['label' => 'Return number', 'rules' => 'required|max_length[40]|is_unique[returns.return_number,id,{id}]'],
+        'status' => ['label' => 'Status', 'rules' => 'permit_empty|in_list[pending,completed,cancelled]'],
+        'total_refund' => ['label' => 'Total refund', 'rules' => 'permit_empty|decimal'],
+        'return_date' => ['label' => 'Return date', 'rules' => 'required'],
     ];
 }

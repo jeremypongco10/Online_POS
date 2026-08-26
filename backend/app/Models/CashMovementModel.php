@@ -18,10 +18,10 @@ class CashMovementModel extends Model
     protected $allowedFields = ['cash_session_id', 'type', 'amount', 'reason', 'user_id', 'created_at'];
 
     protected $validationRules = [
-        'cash_session_id' => 'required|is_natural_no_zero',
-        'type' => 'required|in_list[cash_in,cash_out]',
-        'amount' => 'required|decimal|greater_than[0]',
-        'reason' => 'permit_empty|max_length[255]',
+        'cash_session_id' => ['label' => 'Cash session', 'rules' => 'required|is_natural_no_zero'],
+        'type' => ['label' => 'Type', 'rules' => 'required|in_list[cash_in,cash_out]'],
+        'amount' => ['label' => 'Amount', 'rules' => 'required|decimal|greater_than[0]'],
+        'reason' => ['label' => 'Reason', 'rules' => 'permit_empty|max_length[255]'],
     ];
 
     protected $beforeInsert = ['setCreatedAt'];

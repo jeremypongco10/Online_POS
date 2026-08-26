@@ -48,6 +48,7 @@ export function ProductLookupScreen() {
   const notify = useSnackbar();
   const { hasPermission } = useAuth();
   const canViewInventory = hasPermission('inventory.view');
+  const canEditPrices = hasPermission('products.update');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -63,6 +64,8 @@ export function ProductLookupScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [storeRows, setStoreRows] = useState<StoreRow[]>([]);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [pricesDirty, setPricesDirty] = useState(false);
+  const [pricesSaving, setPricesSaving] = useState(false);
 
   useEffect(() => {
     api.get<Category[]>('/categories?per_page=200').then(setCategories);
@@ -137,10 +140,42 @@ export function ProductLookupScreen() {
           reorder_level: invByStore.get(p.store_id)?.reorder_level ?? null,
         }))
       );
+      setPricesDirty(false);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : 'Failed to load product detail', 'error');
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  function updatePriceField(storeId: number, field: 'cost_price' | 'selling_price', value: string) {
+    setStoreRows((rows) => rows.map((r) => (r.store_id === storeId ? { ...r, [field]: value } : r)));
+    setPricesDirty(true);
+  }
+
+  async function savePrices() {
+    if (!selected) return;
+    setPricesSaving(true);
+    try {
+      const updated = await api.put<StoreProductPrice[]>(`/products/${selected.id}/prices`, {
+        prices: storeRows.map((r) => ({
+          store_id: r.store_id,
+          cost_price: r.cost_price || '0',
+          selling_price: r.selling_price || '0',
+        })),
+      });
+      setStoreRows((rows) =>
+        rows.map((r) => {
+          const p = updated.find((u) => u.store_id === r.store_id);
+          return p ? { ...r, cost_price: p.cost_price, selling_price: p.selling_price } : r;
+        })
+      );
+      setPricesDirty(false);
+      notify('Prices updated');
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to save prices', 'error');
+    } finally {
+      setPricesSaving(false);
     }
   }
 
@@ -150,6 +185,7 @@ export function ProductLookupScreen() {
     setCandidates([]);
     setSelected(null);
     setStoreRows([]);
+    setPricesDirty(false);
     inputRef.current?.focus();
   }
 
@@ -173,12 +209,13 @@ export function ProductLookupScreen() {
   const idle = !searched && !searching;
 
   return (
-    <Box sx={{ maxWidth: 900 }}>
+    <Box>
       <Paper
         variant="outlined"
         sx={{
           p: 1,
           mb: 3,
+          maxWidth: 640,
           borderRadius: 4,
           background: 'linear-gradient(135deg, color-mix(in srgb, var(--mui-palette-primary-main) 6%, var(--mui-palette-background-paper)), var(--mui-palette-background-paper))',
         }}
@@ -220,7 +257,7 @@ export function ProductLookupScreen() {
       </Paper>
 
       {idle && (
-        <Paper variant="outlined" sx={{ p: 6, borderRadius: 4, textAlign: 'center' }}>
+        <Paper variant="outlined" sx={{ p: 6, maxWidth: 640, borderRadius: 4, textAlign: 'center' }}>
           <Box
             sx={{
               width: 64,
@@ -246,7 +283,7 @@ export function ProductLookupScreen() {
       )}
 
       {searched && !selected && candidates.length === 0 && (
-        <Paper variant="outlined" sx={{ p: 4, borderRadius: 4, textAlign: 'center' }}>
+        <Paper variant="outlined" sx={{ p: 4, maxWidth: 640, borderRadius: 4, textAlign: 'center' }}>
           <SearchOffOutlinedIcon sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
           <Typography color="text.secondary">No product matches "{query}".</Typography>
         </Paper>
@@ -259,7 +296,7 @@ export function ProductLookupScreen() {
           </Typography>
           <Grid container spacing={1.5}>
             {candidates.map((p) => (
-              <Grid key={p.id} size={{ xs: 12, sm: 6 }}>
+              <Grid key={p.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                 <Paper
                   variant="outlined"
                   onClick={() => selectProduct(p)}
@@ -360,11 +397,18 @@ export function ProductLookupScreen() {
               ]}
             />
 
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 3, mb: 1.5 }}>
-              <StorefrontOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Stock &amp; Price by Store
-              </Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 3, mb: 1.5 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <StorefrontOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  Stock &amp; Price by Store
+                </Typography>
+              </Stack>
+              {canEditPrices && pricesDirty && (
+                <Button size="small" variant="contained" onClick={savePrices} disabled={pricesSaving} sx={{ borderRadius: 3 }}>
+                  {pricesSaving ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : 'Save Prices'}
+                </Button>
+              )}
             </Stack>
 
             {detailLoading ? (
@@ -384,7 +428,7 @@ export function ProductLookupScreen() {
                   const profitColor = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
 
                   return (
-                    <Grid key={row.store_id} size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Grid key={row.store_id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                       <Paper
                         variant="outlined"
                         sx={{
@@ -423,22 +467,46 @@ export function ProductLookupScreen() {
 
                         <Divider sx={{ my: 1.25 }} />
 
-                        <Stack spacing={0.5}>
-                          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                        <Stack spacing={0.75}>
+                          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                             <Typography variant="caption" color="text.secondary">
                               Cost
                             </Typography>
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                              {row.cost_price ? formatMoney(cost) : '—'}
-                            </Typography>
+                            {canEditPrices ? (
+                              <TextField
+                                type="number"
+                                size="small"
+                                variant="standard"
+                                slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } } }}
+                                value={row.cost_price ?? ''}
+                                onChange={(e) => updatePriceField(row.store_id, 'cost_price', e.target.value)}
+                                sx={{ width: 84 }}
+                              />
+                            ) : (
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {row.cost_price ? formatMoney(cost) : '—'}
+                              </Typography>
+                            )}
                           </Stack>
-                          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                             <Typography variant="caption" color="text.secondary">
                               Price
                             </Typography>
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                              {row.selling_price ? formatMoney(price) : '—'}
-                            </Typography>
+                            {canEditPrices ? (
+                              <TextField
+                                type="number"
+                                size="small"
+                                variant="standard"
+                                slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } } }}
+                                value={row.selling_price ?? ''}
+                                onChange={(e) => updatePriceField(row.store_id, 'selling_price', e.target.value)}
+                                sx={{ width: 84 }}
+                              />
+                            ) : (
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {row.selling_price ? formatMoney(price) : '—'}
+                              </Typography>
+                            )}
                           </Stack>
                           <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
                             <Typography variant="caption" color="text.secondary">

@@ -66,7 +66,7 @@ class ReturnsController extends BaseCrudController
 
         $sale = model(SaleModel::class)->where('company_id', Services::authContext()->companyId)->find($saleId);
         if (! $sale || ! Services::authContext()->canAccessStore((int) $sale->store_id)) {
-            return $this->notFound('Unknown sale');
+            return $this->apiFail('Unknown sale_id', 422);
         }
 
         $returnItemModel = model(ReturnItemModel::class);
@@ -235,7 +235,7 @@ class ReturnsController extends BaseCrudController
 
             if ((float) $line->quantity > $remaining + 0.0001) {
                 return $this->apiFail(
-                    "Cannot approve: requested {$line->quantity} of product #{$line->product_id} but only {$remaining} is still returnable now",
+                    "Cannot approve: requested {$line->quantity} of {$saleItem->product_name} but only {$remaining} is still returnable now",
                     422
                 );
             }

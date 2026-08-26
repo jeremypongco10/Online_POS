@@ -27,11 +27,11 @@ class LoyaltyCardModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'customer_id' => 'required|is_natural_no_zero',
-        'card_number' => 'required|max_length[40]|is_unique[loyalty_cards.card_number,id,{id}]',
-        'status' => 'permit_empty|in_list[active,inactive,blocked,lost]',
-        'points' => 'permit_empty|integer',
-        'balance' => 'permit_empty|decimal',
+        'customer_id' => ['label' => 'Customer', 'rules' => 'required|is_natural_no_zero'],
+        'card_number' => ['label' => 'Card number', 'rules' => 'required|max_length[40]|is_unique[loyalty_cards.card_number,id,{id}]'],
+        'status' => ['label' => 'Status', 'rules' => 'permit_empty|in_list[active,inactive,blocked,lost]'],
+        'points' => ['label' => 'Points', 'rules' => 'permit_empty|integer'],
+        'balance' => ['label' => 'Balance', 'rules' => 'permit_empty|decimal'],
     ];
 
     /**

@@ -86,7 +86,10 @@ class CustomersController extends BaseCrudController
 
         $payload = $this->request->getJSON(true) ?? [];
 
-        if (! $this->validateData($payload, ['points_delta' => 'required|integer', 'note' => 'permit_empty|max_length[255]'])) {
+        if (! $this->validateData($payload, [
+            'points_delta' => ['label' => 'Points', 'rules' => 'required|integer'],
+            'note' => ['label' => 'Note', 'rules' => 'permit_empty|max_length[255]'],
+        ])) {
             return $this->validationFail($this->validator->getErrors());
         }
 

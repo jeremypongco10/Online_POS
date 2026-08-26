@@ -15,9 +15,9 @@ class UserStoreModel extends Model
     protected $allowedFields = ['user_id', 'store_id', 'is_default', 'created_at'];
 
     protected $validationRules = [
-        'user_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'is_default' => 'permit_empty|in_list[0,1]',
+        'user_id' => ['label' => 'User', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'is_default' => ['label' => 'Default', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     protected $beforeInsert = ['setCreatedAt'];

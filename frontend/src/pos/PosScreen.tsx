@@ -182,7 +182,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
       setReceipt(fullReceipt);
       resetSale();
     } catch (err) {
-      setCheckoutError(err instanceof ApiError ? err.message : 'Checkout failed');
+      setCheckoutError(err instanceof ApiError ? err.message : 'Failed to complete checkout');
     } finally {
       setSubmitting(false);
     }

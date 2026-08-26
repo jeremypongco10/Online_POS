@@ -98,8 +98,11 @@ class UsersController extends BaseCrudController
     {
         $payload = $this->request->getJSON(true) ?? [];
 
-        if (empty($payload['password']) || strlen((string) $payload['password']) < 8) {
-            return $this->validationFail(['password' => 'The password field is required and must be at least 8 characters.']);
+        if (empty($payload['password'])) {
+            return $this->validationFail(['password' => 'The password field is required.']);
+        }
+        if (strlen((string) $payload['password']) < 8) {
+            return $this->validationFail(['password' => 'Password must be at least 8 characters.']);
         }
 
         if (! $this->roleIdIsOwnCompany($payload['role_id'] ?? null)) {

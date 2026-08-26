@@ -53,8 +53,8 @@ class CashSessionsController extends BaseCrudController
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
-            'register_id' => 'required|is_natural_no_zero',
-            'opening_balance' => 'required|decimal',
+            'register_id' => ['label' => 'Register', 'rules' => 'required|is_natural_no_zero'],
+            'opening_balance' => ['label' => 'Opening balance', 'rules' => 'required|decimal'],
         ];
 
         if (! $this->validateData($payload, $rules)) {
@@ -163,7 +163,7 @@ class CashSessionsController extends BaseCrudController
 
         $payload = $this->request->getJSON(true) ?? [];
 
-        if (! $this->validateData($payload, ['closing_balance' => 'required|decimal'])) {
+        if (! $this->validateData($payload, ['closing_balance' => ['label' => 'Closing balance', 'rules' => 'required|decimal']])) {
             return $this->validationFail($this->validator->getErrors());
         }
 

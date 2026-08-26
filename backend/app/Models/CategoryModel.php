@@ -20,13 +20,13 @@ class CategoryModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'company_id' => 'required|is_natural_no_zero',
-        'parent_id' => 'permit_empty|is_natural_no_zero',
+        'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
+        'parent_id' => ['label' => 'Parent category', 'rules' => 'permit_empty|is_natural_no_zero'],
         // Uniqueness on name is (company_id, name) at the DB level, not
         // global — deliberately not validated here (see ProductModel.sku).
-        'name' => 'required|max_length[100]',
-        'description' => 'permit_empty|max_length[255]',
-        'is_active' => 'permit_empty|in_list[0,1]',
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
+        'description' => ['label' => 'Description', 'rules' => 'permit_empty|max_length[255]'],
+        'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
     /**

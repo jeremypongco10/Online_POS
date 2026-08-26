@@ -33,12 +33,12 @@ class InventoryTransactionModel extends Model
     ];
 
     protected $validationRules = [
-        'inventory_id' => 'required|is_natural_no_zero',
-        'product_id' => 'required|is_natural_no_zero',
-        'store_id' => 'required|is_natural_no_zero',
-        'type' => 'required|in_list[purchase,sale,return,adjustment,transfer_in,transfer_out]',
-        'quantity' => 'required|decimal',
-        'balance_after' => 'required|decimal',
+        'inventory_id' => ['label' => 'Inventory record', 'rules' => 'required|is_natural_no_zero'],
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+        'type' => ['label' => 'Type', 'rules' => 'required|in_list[purchase,sale,return,adjustment,transfer_in,transfer_out]'],
+        'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal'],
+        'balance_after' => ['label' => 'Balance after', 'rules' => 'required|decimal'],
     ];
 
     protected $beforeInsert = ['setCreatedAt'];

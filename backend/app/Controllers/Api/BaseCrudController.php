@@ -188,6 +188,42 @@ abstract class BaseCrudController extends BaseApiController
     }
 
     /**
+     * MariaDB/MySQL's duplicate-entry message names the violated key but,
+     * on this server (MariaDB), not the table — e.g. "Duplicate entry
+     * 'X' for key 'company_id_name'" with no table qualifier. Composite
+     * unique keys here are always auto-named by concatenating their
+     * columns in definition order (see the addUniqueKey() calls in
+     * app/Database/Migrations/), so this maps each such key name to the
+     * one column in it that's actually meaningful to the person who
+     * typed the value — the rest of the key is just the tenant/parent
+     * scope (company_id, store_id, product_id, ...). A key name that
+     * collides across tables (e.g. categories/roles/tax_rates all share
+     * company_id_name) still maps correctly here because the answer is
+     * the same regardless of which table triggered it — the field really
+     * is called "name" in all three.
+     */
+    private const DUPLICATE_KEY_FIELDS = [
+        'name' => 'name',                                    // companies
+        'company_id_code' => 'code',                          // stores
+        'company_id_name' => 'name',                          // roles, categories, tax_rates
+        'slug' => 'slug',                                     // permissions
+        'email' => 'email',                                   // users
+        'username' => 'username',                             // users
+        'role_id_permission_id' => 'permission',              // role_permissions
+        'user_id_store_id' => 'store',                        // user_stores
+        'store_id_code' => 'code',                            // registers
+        'abbreviation' => 'abbreviation',                     // units
+        'company_id_sku' => 'SKU',                            // products
+        'company_id_barcode' => 'barcode',                    // products
+        'product_id_store_id' => 'store',                     // inventory, store_product_prices
+        'card_number' => 'card number',                       // loyalty_cards
+        'company_id_po_number' => 'PO number',                // purchase_orders
+        'company_id_invoice_number' => 'invoice number',      // sales
+        'return_number' => 'return number',                   // returns
+        'company_id_store_id_type' => 'type',                 // invoice_sequences
+    ];
+
+    /**
      * A unique-constraint violation the model's own $validationRules
      * didn't catch (e.g. a composite unique key like (company_id, code)
      * that a single-column `is_unique` rule can't express) would
@@ -199,6 +235,10 @@ abstract class BaseCrudController extends BaseApiController
     {
         if (! str_contains($e->getMessage(), 'Duplicate entry')) {
             throw $e;
+        }
+
+        if (preg_match("/for key '(?:[\\w-]+\\.)?([\\w-]+)'/", $e->getMessage(), $matches) && isset(self::DUPLICATE_KEY_FIELDS[$matches[1]])) {
+            return $this->apiFail('That ' . self::DUPLICATE_KEY_FIELDS[$matches[1]] . ' is already in use.', 422);
         }
 
         return $this->apiFail('That value is already in use.', 422);

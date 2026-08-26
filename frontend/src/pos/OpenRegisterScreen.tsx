@@ -33,7 +33,7 @@ export function OpenRegisterScreen({ registerId, registerName, onOpened }: Props
       });
       onOpened(session);
     } catch (err) {
-      reportError(err, 'Could not open register');
+      reportError(err, 'Failed to open register');
     } finally {
       setSubmitting(false);
     }

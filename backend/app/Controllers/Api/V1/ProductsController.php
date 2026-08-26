@@ -196,7 +196,8 @@ class ProductsController extends BaseCrudController
                 if (! str_contains($e->getMessage(), 'Duplicate entry')) {
                     throw $e;
                 }
-                $results[] = ['index' => $i, 'success' => false, 'error' => 'That SKU is already in use.'];
+                $field = str_contains($e->getMessage(), 'barcode') ? 'barcode' : 'SKU';
+                $results[] = ['index' => $i, 'success' => false, 'error' => "That $field is already in use."];
             }
         }
 
@@ -264,9 +265,9 @@ class ProductsController extends BaseCrudController
 
         foreach ($entries as $i => $entry) {
             $rules = [
-                'store_id' => 'required|is_natural_no_zero',
-                'cost_price' => 'required|decimal|greater_than_equal_to[0]',
-                'selling_price' => 'required|decimal|greater_than_equal_to[0]',
+                'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+                'cost_price' => ['label' => 'Cost price', 'rules' => 'required|decimal|greater_than_equal_to[0]'],
+                'selling_price' => ['label' => 'Selling price', 'rules' => 'required|decimal|greater_than_equal_to[0]'],
             ];
             if (! $this->validateData(is_array($entry) ? $entry : [], $rules)) {
                 return $this->validationFail(["prices.$i" => $this->validator->getErrors()]);

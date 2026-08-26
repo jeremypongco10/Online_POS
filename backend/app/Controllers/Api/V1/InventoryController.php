@@ -105,9 +105,9 @@ class InventoryController extends BaseApiController
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
-            'product_id' => 'required|is_natural_no_zero',
-            'store_id' => 'required|is_natural_no_zero',
-            'quantity_delta' => 'required|decimal',
+            'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+            'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+            'quantity_delta' => ['label' => 'Quantity adjustment', 'rules' => 'required|decimal'],
         ];
 
         if (! $this->validateData($payload, $rules)) {
@@ -168,10 +168,10 @@ class InventoryController extends BaseApiController
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
-            'product_id' => 'required|is_natural_no_zero',
-            'from_store_id' => 'required|is_natural_no_zero',
-            'to_store_id' => 'required|is_natural_no_zero|differs[from_store_id]',
-            'quantity' => 'required|decimal|greater_than[0]',
+            'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+            'from_store_id' => ['label' => 'Source store', 'rules' => 'required|is_natural_no_zero'],
+            'to_store_id' => ['label' => 'Destination store', 'rules' => 'required|is_natural_no_zero|differs[from_store_id]'],
+            'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal|greater_than[0]'],
         ];
 
         if (! $this->validateData($payload, $rules)) {
@@ -184,8 +184,11 @@ class InventoryController extends BaseApiController
         }
 
         $allowedStores = $this->allowedStoreIds();
-        if (! in_array((int) $payload['from_store_id'], $allowedStores, true) || ! in_array((int) $payload['to_store_id'], $allowedStores, true)) {
-            return $this->apiFail('Unknown store_id', 422);
+        if (! in_array((int) $payload['from_store_id'], $allowedStores, true)) {
+            return $this->apiFail('Unknown from_store_id', 422);
+        }
+        if (! in_array((int) $payload['to_store_id'], $allowedStores, true)) {
+            return $this->apiFail('Unknown to_store_id', 422);
         }
 
         $inventoryModel = model(InventoryModel::class);
@@ -198,7 +201,8 @@ class InventoryController extends BaseApiController
         $inventoryCalc = Services::inventoryCalculator();
 
         if (! $source || ! $inventoryCalc->hasSufficientStock((float) $source->quantity, $qty)) {
-            return $this->apiFail('Insufficient stock at source store', 422);
+            $available = $source->quantity ?? 0;
+            return $this->apiFail("Insufficient stock at source store: available {$available}, requested {$qty}", 422);
         }
 
         $db = \Config\Database::connect();

@@ -35,9 +35,9 @@ class PaymentModel extends Model
     ];
 
     protected $validationRules = [
-        'sale_id' => 'required|is_natural_no_zero',
-        'method' => 'required|in_list[cash,card,gcash,maya,bank_transfer,other]',
-        'amount' => 'required|decimal',
-        'paid_at' => 'required',
+        'sale_id' => ['label' => 'Sale', 'rules' => 'required|is_natural_no_zero'],
+        'method' => ['label' => 'Payment method', 'rules' => 'required|in_list[cash,card,gcash,maya,bank_transfer,other]'],
+        'amount' => ['label' => 'Amount', 'rules' => 'required|decimal'],
+        'paid_at' => ['label' => 'Payment date/time', 'rules' => 'required'],
     ];
 }

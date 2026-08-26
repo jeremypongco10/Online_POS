@@ -19,9 +19,9 @@ class UnitModel extends Model
 
     protected $validationRules = [
         'id' => 'permit_empty|is_natural', // used only to resolve the {id} placeholder below
-        'name' => 'required|max_length[50]',
-        'abbreviation' => 'required|max_length[10]|is_unique[units.abbreviation,id,{id}]',
-        'decimal_places' => 'permit_empty|is_natural|less_than_equal_to[4]',
+        'name' => ['label' => 'Name', 'rules' => 'required|max_length[50]'],
+        'abbreviation' => ['label' => 'Abbreviation', 'rules' => 'required|max_length[10]|is_unique[units.abbreviation,id,{id}]'],
+        'decimal_places' => ['label' => 'Decimal places', 'rules' => 'permit_empty|is_natural|less_than_equal_to[4]'],
     ];
 
     /** Rounds a quantity to the precision this unit actually supports (e.g. whole PCS, 0.001 KG). */

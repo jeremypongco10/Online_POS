@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { api, ApiError } from '../api/client';
-import type { BulkProductResponse, Category, TaxRate, Unit } from '../api/types';
+import type { BulkProductResponse, Category, Product, TaxRate, Unit } from '../api/types';
 import { useSnackbar } from '../Snackbar';
 import { useFormErrors } from './useFormErrors';
 import { SearchableSelect } from './SearchableSelect';
@@ -9,6 +9,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import Grid from '@mui/material/Grid';
+import Avatar from '@mui/material/Avatar';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
 import Button from '@mui/material/Button';
@@ -32,6 +33,8 @@ import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import AddIcon from '@mui/icons-material/Add';
+import AddAPhotoOutlinedIcon from '@mui/icons-material/AddAPhotoOutlined';
+import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
@@ -180,13 +183,30 @@ function SinglePanel({ categories, units, taxes }: RefData) {
   const notify = useSnackbar();
   const [form, setForm] = useState<SingleForm>(EMPTY_SINGLE);
   const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+
+  function pickImage(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  function clearImage() {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview(null);
+  }
 
   async function submit() {
     setSaving(true);
     clearErrors();
     try {
-      await api.post('/products', {
+      const created = await api.post<Product>('/products', {
         sku: form.sku,
         barcode: form.barcode || null,
         name: form.name,
@@ -198,10 +218,24 @@ function SinglePanel({ categories, units, taxes }: RefData) {
         is_active: form.is_active ? 1 : 0,
         track_inventory: 1,
       });
-      notify('Product created — add its photo from the Products tab if it needs one.');
+
+      if (imageFile) {
+        try {
+          const formData = new FormData();
+          formData.append('image', imageFile);
+          await api.upload(`/products/${created.id}/image`, formData);
+          notify('Product and photo added');
+        } catch {
+          notify('Product created, but the photo failed to upload — add it from the Products tab.', 'error');
+        }
+      } else {
+        notify('Product created');
+      }
+
       // Deliberately not navigating away — a quick-add flow reads as
       // "one form, keep going" more than "one form, then close".
       setForm(EMPTY_SINGLE);
+      clearImage();
     } catch (err) {
       reportError(err, 'Failed to create product');
     } finally {
@@ -210,7 +244,7 @@ function SinglePanel({ categories, units, taxes }: RefData) {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 640 }}>
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 640, mx: 'auto' }}>
       <form
         noValidate
         onSubmit={(e) => {
@@ -219,6 +253,27 @@ function SinglePanel({ categories, units, taxes }: RefData) {
         }}
       >
         <Grid container spacing={2}>
+          <Grid size={{ xs: 12 }}>
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+              <Avatar variant="rounded" src={imagePreview ?? undefined} sx={{ width: 72, height: 72, bgcolor: 'action.hover', color: 'text.disabled' }}>
+                <ImageNotSupportedOutlinedIcon />
+              </Avatar>
+              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <Button component="label" variant="outlined" size="small" startIcon={<AddAPhotoOutlinedIcon fontSize="small" />}>
+                  {imageFile ? 'Change Photo' : 'Upload Photo'}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={pickImage} />
+                </Button>
+                {imageFile && (
+                  <Button type="button" variant="text" size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={clearImage}>
+                    Remove
+                  </Button>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  JPEG, PNG, or WEBP — up to 2MB. Optional.
+                </Typography>
+              </Stack>
+            </Stack>
+          </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               label="SKU"
@@ -450,85 +505,94 @@ function BulkPanel({ categories, units, taxes }: RefData) {
     }
   }
 
+  const cellSx = { py: 0.5, px: 1 };
+  const inputSx = { '& .MuiInputBase-input': { py: 0.75 } };
+
   return (
     <Box>
       <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, mb: 2 }}>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ minWidth: 140 }}>SKU *</TableCell>
-              <TableCell sx={{ minWidth: 180 }}>Name *</TableCell>
-              <TableCell sx={{ minWidth: 120 }}>Barcode</TableCell>
-              <TableCell sx={{ minWidth: 160 }}>Category</TableCell>
-              <TableCell sx={{ minWidth: 160 }}>Unit</TableCell>
-              <TableCell sx={{ minWidth: 160 }}>Tax Rate</TableCell>
-              <TableCell sx={{ minWidth: 110 }}>Min. Stock</TableCell>
-              <TableCell align="center">Active</TableCell>
-              <TableCell align="right" sx={{ width: 1 }} />
+              <TableCell sx={{ ...cellSx, minWidth: 140 }}>SKU *</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 180 }}>Name *</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 120 }}>Barcode</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 160 }}>Category</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 160 }}>Unit</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 160 }}>Tax Rate</TableCell>
+              <TableCell sx={{ ...cellSx, minWidth: 110 }}>Min. Stock</TableCell>
+              <TableCell align="center" sx={cellSx}>Active</TableCell>
+              <TableCell align="right" sx={{ ...cellSx, width: 1 }} />
             </TableRow>
           </TableHead>
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.key} sx={row.error ? { bgcolor: 'color-mix(in srgb, var(--mui-palette-error-main) 6%, transparent)' } : undefined}>
-                <TableCell>
+                <TableCell sx={cellSx}>
                   <TextField
                     size="small"
                     fullWidth
+                    sx={inputSx}
                     value={row.sku}
                     onChange={(e) => updateRow(row.key, { sku: e.target.value })}
                     error={!!row.error}
                   />
                 </TableCell>
-                <TableCell>
-                  <TextField size="small" fullWidth value={row.name} onChange={(e) => updateRow(row.key, { name: e.target.value })} />
+                <TableCell sx={cellSx}>
+                  <TextField size="small" fullWidth sx={inputSx} value={row.name} onChange={(e) => updateRow(row.key, { name: e.target.value })} />
                 </TableCell>
-                <TableCell>
-                  <TextField size="small" fullWidth value={row.barcode} onChange={(e) => updateRow(row.key, { barcode: e.target.value })} />
+                <TableCell sx={cellSx}>
+                  <TextField size="small" fullWidth sx={inputSx} value={row.barcode} onChange={(e) => updateRow(row.key, { barcode: e.target.value })} />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={cellSx}>
                   <SearchableSelect
                     value={row.category_id}
                     onChange={(v) => updateRow(row.key, { category_id: v })}
                     options={[{ value: '', label: '— None —' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
                     fullWidth
+                    sx={inputSx}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={cellSx}>
                   <SearchableSelect
                     value={row.unit_id}
                     onChange={(v) => updateRow(row.key, { unit_id: v })}
                     options={[{ value: '', label: '— None —' }, ...units.map((u) => ({ value: String(u.id), label: u.abbreviation }))]}
                     fullWidth
+                    sx={inputSx}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={cellSx}>
                   <SearchableSelect
                     value={row.tax_rate_id}
                     onChange={(v) => updateRow(row.key, { tax_rate_id: v })}
                     options={[{ value: '', label: '— None —' }, ...taxes.map((t) => ({ value: String(t.id), label: `${t.name} (${t.rate}%)` }))]}
                     fullWidth
+                    sx={inputSx}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell sx={cellSx}>
                   <TextField
                     size="small"
                     type="number"
                     fullWidth
+                    sx={inputSx}
                     slotProps={{ htmlInput: { step: '0.0001' } }}
                     value={row.minimum_stock}
                     onChange={(e) => updateRow(row.key, { minimum_stock: e.target.value })}
                   />
                 </TableCell>
-                <TableCell align="center">
+                <TableCell align="center" sx={cellSx}>
                   <Checkbox
                     checked={row.is_active}
                     onChange={(e) => updateRow(row.key, { is_active: e.target.checked })}
                     size="small"
+                    sx={{ p: 0.5 }}
                   />
                 </TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={cellSx}>
                   <Tooltip title="Remove row">
-                    <IconButton size="small" onClick={() => removeRow(row.key)} disabled={rows.length === 1}>
+                    <IconButton size="small" onClick={() => removeRow(row.key)} disabled={rows.length === 1} sx={{ p: 0.5 }}>
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
@@ -731,7 +795,7 @@ function ImportPanel({ categories, units, taxes }: RefData) {
           tax_rate_input: taxInput,
           minimum_stock: get('minimum_stock') || '0',
           is_active: activeRaw === '' || ['1', 'yes', 'true', 'y'].includes(activeRaw),
-          error: !sku ? 'Missing SKU' : !name ? 'Missing name' : undefined,
+          error: !sku ? 'SKU is required' : !name ? 'Name is required' : undefined,
           warning: unresolved.length > 0 ? `Not found, left blank: ${unresolved.join(', ')}` : undefined,
         };
       });

@@ -101,7 +101,7 @@ function StockLevelsScreen() {
       reload();
       notify('Inventory adjusted');
     } catch (err) {
-      reportError(err, 'Adjustment failed');
+      reportError(err, 'Failed to adjust inventory');
     } finally {
       setSaving(false);
     }
@@ -122,7 +122,7 @@ function StockLevelsScreen() {
       reload();
       notify('Stock transferred');
     } catch (err) {
-      reportError(err, 'Transfer failed');
+      reportError(err, 'Failed to transfer stock');
     } finally {
       setSaving(false);
     }

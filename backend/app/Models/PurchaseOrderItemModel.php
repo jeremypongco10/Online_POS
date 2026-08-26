@@ -20,13 +20,13 @@ class PurchaseOrderItemModel extends Model
     ];
 
     protected $validationRules = [
-        'purchase_order_id' => 'required|is_natural_no_zero',
-        'product_id' => 'required|is_natural_no_zero',
-        'tax_rate_id' => 'permit_empty|is_natural_no_zero',
-        'quantity' => 'required|decimal',
-        'unit_cost' => 'required|decimal',
-        'tax_rate' => 'permit_empty|decimal',
-        'line_total' => 'required|decimal',
-        'received_quantity' => 'permit_empty|decimal',
+        'purchase_order_id' => ['label' => 'Purchase order', 'rules' => 'required|is_natural_no_zero'],
+        'product_id' => ['label' => 'Product', 'rules' => 'required|is_natural_no_zero'],
+        'tax_rate_id' => ['label' => 'Tax rate', 'rules' => 'permit_empty|is_natural_no_zero'],
+        'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal'],
+        'unit_cost' => ['label' => 'Unit cost', 'rules' => 'required|decimal'],
+        'tax_rate' => ['label' => 'Tax rate percentage', 'rules' => 'permit_empty|decimal'],
+        'line_total' => ['label' => 'Line total', 'rules' => 'required|decimal'],
+        'received_quantity' => ['label' => 'Received quantity', 'rules' => 'permit_empty|decimal'],
     ];
 }
