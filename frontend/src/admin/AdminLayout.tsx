@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode, type UIEvent } from 'react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import Toolbar from '@mui/material/Toolbar';
@@ -10,6 +10,8 @@ import ListSubheader from '@mui/material/ListSubheader';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Fab from '@mui/material/Fab';
+import Zoom from '@mui/material/Zoom';
 import Stack from '@mui/material/Stack';
 import Avatar from '@mui/material/Avatar';
 import Divider from '@mui/material/Divider';
@@ -22,6 +24,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import PersonIcon from '@mui/icons-material/Person';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
@@ -159,6 +162,20 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
   const visibleSections = new Set(NAV_ITEMS.filter((item) => item.permissions.some((p) => hasPermission(p))).map((i) => i.section));
   const itemsBySection = new Map(NAV_ITEMS.map((item) => [item.section, item]));
 
+  // The page itself doesn't scroll — this pane does (see the height:100svh
+  // + overflow:hidden shell below) — so "scrolled down" has to be read off
+  // this element's own scrollTop, not window.scrollY.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  function handleContentScroll(e: UIEvent<HTMLDivElement>) {
+    setShowScrollTop(e.currentTarget.scrollTop > 400);
+  }
+
+  function scrollContentToTop() {
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   function toggleCollapsed() {
     setCollapsed((prev) => {
       const next = !prev;
@@ -239,7 +256,13 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
           </Tooltip>
         </Toolbar>
         <Divider />
-        <Box sx={{ flex: 1, py: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        {/* scrollbarGutter reserves the scrollbar's own track space up front
+            (rather than the scrollbar painting over the last ~10px of
+            whatever's there once the list actually needs to scroll) — a
+            short browser window is enough to make this list scroll, and
+            without this the scrollbar sits on top of the selected item's
+            rounded highlight instead of beside it. */}
+        <Box sx={{ flex: 1, py: 1, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: 'stable' }}>
           {NAV_GROUPS.map((group) => {
             const groupItems = group.sections.map((s) => itemsBySection.get(s)!).filter((item) => visibleSections.has(item.section));
             if (groupItems.length === 0) return null;
@@ -354,7 +377,11 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <ChangePasswordModal open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
-        <Box sx={{ flex: 1, p: { xs: 2.5, sm: 3, md: 4 }, overflow: 'auto' }}>
+        <Box
+          ref={contentRef}
+          onScroll={handleContentScroll}
+          sx={{ flex: 1, position: 'relative', p: { xs: 2.5, sm: 3, md: 4 }, overflow: 'auto', scrollbarGutter: 'stable' }}
+        >
           <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Stack direction="row" spacing={{ xs: 1.5, sm: 2 }} sx={{ alignItems: 'center', minWidth: 0 }}>
               {isMobile && (
@@ -459,6 +486,44 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
 
           {children}
         </Box>
+
+        {/* Deliberately `fixed` to the viewport, not `sticky` within the
+            scrolling pane above — this button is the last thing rendered
+            after all of `children`, so a sticky position would only ever
+            engage once scrolled past everything, instead of floating over
+            the content the moment scrollTop passes the threshold. */}
+        <Zoom in={showScrollTop}>
+          <Fab
+            size="small"
+            onClick={scrollContentToTop}
+            aria-label="Scroll to top"
+            sx={{
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              bgcolor: 'background.paper',
+              color: 'primary.main',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: '0 8px 20px -6px rgba(16, 24, 40, 0.2)',
+              // Dimmed until hovered — a floating button sitting over page
+              // content otherwise competes with it for attention the whole
+              // time it's visible, not just while actually in use. 0.7 (not
+              // lower) so it stays clearly legible at rest instead of
+              // nearly disappearing against light content.
+              opacity: 0.7,
+              transition: 'opacity 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
+              '&:hover': {
+                opacity: 1,
+                bgcolor: 'background.paper',
+                boxShadow: '0 10px 24px -6px rgba(16, 24, 40, 0.3)',
+                transform: 'translateY(-2px)',
+              },
+            }}
+          >
+            <ArrowUpwardRoundedIcon />
+          </Fab>
+        </Zoom>
       </Box>
     </Box>
   );

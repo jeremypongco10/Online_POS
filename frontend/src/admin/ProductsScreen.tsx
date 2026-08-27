@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, assetUrl } from '../api/client';
-import type { Category, Product, StoreProductPrice, TaxRate, Unit } from '../api/types';
+import type { Category, Product, Store, StoreProductPrice, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
@@ -39,14 +39,29 @@ export function ProductsScreen() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
+  const canEditPrices = hasPermission('products.update');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Product>('/products', {
     category_id: categoryFilter,
+    is_active: statusFilter,
   });
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [taxes, setTaxes] = useState<TaxRate[]>([]);
+  // GET /stores is scoped server-side to whatever store(s) the caller is
+  // restricted to (see StoresController's storeColumn scoping) — a
+  // company-wide user gets every store back, a user tied to one store via
+  // user_stores gets just that one. Fetched once so a view-only viewer's
+  // Prices dialog can be narrowed to their own store(s) below, rather than
+  // exposing every store's pricing to someone who can't edit it anyway.
+  // null means "not resolved yet" (still loading, or the call failed
+  // because this viewer lacks the separate stores.view permission) — that
+  // must NOT be treated the same as "resolved to zero stores", or a
+  // viewer who's actually unrestricted but merely lacks stores.view would
+  // wrongly see every price hidden instead of all of them.
+  const [myStores, setMyStores] = useState<Store[] | null>(null);
 
   const [editing, setEditing] = useState<Product | null>(null);
   const [viewing, setViewing] = useState<Product | null>(null);
@@ -62,7 +77,28 @@ export function ProductsScreen() {
     api.get<Category[]>('/categories?per_page=200').then(setCategories);
     api.get<Unit[]>('/units?per_page=100').then(setUnits);
     api.get<TaxRate[]>('/taxes?per_page=100').then(setTaxes);
+    // No .catch() falling back to [] here on purpose — that would resolve
+    // to "zero stores" and hit the exact bug the null state above exists
+    // to avoid. Swallow the rejection and leave it null (== unresolved).
+    api
+      .get<Store[]>('/stores?per_page=50&is_active=1')
+      .then(setMyStores)
+      .catch(() => {});
   }, []);
+
+  // Full price-edit access already sees every company store's pricing
+  // (unchanged) — a view-only user is narrowed to just their own
+  // store(s), the "dedicated store" restriction above pares down to.
+  // While that scope is still unresolved (see the null case above),
+  // fall back to showing every store rather than hiding all of them.
+  // Number(...) on both sides because GET /stores serializes `id` as a
+  // JSON string ("3") while GET /products/{id}/prices serializes
+  // `store_id` as a number (3) — a plain === would never match either
+  // way, silently hiding every price for every view-only viewer.
+  const visiblePrices =
+    canEditPrices || myStores === null
+      ? prices
+      : prices.filter((r) => myStores.some((s) => Number(s.id) === Number(r.store_id)));
 
   const categoryName = (id: number | null) => categories.find((c) => c.id === id)?.name ?? '—';
   const unitName = (id: number | null) => units.find((u) => u.id === id)?.name ?? '—';
@@ -168,12 +204,25 @@ export function ProductsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter
-            label="Category"
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
-          />
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+            <InlineSelectFilter
+              label="Category"
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
+            />
+            <InlineSelectFilter
+              label="Status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              minWidth={140}
+              options={[
+                { value: '', label: 'All' },
+                { value: '1', label: 'Active' },
+                { value: '0', label: 'Inactive' },
+              ]}
+            />
+          </Stack>
         }
       />
 
@@ -197,13 +246,11 @@ export function ProductsScreen() {
                 <VisibilityOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            {hasPermission('products.update') && (
-              <Tooltip title="Prices">
-                <IconButton size="small" aria-label="Prices" onClick={() => openPricing(p)}>
-                  <PriceChangeIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
+            <Tooltip title={canEditPrices ? 'Prices' : 'View Prices'}>
+              <IconButton size="small" aria-label={canEditPrices ? 'Prices' : 'View Prices'} onClick={() => openPricing(p)}>
+                <PriceChangeIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             {hasPermission('products.update') && (
               <Tooltip title="Edit">
                 <IconButton size="small" aria-label="Edit" onClick={() => setEditing(p)}>
@@ -231,6 +278,10 @@ export function ProductsScreen() {
               <Stack sx={{ alignItems: 'center', py: 4 }}>
                 <CircularProgress size={22} />
               </Stack>
+            ) : visiblePrices.length === 0 ? (
+              <Typography color="text.secondary" sx={{ py: 2 }}>
+                You aren't assigned to a store, so there's no price to show here.
+              </Typography>
             ) : (
               <TableContainer>
                 <Table size="small" sx={{ minWidth: 460 }}>
@@ -243,28 +294,36 @@ export function ProductsScreen() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {prices.map((row) => (
+                  {visiblePrices.map((row) => (
                     <TableRow key={row.store_id}>
                       <TableCell>{row.store_name}</TableCell>
                       <TableCell align="right">
-                        <TextField
-                          type="number"
-                          size="small"
-                          slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
-                          value={row.cost_price ?? ''}
-                          onChange={(e) => updatePriceRow(row.store_id, 'cost_price', e.target.value)}
-                          sx={{ width: 110 }}
-                        />
+                        {canEditPrices ? (
+                          <TextField
+                            type="number"
+                            size="small"
+                            slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
+                            value={row.cost_price ?? ''}
+                            onChange={(e) => updatePriceRow(row.store_id, 'cost_price', e.target.value)}
+                            sx={{ width: 110 }}
+                          />
+                        ) : (
+                          <Typography variant="body2">{row.cost_price ? formatMoney(parseFloat(row.cost_price)) : '—'}</Typography>
+                        )}
                       </TableCell>
                       <TableCell align="right">
-                        <TextField
-                          type="number"
-                          size="small"
-                          slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
-                          value={row.selling_price ?? ''}
-                          onChange={(e) => updatePriceRow(row.store_id, 'selling_price', e.target.value)}
-                          sx={{ width: 110 }}
-                        />
+                        {canEditPrices ? (
+                          <TextField
+                            type="number"
+                            size="small"
+                            slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
+                            value={row.selling_price ?? ''}
+                            onChange={(e) => updatePriceRow(row.store_id, 'selling_price', e.target.value)}
+                            sx={{ width: 110 }}
+                          />
+                        ) : (
+                          <Typography variant="body2">{row.selling_price ? formatMoney(parseFloat(row.selling_price)) : '—'}</Typography>
+                        )}
                       </TableCell>
                       <TableCell align="right">
                         {(() => {
@@ -306,9 +365,11 @@ export function ProductsScreen() {
               <Button type="button" variant="text" onClick={() => setPricing(null)}>
                 Close
               </Button>
-              <Button type="button" variant="contained" onClick={savePrices} disabled={pricesSaving || pricesLoading}>
-                {pricesSaving ? 'Saving…' : 'Save Prices'}
-              </Button>
+              {canEditPrices && (
+                <Button type="button" variant="contained" onClick={savePrices} disabled={pricesSaving || pricesLoading}>
+                  {pricesSaving ? 'Saving…' : 'Save Prices'}
+                </Button>
+              )}
             </Stack>
           </>
         )}

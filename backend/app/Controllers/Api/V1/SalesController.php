@@ -9,6 +9,7 @@ use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
 use App\Models\InvoiceSequenceModel;
 use App\Models\LoyaltyCardModel;
+use App\Models\LoyaltyPointTransactionModel;
 use App\Models\PaymentModel;
 use App\Models\ProductModel;
 use App\Models\SaleItemModel;
@@ -466,6 +467,26 @@ class SalesController extends BaseCrudController
                 $db->transRollback();
 
                 return $this->validationFail($paymentModel->errors());
+            }
+        }
+
+        // --- Award loyalty points (flat company-wide rate, v1 — see the
+        // migration adding loyalty_points_per_100 to companies). Needs a
+        // customer attached (points belong to a customer's card, not the
+        // sale) and a nonzero rate; floor() so a sale under the rate's
+        // threshold earns 0 rather than being rounded up into free points. ---
+        if (! empty($payload['customer_id']) && $company && (int) $company->loyalty_points_per_100 > 0) {
+            $pointsEarned = (int) floor($total * $company->loyalty_points_per_100 / 100);
+
+            if ($pointsEarned > 0) {
+                $card = model(LoyaltyCardModel::class)->firstOrCreateForCustomer((int) $payload['customer_id']);
+                model(LoyaltyPointTransactionModel::class)->record(
+                    (int) $payload['customer_id'],
+                    (int) $card->id,
+                    $pointsEarned,
+                    "Earned from sale {$invoiceNumber}",
+                    null
+                );
             }
         }
 

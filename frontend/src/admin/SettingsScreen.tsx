@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Register, Store, TaxRate, Unit } from '../api/types';
+import type { Company, Register, Store, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
@@ -24,16 +24,21 @@ import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import InputAdornment from '@mui/material/InputAdornment';
+import CircularProgress from '@mui/material/CircularProgress';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'taxes' | 'units';
-const TABS: Tab[] = ['stores', 'registers', 'taxes', 'units'];
-const TAB_LABELS: Record<Tab, string> = { stores: 'Stores', registers: 'Registers', taxes: 'Taxes', units: 'Units' };
+type Tab = 'stores' | 'registers' | 'taxes' | 'units' | 'loyalty';
+const TABS: Tab[] = ['stores', 'registers', 'taxes', 'units', 'loyalty'];
+const TAB_LABELS: Record<Tab, string> = { stores: 'Stores', registers: 'Registers', taxes: 'Taxes', units: 'Units', loyalty: 'Loyalty' };
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
@@ -64,6 +69,7 @@ export function SettingsScreen() {
       {tab === 'registers' && hasPermission('registers.view') && <RegistersTab />}
       {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
+      {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
     </div>
   );
 }
@@ -935,5 +941,103 @@ function UnitsTab() {
         </Stack>
       </Modal>
     </div>
+  );
+}
+
+/**
+ * A single flat, company-wide rate — "N points per ₱100 of a sale's
+ * total" — rather than a list, so this tab is just one form instead of
+ * the Add/Edit-modal-over-a-table pattern every other tab here uses.
+ * SalesController::create() reads this same column to award points
+ * automatically at checkout when a customer is attached to the sale.
+ */
+function LoyaltyTab() {
+  const { user, hasPermission } = useAuth();
+  const notify = useSnackbar();
+  const canManage = hasPermission('loyalty.manage');
+  const [company, setCompany] = useState<Company | null>(null);
+  const [rate, setRate] = useState('0');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+
+  useEffect(() => {
+    if (!user?.company_id) return;
+    api
+      .get<Company>(`/companies/${user.company_id}`)
+      .then((c) => {
+        setCompany(c);
+        setRate(String(c.loyalty_points_per_100));
+      })
+      .finally(() => setLoading(false));
+  }, [user?.company_id]);
+
+  async function submit() {
+    if (!company) return;
+    setSaving(true);
+    clearErrors();
+    try {
+      const updated = await api.put<Company>(`/companies/${company.id}`, { loyalty_points_per_100: rate || '0' });
+      setCompany(updated);
+      setRate(String(updated.loyalty_points_per_100));
+      notify('Loyalty settings updated');
+    } catch (err) {
+      reportError(err, 'Failed to save loyalty settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Stack sx={{ alignItems: 'center', py: 6 }}>
+        <CircularProgress size={22} />
+      </Stack>
+    );
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 520 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <LoyaltyOutlinedIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          Points earned per sale
+        </Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Every completed sale with a customer attached automatically earns them this many points per ₱100 of the sale
+        total — set to 0 to turn off automatic earning (points can still be adjusted manually from a customer's Points
+        History).
+      </Typography>
+
+      <TextField
+        label="Points per ₱100"
+        type="number"
+        fullWidth
+        disabled={!canManage}
+        value={rate}
+        onChange={(e) => {
+          setRate(e.target.value);
+          clearField('loyalty_points_per_100');
+        }}
+        error={!!fieldErrors?.loyalty_points_per_100}
+        helperText={fieldErrors?.loyalty_points_per_100}
+        slotProps={{ htmlInput: { min: 0, step: 1 }, input: { endAdornment: <InputAdornment position="end">pts</InputAdornment> } }}
+      />
+
+      {formError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {formError}
+        </Alert>
+      )}
+
+      {canManage && (
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="contained" onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </Stack>
+      )}
+    </Paper>
   );
 }

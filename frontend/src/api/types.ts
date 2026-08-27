@@ -76,6 +76,23 @@ export interface StoreProductPrice {
   selling_price: string | null;
 }
 
+export interface Company {
+  id: number;
+  trade_name: string;
+  legal_name: string | null;
+  tax_id: string | null;
+  is_vat_registered: string | number;
+  vat_registration_number: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  currency: string;
+  timezone: string;
+  is_active: string | number;
+  /** Points earned per ₱100 of a sale's total, applied automatically at checkout when a customer is attached. 0 = disabled. */
+  loyalty_points_per_100: string | number;
+}
+
 export interface Store {
   id: number;
   company_id: number;

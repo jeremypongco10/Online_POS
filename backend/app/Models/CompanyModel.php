@@ -16,7 +16,7 @@ class CompanyModel extends Model
 
     protected $allowedFields = [
         'trade_name', 'legal_name', 'tax_id', 'is_vat_registered', 'vat_registration_number',
-        'email', 'phone', 'address', 'currency', 'timezone', 'is_active',
+        'email', 'phone', 'address', 'currency', 'timezone', 'is_active', 'loyalty_points_per_100',
     ];
 
     protected $validationRules = [
@@ -31,5 +31,8 @@ class CompanyModel extends Model
         'currency' => ['label' => 'Currency', 'rules' => 'permit_empty|max_length[3]'],
         'timezone' => ['label' => 'Timezone', 'rules' => 'permit_empty|max_length[64]'],
         'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
+        // "Points earned per ₱100 of a sale's total" — 0 (the default) means
+        // loyalty points aren't awarded automatically at all.
+        'loyalty_points_per_100' => ['label' => 'Loyalty points per 100', 'rules' => 'permit_empty|is_natural'],
     ];
 }

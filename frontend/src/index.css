@@ -32,3 +32,47 @@ input,
 select {
   font: inherit;
 }
+
+/* Thin, rounded scrollbars, invisible until the scrollable area itself is
+   hovered or has focus inside it — the thumb is transparent at rest and
+   only picks up color on :hover/:focus-within, so nothing shows up on a
+   short/non-scrolling page and it doesn't sit there as visual clutter on
+   a long one either. Most noticeable on AdminLayout's content pane, which
+   scrolls internally (see AdminLayout.tsx) rather than the whole page
+   scrolling. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover,
+*:focus-within {
+  scrollbar-color: var(--mui-palette-divider) transparent;
+}
+
+/* !important throughout: MUI's CssBaseline (see main.tsx) injects its own
+   global styles at runtime via Emotion, after this stylesheet — a plain
+   selector here, even repeated on every element via `*`, can otherwise
+   lose to whatever it or a component's own sx cascades in afterwards. */
+*::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: transparent !important;
+  border-radius: 8px !important;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background-color: var(--mui-palette-divider) !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mui-palette-text-secondary) !important;
+}
