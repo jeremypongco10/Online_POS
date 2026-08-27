@@ -93,6 +93,27 @@ class UsersController extends BaseCrudController
         return $role === null || $role->name !== 'Super Admin' || $this->callerRoleName() === 'Super Admin';
     }
 
+    /**
+     * These role names all mean "assigned to work at one specific store"
+     * — a Store Admin, Cashier, or Cashier Supervisor left unassigned
+     * (unrestricted, i.e. every store) or assigned to several contradicts
+     * what the role is for, so every path that sets a user's role or
+     * store access enforces exactly one store whenever this is true for
+     * the role in question.
+     */
+    private const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor'];
+
+    private function roleRequiresExactlyOneStore(?int $roleId): bool
+    {
+        if ($roleId === null) {
+            return false;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null && in_array($role->name, self::SINGLE_STORE_ROLES, true);
+    }
+
     /** POST /api/v1/users — a password is mandatory when creating an account (optional on update). */
     public function create()
     {
@@ -109,8 +130,32 @@ class UsersController extends BaseCrudController
             return $this->apiFail('role_id must belong to your own company', 422);
         }
 
-        if (! $this->roleAssignmentAllowed(isset($payload['role_id']) ? (int) $payload['role_id'] : null)) {
+        $roleId = isset($payload['role_id']) ? (int) $payload['role_id'] : null;
+
+        if (! $this->roleAssignmentAllowed($roleId)) {
             return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
+        }
+
+        // A single-store role's one store is required up front rather than
+        // left to a follow-up Store Access edit — the account would
+        // otherwise sit unrestricted (i.e. every store) between creation
+        // and that second step, which is exactly the state these roles
+        // must never be in.
+        $singleStoreId = null;
+        if ($this->roleRequiresExactlyOneStore($roleId)) {
+            $singleStoreId = ! empty($payload['store_id']) ? (int) $payload['store_id'] : null;
+            if ($singleStoreId === null) {
+                return $this->validationFail(['store_id' => 'This role must be assigned to exactly one store.']);
+            }
+
+            $auth = Services::authContext();
+            $store = model(StoreModel::class)->where('company_id', $auth->companyId)->find($singleStoreId);
+            if ($store === null) {
+                return $this->apiFail('store_id does not exist', 422);
+            }
+            if (! $auth->canAccessStore($singleStoreId)) {
+                return $this->apiFail('You do not have access to this store', 403);
+            }
         }
 
         $response = parent::create();
@@ -118,7 +163,17 @@ class UsersController extends BaseCrudController
 
         $body = json_decode($response->getBody(), true);
         if (($body['success'] ?? false) && isset($body['data']['id'])) {
-            $this->defaultNewUserToCallersOnlyStore((int) $body['data']['id']);
+            $newUserId = (int) $body['data']['id'];
+
+            if ($singleStoreId !== null) {
+                try {
+                    model(UserStoreModel::class)->syncForUser($newUserId, [$singleStoreId], $singleStoreId);
+                } catch (\Throwable $e) {
+                    log_message('error', 'Failed to assign new user\'s single store: {msg}', ['msg' => $e->getMessage()]);
+                }
+            } else {
+                $this->defaultNewUserToCallersOnlyStore($newUserId);
+            }
         }
 
         return $response;
@@ -187,12 +242,25 @@ class UsersController extends BaseCrudController
             return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
         }
 
+        if ($this->roleRequiresExactlyOneStore($roleId !== null ? (int) $roleId : null) && ! $this->userHasExactlyOneStore((int) $id)) {
+            return $this->apiFail(
+                'This user must be assigned to exactly one store before they can be given this role — set that under Store Access first.',
+                422
+            );
+        }
+
         $this->model->update($id, ['role_id' => $roleId]);
 
         $response = $this->ok($this->model->find($id), 'Role updated');
         $this->stripPasswordHash($response);
 
         return $response;
+    }
+
+    /** Whether a user (already saved, not a pending create) currently has access to exactly one store. */
+    private function userHasExactlyOneStore(int $userId): bool
+    {
+        return model(UserStoreModel::class)->where('user_id', $userId)->countAllResults() === 1;
     }
 
     /**
@@ -310,6 +378,10 @@ class UsersController extends BaseCrudController
             }
         }
 
+        if ($this->roleRequiresExactlyOneStore($user->role_id !== null ? (int) $user->role_id : null) && count($storeIds) !== 1) {
+            return $this->apiFail('This role must be assigned to exactly one store.', 422);
+        }
+
         model(UserStoreModel::class)->syncForUser((int) $id, $storeIds, $defaultStoreId);
 
         return $this->ok(model(UserStoreModel::class)->storesForUser((int) $id), 'Store access updated');
@@ -387,6 +459,17 @@ class UsersController extends BaseCrudController
 
         if (array_key_exists('role_id', $payload) && ! $this->roleAssignmentAllowed($payload['role_id'] !== null ? (int) $payload['role_id'] : null)) {
             return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
+        }
+
+        if (
+            array_key_exists('role_id', $payload)
+            && $this->roleRequiresExactlyOneStore($payload['role_id'] !== null ? (int) $payload['role_id'] : null)
+            && ! $this->userHasExactlyOneStore((int) $id)
+        ) {
+            return $this->apiFail(
+                'This user must be assigned to exactly one store before they can be given this role — set that under Store Access first.',
+                422
+            );
         }
 
         $response = parent::update($id);

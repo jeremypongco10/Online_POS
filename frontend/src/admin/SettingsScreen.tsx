@@ -78,7 +78,10 @@ function StoresTab() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Store>('/stores');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Store>('/stores', {
+    is_active: statusFilter,
+  });
 
   const [editing, setEditing] = useState<Store | null>(null);
   const [viewing, setViewing] = useState<Store | null>(null);
@@ -167,6 +170,19 @@ function StoresTab() {
         addLabel="Add Store"
         onRefresh={reload}
         refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
       />
 
       <DataTable
@@ -334,8 +350,10 @@ function RegistersTab() {
   const notify = useSnackbar();
   const [stores, setStores] = useState<Store[]>([]);
   const [storeFilter, setStoreFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Register>('/registers', {
     store_id: storeFilter,
+    is_active: statusFilter,
   });
 
   const [editing, setEditing] = useState<Register | null>(null);
@@ -429,12 +447,25 @@ function RegistersTab() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter
-            label="Store"
-            value={storeFilter}
-            onChange={setStoreFilter}
-            options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
-          />
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+            <InlineSelectFilter
+              label="Store"
+              value={storeFilter}
+              onChange={setStoreFilter}
+              options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+            />
+            <InlineSelectFilter
+              label="Status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              minWidth={140}
+              options={[
+                { value: '', label: 'All' },
+                { value: '1', label: 'Active' },
+                { value: '0', label: 'Inactive' },
+              ]}
+            />
+          </Stack>
         }
       />
 
@@ -578,7 +609,10 @@ function TaxesTab() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<TaxRate>('/taxes');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<TaxRate>('/taxes', {
+    is_active: statusFilter,
+  });
 
   const [show, setShow] = useState(false);
   const [viewing, setViewing] = useState<TaxRate | null>(null);
@@ -638,6 +672,19 @@ function TaxesTab() {
         addLabel="Add Tax Rate"
         onRefresh={reload}
         refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
       />
 
       <DataTable

@@ -62,9 +62,10 @@ export function BulkUpdatePricesScreen() {
   const [storeId, setStoreId] = useState('');
   const [applyToAllStores, setApplyToAllStores] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<ProductWithStorePrice>(
     '/products',
-    { store_id: storeId, category_id: categoryFilter }
+    { store_id: storeId, category_id: categoryFilter, is_active: statusFilter }
   );
 
   const [edits, setEdits] = useState<Record<number, PriceEdit>>({});
@@ -263,12 +264,25 @@ export function BulkUpdatePricesScreen() {
             onRefresh={reload}
             refreshing={loading}
             extra={
-              <InlineSelectFilter
-                label="Category"
-                value={categoryFilter}
-                onChange={setCategoryFilter}
-                options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
-              />
+              <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+                <InlineSelectFilter
+                  label="Category"
+                  value={categoryFilter}
+                  onChange={setCategoryFilter}
+                  options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
+                />
+                <InlineSelectFilter
+                  label="Status"
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  minWidth={140}
+                  options={[
+                    { value: '', label: 'All' },
+                    { value: '1', label: 'Active' },
+                    { value: '0', label: 'Inactive' },
+                  ]}
+                />
+              </Stack>
             }
             actions={
               <Button variant="outlined" startIcon={<UploadFileOutlinedIcon fontSize="small" />} onClick={() => setImportOpen(true)}>

@@ -8,6 +8,7 @@ import { useList } from './useList';
 import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { DetailView, StatusChip } from './DetailView';
 import Stack from '@mui/material/Stack';
@@ -48,7 +49,10 @@ export function SuppliersScreen() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Supplier>('/suppliers');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Supplier>('/suppliers', {
+    is_active: statusFilter,
+  });
 
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [viewing, setViewing] = useState<Supplier | null>(null);
@@ -143,6 +147,19 @@ export function SuppliersScreen() {
         addLabel="Add Supplier"
         onRefresh={reload}
         refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
       />
 
       <DataTable

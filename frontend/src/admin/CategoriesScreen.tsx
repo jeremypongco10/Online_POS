@@ -8,6 +8,7 @@ import { useList } from './useList';
 import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 import { DetailView, StatusChip } from './DetailView';
@@ -39,7 +40,10 @@ export function CategoriesScreen() {
   const isSuperAdmin = user?.role_name === 'Super Admin';
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Category>('/categories');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Category>('/categories', {
+    is_active: statusFilter,
+  });
 
   const [editing, setEditing] = useState<Category | null>(null);
   const [viewing, setViewing] = useState<Category | null>(null);
@@ -142,6 +146,19 @@ export function CategoriesScreen() {
         addLabel="Add Category"
         onRefresh={reload}
         refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
       />
 
       <DataTable

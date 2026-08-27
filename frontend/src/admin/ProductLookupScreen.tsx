@@ -73,6 +73,7 @@ export function ProductLookupScreen() {
 
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [candidates, setCandidates] = useState<Product[]>([]);
@@ -100,7 +101,7 @@ export function ProductLookupScreen() {
 
   async function runSearch() {
     const term = query.trim();
-    if (!term && !categoryId) return;
+    if (!term && !categoryId && !statusFilter) return;
 
     setSearching(true);
     setSearched(false);
@@ -110,6 +111,7 @@ export function ProductLookupScreen() {
       const params = new URLSearchParams({ per_page: '25' });
       if (term) params.set('q', term);
       if (categoryId) params.set('category_id', categoryId);
+      if (statusFilter) params.set('is_active', statusFilter);
       const { data } = await api.getPaged<Product>(`/products?${params.toString()}`);
 
       // A scanned barcode (or a typed exact SKU) should resolve straight to
@@ -204,6 +206,7 @@ export function ProductLookupScreen() {
   function reset() {
     setQuery('');
     setCategoryId('');
+    setStatusFilter('');
     setSearched(false);
     setCandidates([]);
     setSelected(null);
@@ -231,6 +234,9 @@ export function ProductLookupScreen() {
 
   const idle = !searched && !searching;
   const selectedCategoryName = categories.find((c) => String(c.id) === categoryId)?.name;
+  const filterDescriptions = [selectedCategoryName, statusFilter === '1' ? 'Active' : statusFilter === '0' ? 'Inactive' : null].filter(
+    (v): v is string => !!v
+  );
 
   const searchBar = (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
@@ -263,12 +269,26 @@ export function ProductLookupScreen() {
           '& .MuiInputBase-root': { bgcolor: 'background.paper', borderRadius: 3, height: 48 },
         }}
       />
+      <SearchableSelect
+        placeholder="Any status"
+        value={statusFilter}
+        onChange={setStatusFilter}
+        options={[
+          { value: '1', label: 'Active' },
+          { value: '0', label: 'Inactive' },
+        ]}
+        sx={{
+          width: { xs: '100%', sm: 160 },
+          flexShrink: 0,
+          '& .MuiInputBase-root': { bgcolor: 'background.paper', borderRadius: 3, height: 48 },
+        }}
+      />
       <Stack direction="row" spacing={1.25}>
         <Button
           variant="contained"
           startIcon={!searching ? <SearchIcon fontSize="small" /> : undefined}
           onClick={runSearch}
-          disabled={searching || (!query.trim() && !categoryId)}
+          disabled={searching || (!query.trim() && !categoryId && !statusFilter)}
           sx={{ borderRadius: 3, px: 2.5, flexShrink: 0, flex: { xs: 1, sm: 'initial' } }}
         >
           {searching ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Search'}
@@ -321,7 +341,7 @@ export function ProductLookupScreen() {
             Search by name, SKU, or scan a barcode — or narrow it down by category — to see full details, stock, and pricing
             across every store.
           </Typography>
-          <Box sx={{ width: '100%', maxWidth: 780 }}>{searchBar}</Box>
+          <Box sx={{ width: '100%', maxWidth: 900 }}>{searchBar}</Box>
         </Box>
       ) : (
         <Paper
@@ -341,11 +361,11 @@ export function ProductLookupScreen() {
         <Paper variant="outlined" sx={{ p: 4, maxWidth: 640, mx: 'auto', borderRadius: 4, textAlign: 'center' }}>
           <SearchOffOutlinedIcon sx={{ fontSize: 32, color: 'text.disabled', mb: 1 }} />
           <Typography color="text.secondary">
-            {query.trim() && selectedCategoryName
-              ? `No product matches "${query.trim()}" in ${selectedCategoryName}.`
+            {query.trim() && filterDescriptions.length > 0
+              ? `No product matches "${query.trim()}" in ${filterDescriptions.join(', ')}.`
               : query.trim()
                 ? `No product matches "${query.trim()}".`
-                : `No products found in ${selectedCategoryName}.`}
+                : `No products found in ${filterDescriptions.join(', ')}.`}
           </Typography>
         </Paper>
       )}

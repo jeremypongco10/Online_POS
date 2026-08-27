@@ -8,6 +8,7 @@ import { useList } from './useList';
 import { useFormErrors } from './useFormErrors';
 import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
+import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 import { DetailView, StatusChip } from './DetailView';
@@ -45,9 +46,11 @@ interface CreateForm {
   phone: string;
   password: string;
   role_id: string;
+  /** Required (and required to be exactly one store) only when role_id resolves to a single-store role (Store Admin, Cashier, Cashier Supervisor) — see roleRequiresOneStore below. */
+  store_id: string;
 }
 
-const EMPTY_CREATE: CreateForm = { name: '', email: '', username: '', phone: '', password: '', role_id: '' };
+const EMPTY_CREATE: CreateForm = { name: '', email: '', username: '', phone: '', password: '', role_id: '', store_id: '' };
 
 type SectionColor = 'primary' | 'warning' | 'success' | 'error';
 
@@ -80,7 +83,10 @@ export function UsersScreen() {
   const { user, hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<AdminUser>('/users');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<AdminUser>('/users', {
+    is_active: statusFilter,
+  });
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -136,6 +142,15 @@ export function UsersScreen() {
   // hand out the Super Admin role, so it's never even offered as an
   // option to anyone else.
   const assignableRoles = roles.filter((r) => r.name !== 'Super Admin' || user?.role_name === 'Super Admin');
+  // These role names all mean "assigned to work at one specific store" —
+  // the backend rejects a create/role-change/store-access edit that would
+  // leave one of them assigned to anything other than exactly one store,
+  // so the form requires it too rather than letting the request
+  // round-trip just to find out. Mirrors UsersController::SINGLE_STORE_ROLES.
+  const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor'];
+  const roleRequiresOneStore = (roleId: string) => SINGLE_STORE_ROLES.includes(roles.find((r) => String(r.id) === roleId)?.name ?? '');
+  const creatingSingleStoreRole = roleRequiresOneStore(createForm.role_id);
+  const targetRequiresOneStore = storeAccessUserR ? roleRequiresOneStore(storeAccessUserR.role_id ? String(storeAccessUserR.role_id) : '') : false;
 
   function openCreate() {
     setCreateForm(EMPTY_CREATE);
@@ -144,6 +159,10 @@ export function UsersScreen() {
   }
 
   async function submitCreate() {
+    if (creatingSingleStoreRole && !createForm.store_id) {
+      reportError(null, 'Pick the one store this role is assigned to.');
+      return;
+    }
     setSaving(true);
     clearErrors();
     try {
@@ -154,6 +173,7 @@ export function UsersScreen() {
         phone: createForm.phone || null,
         password: createForm.password,
         role_id: createForm.role_id || null,
+        store_id: creatingSingleStoreRole ? createForm.store_id : undefined,
       });
       setShowCreate(false);
       reload();
@@ -303,6 +323,19 @@ export function UsersScreen() {
         addLabel="Add User"
         onRefresh={reload}
         refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
       />
 
       <DataTable
@@ -426,15 +459,28 @@ export function UsersScreen() {
                   helperText={fieldErrors?.phone}
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid size={{ xs: 12, sm: creatingSingleStoreRole ? 6 : 12 }}>
                 <SearchableSelect
                   label="Role"
                   fullWidth
                   value={createForm.role_id}
-                  onChange={(v) => setCreateForm({ ...createForm, role_id: v })}
+                  onChange={(v) => setCreateForm({ ...createForm, role_id: v, store_id: '' })}
                   options={[{ value: '', label: '— None —' }, ...assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))]}
                 />
               </Grid>
+              {creatingSingleStoreRole && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <SearchableSelect
+                    label="Store"
+                    fullWidth
+                    required
+                    value={createForm.store_id}
+                    onChange={(v) => setCreateForm({ ...createForm, store_id: v })}
+                    options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+                    helperText="This role is assigned to exactly one store."
+                  />
+                </Grid>
+              )}
               <Grid size={{ xs: 12 }}>
                 <TextField
                   label="Password (min 8 characters)"
@@ -604,33 +650,57 @@ export function UsersScreen() {
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
               <SectionHeader icon={<StorefrontOutlinedIcon fontSize="small" />} label="Store Access" color="success" />
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Leave every box unchecked for unrestricted access to every store in the company — check specific stores to
-                limit this user to just those.
-              </Typography>
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.5, bgcolor: 'action.hover' }}>
-                {loadingStoreAccess ? (
-                  <Stack sx={{ alignItems: 'center', py: 1.5 }}>
-                    <CircularProgress size={20} />
-                  </Stack>
-                ) : (
-                  <FormGroup row sx={{ gap: 1.5 }}>
-                    {stores.map((store) => (
-                      <FormControlLabel
-                        key={store.id}
-                        control={<Checkbox checked={manageStoreIds.includes(store.id)} onChange={() => toggleStore(store.id)} />}
-                        label={store.name}
-                        sx={{ mr: 0 }}
-                      />
-                    ))}
-                    {stores.length === 0 && (
-                      <Typography variant="body2" color="text.secondary">
-                        No stores yet.
-                      </Typography>
+              {targetRequiresOneStore ? (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    This role is assigned to exactly one store — pick which one.
+                  </Typography>
+                  {loadingStoreAccess ? (
+                    <Stack sx={{ alignItems: 'center', py: 1.5 }}>
+                      <CircularProgress size={20} />
+                    </Stack>
+                  ) : (
+                    <SearchableSelect
+                      label="Store"
+                      fullWidth
+                      required
+                      value={manageStoreIds[0] ? String(manageStoreIds[0]) : ''}
+                      onChange={(v) => setManageStoreIds(v ? [Number(v)] : [])}
+                      options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Leave every box unchecked for unrestricted access to every store in the company — check specific stores
+                    to limit this user to just those.
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.5, bgcolor: 'action.hover' }}>
+                    {loadingStoreAccess ? (
+                      <Stack sx={{ alignItems: 'center', py: 1.5 }}>
+                        <CircularProgress size={20} />
+                      </Stack>
+                    ) : (
+                      <FormGroup row sx={{ gap: 1.5 }}>
+                        {stores.map((store) => (
+                          <FormControlLabel
+                            key={store.id}
+                            control={<Checkbox checked={manageStoreIds.includes(store.id)} onChange={() => toggleStore(store.id)} />}
+                            label={store.name}
+                            sx={{ mr: 0 }}
+                          />
+                        ))}
+                        {stores.length === 0 && (
+                          <Typography variant="body2" color="text.secondary">
+                            No stores yet.
+                          </Typography>
+                        )}
+                      </FormGroup>
                     )}
-                  </FormGroup>
-                )}
-              </Paper>
+                  </Paper>
+                </>
+              )}
             </Paper>
 
             {storeAccessError && <Alert severity="error">{storeAccessError}</Alert>}
@@ -640,7 +710,12 @@ export function UsersScreen() {
             <Button type="button" variant="text" onClick={() => setStoreAccessUser(null)}>
               Close
             </Button>
-            <Button variant="contained" onClick={saveStores} disabled={savingStores || loadingStoreAccess} sx={{ minWidth: 172 }}>
+            <Button
+              variant="contained"
+              onClick={saveStores}
+              disabled={savingStores || loadingStoreAccess || (targetRequiresOneStore && manageStoreIds.length !== 1)}
+              sx={{ minWidth: 172 }}
+            >
               {savingStores ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : 'Save Store Access'}
             </Button>
           </Stack>
