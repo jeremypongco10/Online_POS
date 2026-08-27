@@ -5,25 +5,35 @@ import { ProductsScreen } from './ProductsScreen';
 import { CategoriesScreen } from './CategoriesScreen';
 import { AddProductsScreen } from './AddProductsScreen';
 import { ProductLookupScreen } from './ProductLookupScreen';
+import { BulkUpdatePricesScreen } from './BulkUpdatePricesScreen';
 import { useAuth } from '../auth/AuthContext';
 import { useRouteState } from '../routing';
 
-type Tab = 'products' | 'categories' | 'add' | 'search';
+type Tab = 'products' | 'categories' | 'add' | 'search' | 'prices';
 // Most-used-first: find something that already exists, browse the full
 // list, create something new, then manage categories (supporting data,
 // touched least often). This order also drives the default landing tab —
 // see availableTabs[0] below.
-const TABS: Tab[] = ['search', 'products', 'add', 'categories'];
-const TAB_LABELS: Record<Tab, string> = { products: 'Products', categories: 'Categories', add: 'Add New Products', search: 'Search Product' };
+const TABS: Tab[] = ['search', 'products', 'add', 'prices', 'categories'];
+const TAB_LABELS: Record<Tab, string> = {
+  products: 'Products',
+  categories: 'Categories',
+  add: 'Add New Products',
+  search: 'Search Product',
+  prices: 'Bulk Update Prices',
+};
 // Adding products is gated on the same permission the existing Add Product
 // button already required. Search only reads product data (plus inventory,
 // handled gracefully if that permission is missing — see
 // ProductLookupScreen), so it rides on products.view like the list itself.
+// Bulk price updates ride on products.update, matching the per-product
+// Prices action's own gating.
 const TAB_PERMISSIONS: Record<Tab, string> = {
   products: 'products.view',
   categories: 'categories.view',
   add: 'products.create',
   search: 'products.view',
+  prices: 'products.update',
 };
 
 export function CatalogScreen() {
@@ -52,6 +62,7 @@ export function CatalogScreen() {
       {tab === 'search' && hasPermission('products.view') && <ProductLookupScreen />}
       {tab === 'products' && hasPermission('products.view') && <ProductsScreen />}
       {tab === 'add' && hasPermission('products.create') && <AddProductsScreen />}
+      {tab === 'prices' && hasPermission('products.update') && <BulkUpdatePricesScreen />}
       {tab === 'categories' && hasPermission('categories.view') && <CategoriesScreen />}
     </div>
   );

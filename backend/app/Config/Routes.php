@@ -83,6 +83,7 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
         $routes->group('products', static function (RouteCollection $routes) {
             $routes->get('', 'ProductsController::index', ['filter' => 'permission:products.view']);
             $routes->post('bulk', 'ProductsController::bulkCreate', ['filter' => 'permission:products.create']);
+            $routes->put('prices/bulk', 'ProductsController::bulkUpdatePrices', ['filter' => 'permission:products.update']);
             $routes->get('(:num)', 'ProductsController::show/$1', ['filter' => 'permission:products.view']);
             $routes->post('', 'ProductsController::create', ['filter' => 'permission:products.create']);
             $routes->put('(:num)', 'ProductsController::update/$1', ['filter' => 'permission:products.update']);

@@ -4,12 +4,13 @@ import type { BulkProductResponse, Category, Product, TaxRate, Unit } from '../a
 import { useSnackbar } from '../Snackbar';
 import { useFormErrors } from './useFormErrors';
 import { SearchableSelect } from './SearchableSelect';
+import { PhotoDropzone } from './PhotoDropzone';
+import { parseCsv, downloadCsv } from './csv';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import Grid from '@mui/material/Grid';
-import Avatar from '@mui/material/Avatar';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
 import Button from '@mui/material/Button';
@@ -33,8 +34,6 @@ import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import AddIcon from '@mui/icons-material/Add';
-import AddAPhotoOutlinedIcon from '@mui/icons-material/AddAPhotoOutlined';
-import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
@@ -187,10 +186,7 @@ function SinglePanel({ categories, units, taxes }: RefData) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
-  function pickImage(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  function pickImage(file: File) {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
@@ -244,7 +240,7 @@ function SinglePanel({ categories, units, taxes }: RefData) {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 640, mx: 'auto' }}>
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 900, mx: 'auto' }}>
       <form
         noValidate
         onSubmit={(e) => {
@@ -254,25 +250,13 @@ function SinglePanel({ categories, units, taxes }: RefData) {
       >
         <Grid container spacing={2}>
           <Grid size={{ xs: 12 }}>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-              <Avatar variant="rounded" src={imagePreview ?? undefined} sx={{ width: 72, height: 72, bgcolor: 'action.hover', color: 'text.disabled' }}>
-                <ImageNotSupportedOutlinedIcon />
-              </Avatar>
-              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-                <Button component="label" variant="outlined" size="small" startIcon={<AddAPhotoOutlinedIcon fontSize="small" />}>
-                  {imageFile ? 'Change Photo' : 'Upload Photo'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={pickImage} />
-                </Button>
-                {imageFile && (
-                  <Button type="button" variant="text" size="small" color="error" startIcon={<DeleteOutlineIcon fontSize="small" />} onClick={clearImage}>
-                    Remove
-                  </Button>
-                )}
-                <Typography variant="caption" color="text.secondary">
-                  JPEG, PNG, or WEBP — up to 2MB. Optional.
-                </Typography>
-              </Stack>
-            </Stack>
+            <PhotoDropzone
+              imageUrl={imagePreview}
+              onFile={pickImage}
+              onRemove={imageFile ? clearImage : undefined}
+              onError={(message) => notify(message, 'error')}
+              hint="JPEG, PNG, or WEBP — up to 2MB. Optional."
+            />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
@@ -660,65 +644,9 @@ interface ImportRow {
   importError?: string;
 }
 
-/** Minimal CSV parser — handles quoted fields, embedded commas, escaped ("") quotes, and quoted newlines. Good enough for a flat products sheet with no library dependency. */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inQuotes = true;
-    } else if (char === ',') {
-      row.push(field);
-      field = '';
-    } else if (char === '\r') {
-      // skip — \n (handled next) closes the row
-    } else if (char === '\n') {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-    } else {
-      field += char;
-    }
-  }
-  if (field !== '' || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  return rows.filter((r) => !(r.length === 1 && r[0].trim() === ''));
-}
-
 function downloadTemplate() {
   const csv = CSV_COLUMNS.join(',') + '\n' + 'ABC-001,Sample Product,1234567890123,Beverages,PCS,VAT 12%,5,yes\n';
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'product-import-template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  downloadCsv('product-import-template.csv', csv);
 }
 
 function ImportPanel({ categories, units, taxes }: RefData) {

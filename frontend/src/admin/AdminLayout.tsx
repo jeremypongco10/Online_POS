@@ -459,22 +459,6 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
 
           {children}
         </Box>
-
-        <Box
-          component="footer"
-          sx={{
-            flexShrink: 0,
-            px: { xs: 2.5, sm: 3, md: 4 },
-            py: 2,
-            borderTop: '1px solid',
-            borderColor: 'divider',
-            textAlign: 'center',
-          }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            © {new Date().getFullYear()} POS System. All rights reserved.
-          </Typography>
-        </Box>
       </Box>
     </Box>
   );

@@ -1,24 +1,18 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { api, ApiError, assetUrl } from '../api/client';
 import type { Category, Product, TaxRate, Unit } from '../api/types';
 import { useSnackbar } from '../Snackbar';
 import { useFormErrors } from './useFormErrors';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
-import Box from '@mui/material/Box';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import Avatar from '@mui/material/Avatar';
+import { PhotoDropzone } from './PhotoDropzone';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
+import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
-import CircularProgress from '@mui/material/CircularProgress';
-import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
-import AddAPhotoOutlinedIcon from '@mui/icons-material/AddAPhotoOutlined';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 
 interface FormState {
   sku: string;
@@ -90,10 +84,8 @@ export function ProductEditModal({ product, categories, units, taxes, onClose, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
 
-  function pickImage(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // lets the same file be re-picked later (e.g. after Remove)
-    if (!file || !product) return;
+  function pickImage(file: File) {
+    if (!product) return;
     uploadImage(product.id, file);
   }
 
@@ -167,60 +159,13 @@ export function ProductEditModal({ product, categories, units, taxes, onClose, o
       >
         <Grid container spacing={2} sx={{ pt: 1 }}>
           <Grid size={{ xs: 12 }}>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-              <Box sx={{ position: 'relative', width: 84, height: 84, flexShrink: 0 }}>
-                <Avatar
-                  variant="rounded"
-                  src={product?.image_path ? assetUrl(product.image_path) : undefined}
-                  sx={{ width: 84, height: 84, bgcolor: 'action.hover', color: 'text.disabled' }}
-                >
-                  <ImageNotSupportedOutlinedIcon />
-                </Avatar>
-                {imageUploading && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      bgcolor: 'rgba(0, 0, 0, 0.45)',
-                      borderRadius: 1,
-                    }}
-                  >
-                    <CircularProgress size={22} sx={{ color: '#fff' }} />
-                  </Box>
-                )}
-              </Box>
-              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-                <Button
-                  component="label"
-                  variant="outlined"
-                  size="small"
-                  startIcon={<AddAPhotoOutlinedIcon fontSize="small" />}
-                  disabled={imageUploading}
-                >
-                  {product?.image_path ? 'Change Photo' : 'Upload Photo'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={pickImage} />
-                </Button>
-                {product?.image_path && (
-                  <Button
-                    type="button"
-                    variant="text"
-                    size="small"
-                    color="error"
-                    startIcon={<DeleteOutlineIcon fontSize="small" />}
-                    onClick={removeImage}
-                    disabled={imageUploading}
-                  >
-                    Remove
-                  </Button>
-                )}
-                <Typography variant="caption" color="text.secondary">
-                  JPEG, PNG, or WEBP — up to 2MB.
-                </Typography>
-              </Stack>
-            </Stack>
+            <PhotoDropzone
+              imageUrl={product?.image_path ? assetUrl(product.image_path) : undefined}
+              uploading={imageUploading}
+              onFile={pickImage}
+              onRemove={product?.image_path ? removeImage : undefined}
+              onError={(message) => notify(message, 'error')}
+            />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField

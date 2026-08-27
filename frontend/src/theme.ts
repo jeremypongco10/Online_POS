@@ -175,5 +175,25 @@ export const theme = createTheme({
         },
       },
     },
+    // MUI's default alert tint is computed against a "typical" dark
+    // background (~#121212) — against this theme's much darker
+    // background.default (#101116) it comes out nearly indistinguishable
+    // from the page, reading as loose colored text rather than a card.
+    // Same color-mix() approach as MuiChip above: mix the severity color
+    // into background.paper (not the page background) for real contrast
+    // in both schemes, plus a tinted border since the fill alone is still
+    // fairly subtle by design.
+    MuiAlert: {
+      styleOverrides: {
+        root: ({ ownerState }) => {
+          const severity = ownerState.severity ?? 'info';
+          return {
+            backgroundColor: `color-mix(in srgb, var(--mui-palette-${severity}-main) 12%, var(--mui-palette-background-paper))`,
+            border: '1px solid',
+            borderColor: `color-mix(in srgb, var(--mui-palette-${severity}-main) 32%, transparent)`,
+          };
+        },
+      },
+    },
   },
 });

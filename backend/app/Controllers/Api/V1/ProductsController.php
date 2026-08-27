@@ -286,6 +286,122 @@ class ProductsController extends BaseCrudController
     }
 
     /**
+     * PUT /api/v1/products/prices/bulk
+     * body: { store_ids: [...], prices: [{ product_id | sku, cost_price, selling_price }, ...] }
+     * The bulk counterpart to updatePrices() — that one updates ONE product
+     * across many stores, this updates MANY products against one or more
+     * stores at once (store_ids has one entry for a single store, or every
+     * company store's id to reprice everywhere in one go).
+     * Each row identifies its product by EITHER product_id (the manual
+     * pricing grid, which already has it from the loaded list) OR sku (a
+     * CSV price import, which only ever has the SKU column a spreadsheet
+     * export would have — resolved here in one query rather than making
+     * the caller look product ids up first).
+     * Best-effort like bulkCreate(): each PRODUCT row succeeds or fails on
+     * its own — store_ids itself is trusted (it's the caller's own store
+     * list, never user-typed), so an invalid entry in it fails the whole
+     * request up front rather than partially applying.
+     */
+    public function bulkUpdatePrices()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+        $storeIds = $payload['store_ids'] ?? null;
+        $entries = $payload['prices'] ?? null;
+
+        if (! is_array($storeIds) || $storeIds === []) {
+            return $this->apiFail('store_ids must be a non-empty array', 422);
+        }
+        if (! is_array($entries) || $entries === []) {
+            return $this->apiFail('prices must be a non-empty array', 422);
+        }
+        if (count($entries) > 500) {
+            return $this->apiFail('Cannot update more than 500 prices at once', 422);
+        }
+
+        $auth = Services::authContext();
+        $companyStoreIds = model(StoreModel::class)->where('company_id', $auth->companyId)->findColumn('id') ?: [];
+        $companyStoreIds = array_flip(array_map('intval', $companyStoreIds));
+        $storeIds = array_map('intval', $storeIds);
+        foreach ($storeIds as $storeId) {
+            if (! isset($companyStoreIds[$storeId])) {
+                return $this->apiFail('Unknown store_id', 422);
+            }
+        }
+
+        $productModel = model(ProductModel::class);
+        $companyProductIds = $productModel->where('company_id', $auth->companyId)->findColumn('id') ?: [];
+        $companyProductIds = array_flip(array_map('intval', $companyProductIds));
+
+        // One lookup query for every SKU referenced anywhere in the
+        // payload, rather than a query per row — a CSV import can easily
+        // carry hundreds of rows.
+        $skus = [];
+        foreach ($entries as $entry) {
+            if (is_array($entry) && ! empty($entry['sku'])) {
+                $skus[] = trim((string) $entry['sku']);
+            }
+        }
+        $skuToProductId = [];
+        if ($skus !== []) {
+            foreach ($productModel->where('company_id', $auth->companyId)->whereIn('sku', array_unique($skus))->findAll() as $product) {
+                $skuToProductId[$product->sku] = (int) $product->id;
+            }
+        }
+
+        $model = model(StoreProductPriceModel::class);
+        $results = [];
+        $updated = 0;
+
+        foreach (array_values($entries) as $i => $entry) {
+            if (! is_array($entry)) {
+                $results[] = ['index' => $i, 'success' => false, 'error' => 'Row must be an object'];
+                continue;
+            }
+
+            $rules = [
+                'product_id' => ['label' => 'Product', 'rules' => 'permit_empty|is_natural_no_zero'],
+                'sku' => ['label' => 'SKU', 'rules' => 'permit_empty|max_length[60]'],
+                'cost_price' => ['label' => 'Cost price', 'rules' => 'required|decimal|greater_than_equal_to[0]'],
+                'selling_price' => ['label' => 'Selling price', 'rules' => 'required|decimal|greater_than_equal_to[0]'],
+            ];
+            if (! $this->validateData($entry, $rules)) {
+                $results[] = ['index' => $i, 'success' => false, 'error' => implode(' ', array_map(static fn ($e) => (string) $e, $this->validator->getErrors()))];
+                continue;
+            }
+
+            if (! empty($entry['product_id'])) {
+                $productId = (int) $entry['product_id'];
+                if (! isset($companyProductIds[$productId])) {
+                    $results[] = ['index' => $i, 'success' => false, 'error' => 'Unknown product_id'];
+                    continue;
+                }
+            } elseif (! empty($entry['sku'])) {
+                $sku = trim((string) $entry['sku']);
+                if (! isset($skuToProductId[$sku])) {
+                    $results[] = ['index' => $i, 'success' => false, 'error' => "Unknown SKU: {$sku}"];
+                    continue;
+                }
+                $productId = $skuToProductId[$sku];
+            } else {
+                $results[] = ['index' => $i, 'success' => false, 'error' => 'product_id or sku is required'];
+                continue;
+            }
+
+            foreach ($storeIds as $storeId) {
+                $model->upsertPrice($productId, $storeId, (float) $entry['cost_price'], (float) $entry['selling_price']);
+            }
+            $results[] = ['index' => $i, 'success' => true];
+            $updated++;
+        }
+
+        return $this->ok([
+            'results' => $results,
+            'updated' => $updated,
+            'failed' => count($entries) - $updated,
+        ]);
+    }
+
+    /**
      * POST /api/v1/products/{id}/image  multipart field "image"
      * Written straight into public/uploads/products/ (not writable/) so
      * the frontend can show it with a plain <img src> — no Authorization
