@@ -26,8 +26,12 @@ export const theme = createTheme({
       },
     },
   },
+  // Every unitless `borderRadius: N` used in an sx prop throughout the app
+  // (cards, tables, chips-in-a-box, store cards, etc.) multiplies against
+  // this one value — trimming it here scales all of them down together
+  // instead of hunting down each component's own hardcoded radius.
   shape: {
-    borderRadius: 6,
+    borderRadius: 4,
   },
   typography: {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -43,7 +47,7 @@ export const theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 4,
         },
       },
     },
@@ -90,7 +94,7 @@ export const theme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
+          borderRadius: 6,
         },
         notchedOutline: {
           // No label ever sits on the border line anymore, so the notch
@@ -170,7 +174,7 @@ export const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          borderRadius: 14,
+          borderRadius: 10,
           boxShadow: '0 24px 48px -12px rgba(16, 24, 40, 0.25), 0 4px 16px rgba(16, 24, 40, 0.1)',
         },
       },

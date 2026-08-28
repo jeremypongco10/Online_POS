@@ -190,7 +190,9 @@ class ProductsController extends BaseCrudController
                     continue;
                 }
 
-                $results[] = ['index' => $i, 'success' => true, 'data' => $rowModel->find($id)];
+                $newRow = $rowModel->find($id);
+                Services::auditLogger()->log('create', 'Product', $id, $newRow->name ?? $newRow->sku, (array) $newRow);
+                $results[] = ['index' => $i, 'success' => true, 'data' => $newRow];
                 $created++;
             } catch (DatabaseException $e) {
                 if (! str_contains($e->getMessage(), 'Duplicate entry')) {
@@ -249,7 +251,8 @@ class ProductsController extends BaseCrudController
      */
     public function updatePrices($id = null)
     {
-        if ($this->applyScope()->find($id) === null) {
+        $product = $this->applyScope()->find($id);
+        if ($product === null) {
             return $this->notFound();
         }
 
@@ -281,6 +284,10 @@ class ProductsController extends BaseCrudController
         foreach ($entries as $entry) {
             $model->upsertPrice((int) $id, (int) $entry['store_id'], (float) $entry['cost_price'], (float) $entry['selling_price']);
         }
+
+        Services::auditLogger()->log('update', 'Product Price', (int) $id, $product->name, [
+            'prices' => ['old' => null, 'new' => $entries],
+        ]);
 
         return $this->prices($id);
     }
@@ -390,6 +397,13 @@ class ProductsController extends BaseCrudController
             foreach ($storeIds as $storeId) {
                 $model->upsertPrice($productId, $storeId, (float) $entry['cost_price'], (float) $entry['selling_price']);
             }
+
+            Services::auditLogger()->log('update', 'Product Price', $productId, $entry['sku'] ?? null, [
+                'store_ids' => ['old' => null, 'new' => $storeIds],
+                'cost_price' => ['old' => null, 'new' => $entry['cost_price']],
+                'selling_price' => ['old' => null, 'new' => $entry['selling_price']],
+            ]);
+
             $results[] = ['index' => $i, 'success' => true];
             $updated++;
         }

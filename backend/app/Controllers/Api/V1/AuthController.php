@@ -36,17 +36,26 @@ class AuthController extends BaseApiController
         // account" from "wrong password, locked account").
         if ($user && $userModel->isLocked($user)) {
             $minutesLeft = (int) ceil((strtotime($user->locked_until) - time()) / 60);
+            Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login-failed', 'Account locked');
 
             return $this->apiFail("Account is locked due to too many failed login attempts. Try again in {$minutesLeft} minute(s).", 423);
         }
 
         if ($user && ! (bool) $user->is_active) {
+            Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login-failed', 'Account inactive');
+
             return $this->unauthorized('Account is no longer active');
         }
 
         if (! $user || ! password_verify($payload['password'], $user->password_hash)) {
+            // A $user with no match at all has no company to attribute the
+            // attempt to — nothing meaningful to log there. A found user
+            // with the wrong password does, and is worth recording: a
+            // string of these against one account is exactly what an
+            // admin reviewing the trail would want to see.
             if ($user) {
                 $userModel->registerFailedLogin($user->id, $authConfig->maxLoginAttempts, $authConfig->lockoutMinutes);
+                Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login-failed', 'Incorrect password');
             }
 
             return $this->apiFail('Invalid credentials', 401);
@@ -54,6 +63,7 @@ class AuthController extends BaseApiController
 
         $userModel->clearLoginLock($user->id);
         $userModel->update($user->id, ['last_login_at' => date('Y-m-d H:i:s')]);
+        Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login');
 
         return $this->tokenResponse($user);
     }
@@ -63,6 +73,11 @@ class AuthController extends BaseApiController
     {
         $auth = Services::authContext();
         $revokedModel = model(RevokedTokenModel::class);
+
+        // logout() runs behind the jwtAuth filter (unlike login()), so
+        // AuthContext is already populated here — the plain log() path
+        // applies, same as any other authenticated action.
+        Services::auditLogger()->log('logout', 'User', $auth->userId, null);
 
         if ($auth->jti !== null && $auth->tokenExpiresAt !== null) {
             $revokedModel->revoke($auth->jti, $auth->userId, $auth->tokenExpiresAt);

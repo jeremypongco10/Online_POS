@@ -176,7 +176,10 @@ class PurchasesController extends BaseCrudController
             return $this->apiFail('Failed to create purchase order', 500);
         }
 
-        return $this->created($this->model->find($poId));
+        $po = $this->model->find($poId);
+        Services::auditLogger()->log('create', 'Purchase Order', $poId, $po->po_number, (array) $po);
+
+        return $this->created($po);
     }
 
     /** POST /api/v1/purchases/{id}/approve — draft only. Required before a PO can be received. */
@@ -203,6 +206,10 @@ class PurchasesController extends BaseCrudController
 
         $db->transComplete();
 
+        Services::auditLogger()->log('approve', 'Purchase Order', (int) $id, $po->po_number, [
+            'status' => ['old' => $po->status, 'new' => PurchaseOrderModel::STATUS_APPROVED],
+        ]);
+
         return $this->ok($this->model->find($id), 'Purchase order approved');
     }
 
@@ -220,6 +227,10 @@ class PurchasesController extends BaseCrudController
         }
 
         $this->model->update($id, ['status' => PurchaseOrderModel::STATUS_CANCELLED]);
+
+        Services::auditLogger()->log('cancel', 'Purchase Order', (int) $id, $po->po_number, [
+            'status' => ['old' => $po->status, 'new' => PurchaseOrderModel::STATUS_CANCELLED],
+        ]);
 
         return $this->ok($this->model->find($id), 'Purchase order cancelled');
     }
@@ -294,6 +305,10 @@ class PurchasesController extends BaseCrudController
         ]);
 
         $db->transComplete();
+
+        Services::auditLogger()->log('receive', 'Purchase Order', (int) $id, $po->po_number, [
+            'status' => ['old' => $po->status, 'new' => PurchaseOrderModel::STATUS_RECEIVED],
+        ]);
 
         return $this->ok($this->model->find($id), 'Purchase order received into inventory');
     }

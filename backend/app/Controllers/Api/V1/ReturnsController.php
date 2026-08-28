@@ -199,7 +199,10 @@ class ReturnsController extends BaseCrudController
             return $this->apiFail('Failed to create return', 500);
         }
 
-        return $this->created($this->model->find($returnId), 'Return requested — awaiting approval');
+        $return = $this->model->find($returnId);
+        Services::auditLogger()->log('create', 'Sales Return', $returnId, $return->return_number, (array) $return);
+
+        return $this->created($return, 'Return requested — awaiting approval');
     }
 
     /**
@@ -292,6 +295,10 @@ class ReturnsController extends BaseCrudController
             return $this->apiFail('Failed to approve return', 500);
         }
 
+        Services::auditLogger()->log('approve', 'Sales Return', (int) $id, $return->return_number, [
+            'status' => ['old' => $return->status, 'new' => SalesReturnModel::STATUS_COMPLETED],
+        ]);
+
         return $this->ok($this->model->find($id), 'Return approved, refunded, and inventory restocked');
     }
 
@@ -313,6 +320,10 @@ class ReturnsController extends BaseCrudController
         $this->model->update($id, [
             'status' => SalesReturnModel::STATUS_CANCELLED,
             'reason' => trim(($return->reason ?? '') . ' [REJECTED] ' . ($payload['reason'] ?? '')),
+        ]);
+
+        Services::auditLogger()->log('reject', 'Sales Return', (int) $id, $return->return_number, [
+            'status' => ['old' => $return->status, 'new' => SalesReturnModel::STATUS_CANCELLED],
         ]);
 
         return $this->ok($this->model->find($id), 'Return rejected');

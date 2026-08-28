@@ -83,10 +83,22 @@ export function DataTable<T>({
     <Paper
       variant="outlined"
       sx={{
-        borderRadius: 2.5,
+        borderRadius: { xs: 0, sm: 2.5 },
         overflow: 'hidden',
         borderColor: 'divider',
+        // Plain 'divider' (no var()) here would silently no-op — borderLeft/
+        // borderRightColor aren't in the set of props MUI's sx resolves
+        // theme color keywords for, so it'd fall back to currentColor
+        // (white in dark mode) instead of the intended grey.
+        borderLeft: { xs: 0, sm: '1px solid var(--mui-palette-divider)' },
+        borderRight: { xs: 0, sm: '1px solid var(--mui-palette-divider)' },
         boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+        // Cancels AdminLayout's page-level horizontal padding (p: { xs:
+        // 2.5, ... }) so the table runs edge-to-edge on a phone instead of
+        // sitting inset with a narrow strip of empty page on both sides —
+        // every list screen uses this same component, so this fixes all
+        // of them at once, not just wherever it's currently visible.
+        mx: { xs: -2.5, sm: 0 },
       }}
     >
       {error && (

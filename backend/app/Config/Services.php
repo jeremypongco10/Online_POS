@@ -63,4 +63,13 @@ class Services extends BaseService
 
         return new \App\Libraries\InventoryCalculator();
     }
+
+    public static function auditLogger(bool $getShared = true): \App\Libraries\AuditLogger
+    {
+        if ($getShared) {
+            return static::getSharedInstance('auditLogger');
+        }
+
+        return new \App\Libraries\AuditLogger();
+    }
 }

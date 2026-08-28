@@ -93,6 +93,11 @@ export function Login() {
             required
             autoFocus
             fullWidth
+            // "off" alone is ignored by Chrome/Edge on login forms, but
+            // combined with the password field's autoComplete below it
+            // stops the saved-passwords suggestion dropdown from popping
+            // up over the Sign In button (see Login.tsx's password field).
+            autoComplete="off"
           />
           <TextField
             label="Password"
@@ -106,6 +111,10 @@ export function Login() {
             helperText={fieldErrors?.password}
             required
             fullWidth
+            // "new-password" is the standard trick browsers still honor to
+            // suppress the saved-credentials autofill dropdown, even
+            // though they ignore a plain autoComplete="off" here.
+            autoComplete="new-password"
           />
           {error && <Alert severity="error">{error}</Alert>}
           <Button type="submit" variant="contained" size="large" disabled={submitting} fullWidth>

@@ -219,6 +219,12 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->post('(:num)/reject', 'ReturnsController::reject/$1', ['filter' => 'permission:returns.approve']);
         });
 
+        $routes->group('audit-logs', static function (RouteCollection $routes) {
+            $routes->get('', 'AuditLogsController::index', ['filter' => 'permission:audit.view']);
+            $routes->get('entity-types', 'AuditLogsController::entityTypes', ['filter' => 'permission:audit.view']);
+            $routes->get('(:num)', 'AuditLogsController::show/$1', ['filter' => 'permission:audit.view']);
+        });
+
         $routes->group('reports', static function (RouteCollection $routes) {
             // Step 38 — Dashboard
             $routes->get('dashboard', 'ReportsController::dashboard', ['filter' => 'permission:dashboard.view']);

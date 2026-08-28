@@ -457,6 +457,32 @@ export interface StockTransferRow {
   store_name: string;
 }
 
+/** One entry in a field-level diff, as recorded on an `update` AuditLog — see `changes`. */
+export interface AuditLogFieldChange {
+  old: unknown;
+  new: unknown;
+}
+
+export interface AuditLog {
+  id: number;
+  company_id: number;
+  user_id: number | null;
+  user_name: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  entity_label: string | null;
+  /**
+   * For `create`/`delete`: the full row snapshot, field => value. For
+   * `update` and most custom actions: field => { old, new }. Shape
+   * depends on `action`, so it's read dynamically in the View modal
+   * rather than typed precisely here.
+   */
+  changes: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
 export interface DashboardData {
   date: string;
   today_sales: number;

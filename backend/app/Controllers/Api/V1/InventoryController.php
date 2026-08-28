@@ -159,6 +159,12 @@ class InventoryController extends BaseApiController
 
         $db->transComplete();
 
+        Services::auditLogger()->log('adjust', 'Inventory', $inventoryId, $product->name, [
+            'quantity_delta' => ['old' => null, 'new' => $delta],
+            'balance_after' => ['old' => null, 'new' => $newQuantity],
+            'store_id' => ['old' => null, 'new' => (int) $payload['store_id']],
+        ]);
+
         return $this->ok(model(InventoryModel::class)->find($inventoryId), 'Inventory adjusted');
     }
 
@@ -254,6 +260,12 @@ class InventoryController extends BaseApiController
         ]);
 
         $db->transComplete();
+
+        Services::auditLogger()->log('transfer', 'Inventory', $source->id, $product->name, [
+            'quantity' => ['old' => null, 'new' => $qty],
+            'from_store_id' => ['old' => null, 'new' => (int) $payload['from_store_id']],
+            'to_store_id' => ['old' => null, 'new' => (int) $payload['to_store_id']],
+        ]);
 
         return $this->ok([
             'source' => $inventoryModel->find($source->id),

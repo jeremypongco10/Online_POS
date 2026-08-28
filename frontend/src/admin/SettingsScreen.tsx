@@ -447,15 +447,17 @@ function RegistersTab() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+          <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
             <InlineSelectFilter
               label="Store"
+              compactOnMobile
               value={storeFilter}
               onChange={setStoreFilter}
               options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
             />
             <InlineSelectFilter
               label="Status"
+              compactOnMobile
               value={statusFilter}
               onChange={setStatusFilter}
               minWidth={140}

@@ -126,6 +126,18 @@ class RoleSeeder extends Seeder
 
         $now = date('Y-m-d H:i:s');
 
+        // Super Admin/Company Admin are meant to always hold every
+        // permission that exists — re-syncing them on every run is
+        // correct so a newly-added permission (like audit.view) reaches
+        // them automatically. Every other role here is a real starting
+        // point that an admin is expected to customize via the Roles
+        // screen afterward — re-applying this file's list to one of
+        // those on a later seed run would silently overwrite whatever
+        // they'd since changed, which is exactly what happened to Store
+        // Admin here once before. So for those, this only ever grants
+        // permissions at role-creation time, never again after.
+        $alwaysSyncRoles = ['Super Admin', 'Company Admin'];
+
         foreach ($roles as $roleName => $definition) {
             $existingRole = $this->db->table('roles')
                 ->where('company_id', $company->id)
@@ -134,6 +146,10 @@ class RoleSeeder extends Seeder
 
             if ($existingRole) {
                 $roleId = $existingRole->id;
+
+                if (! in_array($roleName, $alwaysSyncRoles, true)) {
+                    continue;
+                }
             } else {
                 $this->db->table('roles')->insert([
                     'company_id' => $company->id,

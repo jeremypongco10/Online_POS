@@ -497,7 +497,10 @@ class SalesController extends BaseCrudController
             return $this->apiFail('Failed to complete sale', 500);
         }
 
-        return $this->created($this->model->find($saleId));
+        $sale = $this->model->find($saleId);
+        Services::auditLogger()->log('create', 'Sale', $saleId, $sale->invoice_number, (array) $sale);
+
+        return $this->created($sale);
     }
 
     /** POST /api/v1/sales/{id}/void  body: { reason? } */
@@ -562,6 +565,11 @@ class SalesController extends BaseCrudController
         ]);
 
         $db->transComplete();
+
+        Services::auditLogger()->log('void', 'Sale', (int) $id, $sale->invoice_number, [
+            'status' => ['old' => $sale->status, 'new' => 'voided'],
+            'reason' => ['old' => null, 'new' => $payload['reason'] ?? null],
+        ]);
 
         return $this->ok($this->model->find($id), 'Sale voided and stock restored');
     }

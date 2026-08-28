@@ -148,12 +148,16 @@ abstract class BaseCrudController extends BaseApiController
             return $this->validationFail($this->model->errors());
         }
 
-        return $this->created($this->model->find($id));
+        $row = $this->model->find($id);
+        Services::auditLogger()->log('create', $this->auditEntityType(), $id, $this->auditLabel($row), (array) $row);
+
+        return $this->created($row);
     }
 
     public function update($id = null)
     {
-        if ($this->applyScope()->find($id) === null) {
+        $before = $this->applyScope()->find($id);
+        if ($before === null) {
             return $this->notFound();
         }
 
@@ -184,7 +188,48 @@ abstract class BaseCrudController extends BaseApiController
             return $this->validationFail($this->model->errors());
         }
 
-        return $this->ok($this->model->find($id), 'Updated');
+        $after = $this->model->find($id);
+        $changes = Services::auditLogger()->diff((array) $before, (array) $after);
+        if ($changes !== []) {
+            Services::auditLogger()->log('update', $this->auditEntityType(), (int) $id, $this->auditLabel($after), $changes);
+        }
+
+        return $this->ok($after, 'Updated');
+    }
+
+    /**
+     * Friendly entity name for the audit trail, derived from the model
+     * class — "App\Models\TaxRateModel" -> "Tax Rate". Override in a
+     * controller whose model name wouldn't read naturally this way.
+     */
+    protected function auditEntityType(): string
+    {
+        $short = strrchr($this->modelClass, '\\');
+        $short = $short !== false ? substr($short, 1) : $this->modelClass;
+        $short = preg_replace('/Model$/', '', $short);
+
+        return trim((string) preg_replace('/(?<!^)(?=[A-Z])/', ' ', $short));
+    }
+
+    /**
+     * A human-readable label for a row in the audit trail — tries the
+     * common "this is what identifies a row" fields in order. Override
+     * when a table's meaningful identifier isn't one of these (e.g. a
+     * pivot table, or something identified by a foreign key instead).
+     */
+    protected function auditLabel(?object $row): ?string
+    {
+        if ($row === null) {
+            return null;
+        }
+
+        foreach (['name', 'sku', 'invoice_number', 'po_number', 'return_number', 'card_number', 'code', 'email', 'title'] as $field) {
+            if (! empty($row->{$field})) {
+                return (string) $row->{$field};
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -246,11 +291,13 @@ abstract class BaseCrudController extends BaseApiController
 
     public function delete($id = null)
     {
-        if ($this->applyScope()->find($id) === null) {
+        $row = $this->applyScope()->find($id);
+        if ($row === null) {
             return $this->notFound();
         }
 
         $this->model->delete($id);
+        Services::auditLogger()->log('delete', $this->auditEntityType(), (int) $id, $this->auditLabel($row), (array) $row);
 
         return $this->noContentOk();
     }

@@ -251,6 +251,10 @@ class UsersController extends BaseCrudController
 
         $this->model->update($id, ['role_id' => $roleId]);
 
+        Services::auditLogger()->log('update', 'User', (int) $id, $user->name, [
+            'role_id' => ['old' => $user->role_id, 'new' => $roleId],
+        ]);
+
         $response = $this->ok($this->model->find($id), 'Role updated');
         $this->stripPasswordHash($response);
 
@@ -290,6 +294,10 @@ class UsersController extends BaseCrudController
         }
 
         $this->model->update($id, ['password' => $newPassword]);
+
+        // Never let the actual password reach the changes payload —
+        // this entry just records that a reset happened, and by whom.
+        Services::auditLogger()->log('reset-password', 'User', (int) $id, $this->model->find($id)->name);
 
         $data = ['user' => $this->model->find($id)];
         if ($generated) {
@@ -382,7 +390,13 @@ class UsersController extends BaseCrudController
             return $this->apiFail('This role must be assigned to exactly one store.', 422);
         }
 
+        $beforeStoreIds = model(UserStoreModel::class)->where('user_id', $id)->findColumn('store_id') ?: [];
+
         model(UserStoreModel::class)->syncForUser((int) $id, $storeIds, $defaultStoreId);
+
+        Services::auditLogger()->log('update', 'User', (int) $id, $user->name, [
+            'store_ids' => ['old' => array_map('intval', $beforeStoreIds), 'new' => $storeIds],
+        ]);
 
         return $this->ok(model(UserStoreModel::class)->storesForUser((int) $id), 'Store access updated');
     }
@@ -396,11 +410,13 @@ class UsersController extends BaseCrudController
      */
     public function deactivate($id = null)
     {
-        if (! $this->applyScope()->find($id)) {
+        $user = $this->applyScope()->find($id);
+        if (! $user) {
             return $this->notFound();
         }
 
         $this->model->update($id, ['is_active' => 0]);
+        Services::auditLogger()->log('deactivate', 'User', (int) $id, $user->name);
 
         $response = $this->ok($this->model->find($id), 'Account deactivated');
         $this->stripPasswordHash($response);
@@ -419,6 +435,7 @@ class UsersController extends BaseCrudController
 
         $this->model->update($id, ['is_active' => 1]);
         $this->model->clearLoginLock((int) $id);
+        Services::auditLogger()->log('activate', 'User', (int) $id, $user->name);
 
         $response = $this->ok($this->model->find($id), 'Account activated');
         $this->stripPasswordHash($response);

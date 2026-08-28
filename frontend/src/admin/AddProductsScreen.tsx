@@ -185,6 +185,21 @@ function SinglePanel({ categories, units, taxes }: RefData) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+  const defaultTax = taxes.find((t) => Number(t.is_default) === 1);
+  const defaultTaxId = defaultTax ? String(defaultTax.id) : '';
+  const taxDefaultApplied = useRef(false);
+
+  // Taxes load asynchronously after mount, so the default can't just be
+  // baked into EMPTY_SINGLE — apply it once, the first time it becomes
+  // available, and only if the user hasn't already picked something. The
+  // post-submit reset below re-applies it directly instead of relying on
+  // this effect, since by then taxes are already loaded.
+  useEffect(() => {
+    if (taxDefaultApplied.current || !defaultTaxId) return;
+    taxDefaultApplied.current = true;
+    setForm((f) => (f.tax_rate_id ? f : { ...f, tax_rate_id: defaultTaxId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTaxId]);
 
   function pickImage(file: File) {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -229,8 +244,10 @@ function SinglePanel({ categories, units, taxes }: RefData) {
       }
 
       // Deliberately not navigating away — a quick-add flow reads as
-      // "one form, keep going" more than "one form, then close".
-      setForm(EMPTY_SINGLE);
+      // "one form, keep going" more than "one form, then close". Re-apply
+      // the default tax rate directly here rather than relying on the
+      // mount effect above, which only ever fires once.
+      setForm({ ...EMPTY_SINGLE, tax_rate_id: defaultTaxId });
       clearImage();
     } catch (err) {
       reportError(err, 'Failed to create product');

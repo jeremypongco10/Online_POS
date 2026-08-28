@@ -43,7 +43,10 @@ class LoyaltyController extends BaseCrudController
             return $this->validationFail($this->model->errors());
         }
 
-        return $this->created($this->model->find($id));
+        $card = $this->model->find($id);
+        Services::auditLogger()->log('create', 'Loyalty Card', $id, $card->card_number, (array) $card);
+
+        return $this->created($card);
     }
 
     /**
@@ -168,6 +171,11 @@ class LoyaltyController extends BaseCrudController
         $this->model->update($id, [
             'points' => (int) $card->points + $pointsDelta,
             'balance' => (float) $card->balance + $balanceDelta,
+        ]);
+
+        Services::auditLogger()->log('adjust', 'Loyalty Card', (int) $id, $card->card_number, [
+            'points_delta' => ['old' => null, 'new' => $pointsDelta],
+            'balance_delta' => ['old' => null, 'new' => $balanceDelta],
         ]);
 
         return $this->ok($this->model->find($id), 'Loyalty card updated');

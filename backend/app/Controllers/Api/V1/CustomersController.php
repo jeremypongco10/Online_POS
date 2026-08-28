@@ -103,6 +103,11 @@ class CustomersController extends BaseCrudController
             Services::authContext()->userId
         );
 
+        Services::auditLogger()->log('points-adjust', 'Customer', (int) $id, $customer->name, [
+            'points_delta' => ['old' => null, 'new' => (int) $payload['points_delta']],
+            'note' => ['old' => null, 'new' => $payload['note'] ?? null],
+        ]);
+
         [$decorated] = $this->attachPoints([(array) $customer]);
 
         return $this->ok($decorated, 'Points updated');

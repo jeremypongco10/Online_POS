@@ -491,7 +491,15 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
             scrolling pane above — this button is the last thing rendered
             after all of `children`, so a sticky position would only ever
             engage once scrolled past everything, instead of floating over
-            the content the moment scrollTop passes the threshold. */}
+            the content the moment scrollTop passes the threshold.
+            Bottom-left on mobile — DataTable's pagination controls (on
+            nearly every list) are right-aligned, so a bottom-right FAB
+            sits directly on top of the next-page arrow there and blocks
+            clicking it. Kept bottom-right on desktop instead of also
+            switching there: this button is fixed to the *viewport*, not
+            the content pane, and the permanent sidebar (only present at
+            sm+) occupies the left edge — left:24 there would land the
+            button on top of the nav, not beside it. */}
         <Zoom in={showScrollTop}>
           <Fab
             size="small"
@@ -500,7 +508,8 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
             sx={{
               position: 'fixed',
               bottom: 24,
-              right: 24,
+              left: { xs: 24, sm: 'auto' },
+              right: { xs: 'auto', sm: 24 },
               bgcolor: 'background.paper',
               color: 'primary.main',
               border: '1px solid',

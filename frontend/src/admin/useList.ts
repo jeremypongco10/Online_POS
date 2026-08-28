@@ -9,11 +9,16 @@ type Meta = ApiEnvelope<unknown>['meta'];
  * the same shape every BaseCrudController::index() endpoint returns.
  * `params` merges in as extra query params (e.g. { category_id }) and
  * re-fetches whenever it changes.
+ *
+ * `enabled` (default true) gates whether that auto-fetch actually runs —
+ * a screen that wants an explicit "Search" button instead of the usual
+ * as-you-type/as-you-filter behavior passes `enabled: false` until the
+ * button is first clicked (see AuditTrailScreen).
  */
-export function useList<T>(endpoint: string, params: Record<string, string | number | undefined> = {}) {
+export function useList<T>(endpoint: string, params: Record<string, string | number | undefined> = {}, enabled = true) {
   const [data, setData] = useState<T[]>([]);
   const [meta, setMeta] = useState<Meta>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
@@ -23,6 +28,8 @@ export function useList<T>(endpoint: string, params: Record<string, string | num
   const paramsKey = JSON.stringify(params);
 
   const reload = useCallback(() => {
+    if (!enabled) return;
+
     setLoading(true);
     setError(null);
 
@@ -42,7 +49,7 @@ export function useList<T>(endpoint: string, params: Record<string, string | num
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoint, page, perPage, sort, q, paramsKey]);
+  }, [endpoint, page, perPage, sort, q, paramsKey, enabled]);
 
   useEffect(() => {
     reload();

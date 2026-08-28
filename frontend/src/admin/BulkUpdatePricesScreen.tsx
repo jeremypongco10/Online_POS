@@ -264,15 +264,17 @@ export function BulkUpdatePricesScreen() {
             onRefresh={reload}
             refreshing={loading}
             extra={
-              <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+              <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
                 <InlineSelectFilter
                   label="Category"
+                  compactOnMobile
                   value={categoryFilter}
                   onChange={setCategoryFilter}
                   options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
                 />
                 <InlineSelectFilter
                   label="Status"
+                  compactOnMobile
                   value={statusFilter}
                   onChange={setStatusFilter}
                   minWidth={140}

@@ -16,6 +16,10 @@ import { formatMoney } from '../pos/format';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Avatar from '@mui/material/Avatar';
+import Paper from '@mui/material/Paper';
+import Divider from '@mui/material/Divider';
+import InputAdornment from '@mui/material/InputAdornment';
+import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -204,15 +208,17 @@ export function ProductsScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+          <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
             <InlineSelectFilter
               label="Category"
+              compactOnMobile
               value={categoryFilter}
               onChange={setCategoryFilter}
               options={[{ value: '', label: 'All Categories' }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))]}
             />
             <InlineSelectFilter
               label="Status"
+              compactOnMobile
               value={statusFilter}
               onChange={setStatusFilter}
               minWidth={140}
@@ -271,7 +277,7 @@ export function ProductsScreen() {
 
       <ProductEditModal product={editing} categories={categories} units={units} taxes={taxes} onClose={() => setEditing(null)} onSaved={handleSaved} />
 
-      <Modal open={pricing !== null} title={pricingR ? `Prices: ${pricingR.name}` : ''} onClose={() => setPricing(null)}>
+      <Modal open={pricing !== null} title={pricingR ? `Prices: ${pricingR.name}` : ''} onClose={() => setPricing(null)} compact>
         {pricingR && (
           <>
             {pricesLoading ? (
@@ -283,76 +289,181 @@ export function ProductsScreen() {
                 You aren't assigned to a store, so there's no price to show here.
               </Typography>
             ) : (
-              <TableContainer>
-                <Table size="small" sx={{ minWidth: 460 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Store</TableCell>
-                    <TableCell align="right">Cost</TableCell>
-                    <TableCell align="right">Price</TableCell>
-                    <TableCell align="right">Profit</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {visiblePrices.map((row) => (
-                    <TableRow key={row.store_id}>
-                      <TableCell>{row.store_name}</TableCell>
-                      <TableCell align="right">
-                        {canEditPrices ? (
-                          <TextField
-                            type="number"
-                            size="small"
-                            slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
-                            value={row.cost_price ?? ''}
-                            onChange={(e) => updatePriceRow(row.store_id, 'cost_price', e.target.value)}
-                            sx={{ width: 110 }}
-                          />
-                        ) : (
-                          <Typography variant="body2">{row.cost_price ? formatMoney(parseFloat(row.cost_price)) : '—'}</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        {canEditPrices ? (
-                          <TextField
-                            type="number"
-                            size="small"
-                            slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
-                            value={row.selling_price ?? ''}
-                            onChange={(e) => updatePriceRow(row.store_id, 'selling_price', e.target.value)}
-                            sx={{ width: 110 }}
-                          />
-                        ) : (
-                          <Typography variant="body2">{row.selling_price ? formatMoney(parseFloat(row.selling_price)) : '—'}</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        {(() => {
-                          const cost = parseFloat(row.cost_price ?? '') || 0;
-                          const price = parseFloat(row.selling_price ?? '') || 0;
-                          const profit = price - cost;
-                          // Margin is relative to the selling price (not cost) — the
-                          // conventional definition, and undefined at price 0.
-                          const margin = price > 0 ? (profit / price) * 100 : null;
-                          const color = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
-                          return (
-                            <Stack sx={{ alignItems: 'flex-end' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 600, color }}>
-                                {formatMoney(profit)}
+              <>
+                <TableContainer sx={{ display: { xs: 'none', sm: 'block' } }}>
+                  <Table size="small" sx={{ minWidth: 460 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Store</TableCell>
+                      <TableCell align="right">Cost</TableCell>
+                      <TableCell align="right">Price</TableCell>
+                      <TableCell align="right">Profit</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {visiblePrices.map((row) => (
+                      <TableRow key={row.store_id}>
+                        <TableCell>{row.store_name}</TableCell>
+                        <TableCell align="right">
+                          {canEditPrices ? (
+                            <TextField
+                              type="number"
+                              size="small"
+                              slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
+                              value={row.cost_price ?? ''}
+                              onChange={(e) => updatePriceRow(row.store_id, 'cost_price', e.target.value)}
+                              sx={{ width: 110 }}
+                            />
+                          ) : (
+                            <Typography variant="body2">{row.cost_price ? formatMoney(parseFloat(row.cost_price)) : '—'}</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          {canEditPrices ? (
+                            <TextField
+                              type="number"
+                              size="small"
+                              slotProps={{ htmlInput: { step: '0.01', style: { textAlign: 'right' } } }}
+                              value={row.selling_price ?? ''}
+                              onChange={(e) => updatePriceRow(row.store_id, 'selling_price', e.target.value)}
+                              sx={{ width: 110 }}
+                            />
+                          ) : (
+                            <Typography variant="body2">{row.selling_price ? formatMoney(parseFloat(row.selling_price)) : '—'}</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          {(() => {
+                            const cost = parseFloat(row.cost_price ?? '') || 0;
+                            const price = parseFloat(row.selling_price ?? '') || 0;
+                            const profit = price - cost;
+                            // Margin is relative to the selling price (not cost) — the
+                            // conventional definition, and undefined at price 0.
+                            const margin = price > 0 ? (profit / price) * 100 : null;
+                            const color = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
+                            return (
+                              <Stack sx={{ alignItems: 'flex-end' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 600, color }}>
+                                  {formatMoney(profit)}
+                                </Typography>
+                                {margin !== null && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    {margin.toFixed(1)}%
+                                  </Typography>
+                                )}
+                              </Stack>
+                            );
+                          })()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  </Table>
+                </TableContainer>
+
+                <Stack spacing={1.25} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                  {visiblePrices.map((row) => {
+                    const cost = parseFloat(row.cost_price ?? '') || 0;
+                    const price = parseFloat(row.selling_price ?? '') || 0;
+                    const profit = price - cost;
+                    const margin = price > 0 ? (profit / price) * 100 : null;
+                    const color = profit > 0 ? 'success.main' : profit < 0 ? 'error.main' : 'text.secondary';
+                    return (
+                      <Paper key={row.store_id} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1.25 }}>
+                          <StorefrontOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
+                          <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                            {row.store_name}
+                          </Typography>
+                        </Stack>
+
+                        <Stack spacing={0.75}>
+                          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Cost
+                            </Typography>
+                            {canEditPrices ? (
+                              <TextField
+                                type="number"
+                                size="small"
+                                variant="standard"
+                                slotProps={{
+                                  htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
+                                  input: {
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Typography variant="caption" color="text.secondary">
+                                          ₱
+                                        </Typography>
+                                      </InputAdornment>
+                                    ),
+                                  },
+                                }}
+                                value={row.cost_price ?? ''}
+                                onChange={(e) => updatePriceRow(row.store_id, 'cost_price', e.target.value)}
+                                sx={{ width: 96 }}
+                              />
+                            ) : (
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {row.cost_price ? formatMoney(cost) : '—'}
                               </Typography>
+                            )}
+                          </Stack>
+                          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Price
+                            </Typography>
+                            {canEditPrices ? (
+                              <TextField
+                                type="number"
+                                size="small"
+                                variant="standard"
+                                slotProps={{
+                                  htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
+                                  input: {
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Typography variant="caption" color="text.secondary">
+                                          ₱
+                                        </Typography>
+                                      </InputAdornment>
+                                    ),
+                                  },
+                                }}
+                                value={row.selling_price ?? ''}
+                                onChange={(e) => updatePriceRow(row.store_id, 'selling_price', e.target.value)}
+                                sx={{ width: 96 }}
+                              />
+                            ) : (
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {row.selling_price ? formatMoney(price) : '—'}
+                              </Typography>
+                            )}
+                          </Stack>
+
+                          <Divider sx={{ my: 0.5 }} />
+
+                          <Stack direction="row" sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Profit
+                            </Typography>
+                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'baseline' }}>
                               {margin !== null && (
-                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                  {margin.toFixed(1)}%
+                                <Typography variant="caption" color="text.secondary">
+                                  ({margin.toFixed(1)}%)
                                 </Typography>
                               )}
+                              <Typography variant="caption" sx={{ fontWeight: 700, color }}>
+                                {formatMoney(profit)}
+                              </Typography>
                             </Stack>
-                          );
-                        })()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                </Table>
-              </TableContainer>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              </>
             )}
 
             {pricesError && (
@@ -376,24 +487,37 @@ export function ProductsScreen() {
       </Modal>
 
       <Modal open={!!viewing} title="View Product" onClose={() => setViewing(null)} compact>
-        <Avatar
-          variant="rounded"
-          src={viewing?.image_path ? assetUrl(viewing.image_path) : undefined}
-          sx={{ width: 96, height: 96, mb: 2, bgcolor: 'action.hover', color: 'text.disabled' }}
-        >
-          <ImageNotSupportedOutlinedIcon />
-        </Avatar>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 2.5 }}>
+          <Avatar
+            variant="rounded"
+            src={viewing?.image_path ? assetUrl(viewing.image_path) : undefined}
+            sx={{ width: 64, height: 64, bgcolor: 'action.hover', color: 'text.disabled', flexShrink: 0 }}
+          >
+            <ImageNotSupportedOutlinedIcon />
+          </Avatar>
+          <Stack sx={{ minWidth: 0 }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, wordBreak: 'break-word' }}>
+              {viewing?.name}
+            </Typography>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={{ xs: 0.5, sm: 0.75 }}
+              sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, mt: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}
+            >
+              <Chip size="small" variant="outlined" label={`SKU: ${viewing?.sku ?? '—'}`} />
+              {viewing?.barcode && <Chip size="small" variant="outlined" label={`Barcode: ${viewing.barcode}`} />}
+              {viewing && <StatusChip active={Number(viewing.is_active) === 1} />}
+            </Stack>
+          </Stack>
+        </Stack>
         <DetailView
+          dense
           fields={[
-            { label: 'SKU', value: viewing?.sku },
-            { label: 'Barcode', value: viewing?.barcode },
-            { label: 'Name', value: viewing?.name },
             { label: 'Category', value: viewing ? categoryName(viewing.category_id) : undefined },
             { label: 'Unit', value: viewing ? unitName(viewing.unit_id) : undefined },
             { label: 'Tax Rate', value: viewing ? taxName(viewing.tax_rate_id) : undefined },
             { label: 'Minimum Stock', value: viewing?.minimum_stock },
             { label: 'Track Inventory', value: viewing ? (Number(viewing.track_inventory) === 1 ? 'Yes' : 'No') : undefined },
-            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
             { label: 'Description', value: viewing?.description, fullWidth: true },
           ]}
         />

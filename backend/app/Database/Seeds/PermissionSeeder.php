@@ -83,6 +83,8 @@ class PermissionSeeder extends Seeder
         // cashier who can request a return should not necessarily be
         // able to authorize their own refund.
         'returns.approve' => ['Approve Returns', 'Can approve a pending return, issuing the refund and restocking inventory'],
+
+        'audit.view' => ['View Audit Trail', 'Can view the audit trail of who did what, and when'],
     ];
 
     public function run()
