@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Company, Register, Store, TaxRate, Unit } from '../api/types';
+import type { Company, PaymentMethodOption, Register, Store, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
@@ -36,9 +36,16 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'taxes' | 'units' | 'loyalty';
-const TABS: Tab[] = ['stores', 'registers', 'taxes', 'units', 'loyalty'];
-const TAB_LABELS: Record<Tab, string> = { stores: 'Stores', registers: 'Registers', taxes: 'Taxes', units: 'Units', loyalty: 'Loyalty' };
+type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty';
+const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty'];
+const TAB_LABELS: Record<Tab, string> = {
+  stores: 'Stores',
+  registers: 'POS Terminals',
+  'payment-methods': 'Payment Methods',
+  taxes: 'Taxes',
+  units: 'Units',
+  loyalty: 'Loyalty',
+};
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
@@ -67,6 +74,7 @@ export function SettingsScreen() {
 
       {tab === 'stores' && hasPermission('stores.view') && <StoresTab />}
       {tab === 'registers' && hasPermission('registers.view') && <RegistersTab />}
+      {tab === 'payment-methods' && hasPermission('payment-methods.view') && <PaymentMethodsTab />}
       {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
       {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
@@ -402,9 +410,9 @@ function RegistersTab() {
       else await api.post('/registers', payload);
       setShow(false);
       reload();
-      notify(editing ? 'Register updated' : 'Register created');
+      notify(editing ? 'POS terminal updated' : 'POS terminal created');
     } catch (err) {
-      reportError(err, 'Failed to save register');
+      reportError(err, 'Failed to save POS terminal');
     } finally {
       setSaving(false);
     }
@@ -413,13 +421,13 @@ function RegistersTab() {
   async function toggleActive(register: Register) {
     const activating = Number(register.is_active) !== 1;
     const verb = activating ? 'Activate' : 'Deactivate';
-    if (!(await confirm(`${verb} register "${register.name}"?`, { title: `${verb} Register`, confirmLabel: verb }))) return;
+    if (!(await confirm(`${verb} POS terminal "${register.name}"?`, { title: `${verb} POS Terminal`, confirmLabel: verb }))) return;
     try {
       await api.put(`/registers/${register.id}`, { is_active: activating ? 1 : 0 });
       reload();
-      notify(`Register ${activating ? 'activated' : 'deactivated'}`);
+      notify(`POS terminal ${activating ? 'activated' : 'deactivated'}`);
     } catch (err) {
-      notify(err instanceof ApiError ? err.message : 'Failed to update register', 'error');
+      notify(err instanceof ApiError ? err.message : 'Failed to update POS terminal', 'error');
     }
   }
 
@@ -443,7 +451,7 @@ function RegistersTab() {
         search={q}
         onSearchChange={setQ}
         onAdd={hasPermission('registers.manage') ? openCreate : undefined}
-        addLabel="Add Register"
+        addLabel="Add POS Terminal"
         onRefresh={reload}
         refreshing={loading}
         extra={
@@ -517,7 +525,7 @@ function RegistersTab() {
         }}
       />
 
-      <Modal open={show} title={editing ? 'Edit Register' : 'Add Register'} onClose={() => setShow(false)} compact>
+      <Modal open={show} title={editing ? 'Edit POS Terminal' : 'Add POS Terminal'} onClose={() => setShow(false)} compact>
         <form
           noValidate
           onSubmit={(e) => {
@@ -588,7 +596,7 @@ function RegistersTab() {
         </form>
       </Modal>
 
-      <Modal open={!!viewing} title="View Register" onClose={() => setViewing(null)} compact>
+      <Modal open={!!viewing} title="View POS Terminal" onClose={() => setViewing(null)} compact>
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
@@ -796,6 +804,238 @@ function TaxesTab() {
             { label: 'Name', value: viewing?.name },
             { label: 'Rate', value: viewing ? `${viewing.rate}%` : undefined },
             { label: 'Default', value: viewing ? (Number(viewing.is_default) === 1 ? 'Yes' : 'No') : undefined },
+          ]}
+        />
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setViewing(null)}>
+            Close
+          </Button>
+        </Stack>
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * `code` (what's actually stored on payments.method, and what
+ * CashSessionsController's drawer math keys off for 'cash' specifically)
+ * is server-derived from `name` and never shown as an editable field here
+ * — see PaymentMethodsController. Deactivating/deleting Cash is rejected
+ * server-side with a clear message; deliberately not re-checked here too,
+ * so there's exactly one place that decides it's protected.
+ */
+function PaymentMethodsTab() {
+  const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const notify = useSnackbar();
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<PaymentMethodOption>('/payment-methods', {
+    is_active: statusFilter,
+  });
+
+  const [editing, setEditing] = useState<PaymentMethodOption | null>(null);
+  const [viewing, setViewing] = useState<PaymentMethodOption | null>(null);
+  const [show, setShow] = useState(false);
+  const [form, setForm] = useState({ name: '', is_active: true });
+  const [saving, setSaving] = useState(false);
+  const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+
+  function openCreate() {
+    setEditing(null);
+    setForm({ name: '', is_active: true });
+    clearErrors();
+    setShow(true);
+  }
+
+  function openEdit(method: PaymentMethodOption) {
+    setEditing(method);
+    setForm({ name: method.name, is_active: Number(method.is_active) === 1 });
+    clearErrors();
+    setShow(true);
+  }
+
+  async function submit() {
+    setSaving(true);
+    clearErrors();
+    const payload = { name: form.name, is_active: form.is_active ? 1 : 0 };
+    try {
+      if (editing) await api.put(`/payment-methods/${editing.id}`, payload);
+      else await api.post('/payment-methods', payload);
+      setShow(false);
+      reload();
+      notify(editing ? 'Payment method updated' : 'Payment method created');
+    } catch (err) {
+      reportError(err, 'Failed to save payment method');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(method: PaymentMethodOption) {
+    const activating = Number(method.is_active) !== 1;
+    const verb = activating ? 'Activate' : 'Deactivate';
+    if (!(await confirm(`${verb} payment method "${method.name}"?`, { title: `${verb} Payment Method`, confirmLabel: verb }))) return;
+    try {
+      await api.put(`/payment-methods/${method.id}`, { is_active: activating ? 1 : 0 });
+      reload();
+      notify(`Payment method ${activating ? 'activated' : 'deactivated'}`);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to update payment method', 'error');
+    }
+  }
+
+  async function remove(method: PaymentMethodOption) {
+    if (!(await confirm(`Delete payment method "${method.name}"?`, { title: 'Delete Payment Method', confirmLabel: 'Delete' }))) return;
+    try {
+      await api.del(`/payment-methods/${method.id}`);
+      reload();
+      notify('Payment method deleted');
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to delete payment method', 'error');
+    }
+  }
+
+  const columns: Column<PaymentMethodOption>[] = [
+    { key: 'name', label: 'Name', sortKey: 'name' },
+    {
+      key: 'is_active',
+      label: 'Status',
+      width: 120,
+      render: (m) => (
+        <Chip size="small" label={Number(m.is_active) === 1 ? 'Active' : 'Inactive'} color={Number(m.is_active) === 1 ? 'success' : 'default'} />
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <ListToolbar
+        search={q}
+        onSearchChange={setQ}
+        onAdd={hasPermission('payment-methods.manage') ? openCreate : undefined}
+        addLabel="Add Payment Method"
+        onRefresh={reload}
+        refreshing={loading}
+        extra={
+          <InlineSelectFilter
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            minWidth={140}
+            options={[
+              { value: '', label: 'All' },
+              { value: '1', label: 'Active' },
+              { value: '0', label: 'Inactive' },
+            ]}
+          />
+        }
+      />
+
+      <DataTable
+        columns={columns}
+        rows={data}
+        rowKey={(m) => m.id}
+        loading={loading}
+        error={error}
+        meta={meta}
+        page={page}
+        onPageChange={setPage}
+        perPage={perPage}
+        onPerPageChange={setPerPage}
+        sort={sort}
+        onSortChange={setSort}
+        rowActions={(m) => {
+          const active = Number(m.is_active) === 1;
+          return (
+            <>
+              <Tooltip title="View">
+                <IconButton size="small" aria-label="View" onClick={() => setViewing(m)}>
+                  <VisibilityOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {hasPermission('payment-methods.manage') && (
+                <>
+                  <Tooltip title="Edit">
+                    <IconButton size="small" aria-label="Edit" onClick={() => openEdit(m)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={active ? 'Deactivate' : 'Activate'}>
+                    <IconButton
+                      size="small"
+                      aria-label={active ? 'Deactivate' : 'Activate'}
+                      color={active ? 'error' : 'success'}
+                      onClick={() => toggleActive(m)}
+                    >
+                      {active ? <BlockIcon fontSize="small" /> : <CheckCircleIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(m)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            </>
+          );
+        }}
+      />
+
+      <Modal open={show} title={editing ? 'Edit Payment Method' : 'Add Payment Method'} onClose={() => setShow(false)} compact>
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <Grid container spacing={2} sx={{ pt: 1 }}>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                label="Name"
+                fullWidth
+                value={form.name}
+                onChange={(e) => {
+                  setForm({ ...form, name: e.target.value });
+                  clearField('name');
+                }}
+                error={!!fieldErrors?.name}
+                helperText={fieldErrors?.name}
+                required
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <FormControlLabel
+                control={<Checkbox checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />}
+                label="Active"
+              />
+            </Grid>
+            {formError && (
+              <Grid size={{ xs: 12 }}>
+                <Alert severity="error">{formError}</Alert>
+              </Grid>
+            )}
+            <Grid size={{ xs: 12 }}>
+              <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
+                <Button type="button" variant="text" onClick={() => setShow(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="contained" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </Stack>
+            </Grid>
+          </Grid>
+        </form>
+      </Modal>
+
+      <Modal open={!!viewing} title="View Payment Method" onClose={() => setViewing(null)} compact>
+        <DetailView
+          fields={[
+            { label: 'Name', value: viewing?.name },
+            { label: 'Code', value: viewing?.code },
+            { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
           ]}
         />
         <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>

@@ -10,6 +10,7 @@ use App\Models\InventoryTransactionModel;
 use App\Models\InvoiceSequenceModel;
 use App\Models\LoyaltyCardModel;
 use App\Models\LoyaltyPointTransactionModel;
+use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
 use App\Models\ProductModel;
 use App\Models\SaleItemModel;
@@ -249,6 +250,53 @@ class SalesController extends BaseCrudController
 
         // --- Validate products, roll up required quantity per product ---
         foreach ($items as $item) {
+            // A custom (non-catalog) line item: no product_id, just a
+            // cashier-typed name + price. No stock check, no is_active
+            // lookup — there's no product to check either against.
+            if (empty($item['product_id'])) {
+                $name = trim((string) ($item['name'] ?? ''));
+                if ($name === '') {
+                    return $this->apiFail('name is required for a custom item with no product_id', 422);
+                }
+
+                $quantity = (float) ($item['quantity'] ?? 0);
+                if ($quantity <= 0) {
+                    return $this->apiFail("Quantity must be greater than zero for custom item: {$name}", 422);
+                }
+
+                $unitPrice = (float) ($item['unit_price'] ?? 0);
+                if ($unitPrice <= 0) {
+                    return $this->apiFail("unit_price must be greater than zero for custom item: {$name}", 422);
+                }
+
+                $discount = (float) ($item['discount'] ?? 0);
+                if (! $taxService->isValidDiscount($quantity, $unitPrice, $discount)) {
+                    return $this->apiFail("Discount must be between 0 and the line subtotal for custom item: {$name}", 422);
+                }
+
+                $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
+                $result = $taxService->calculateLine($quantity, $unitPrice, $discount, $taxRate, $inclusive);
+
+                $discountTotal += $discount;
+                $taxResults[] = $result;
+                $lineData[] = [
+                    'product_id' => null,
+                    // Custom items have no catalog row to snapshot a
+                    // name/SKU from — the typed name IS the snapshot.
+                    'product_name' => $name,
+                    'product_sku' => null,
+                    'tax_rate_id' => $taxRate->id ?? null,
+                    'tax_type' => $result['tax_type'],
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'discount' => $discount,
+                    'tax_rate' => $result['rate'],
+                    'tax_amount' => $result['tax_amount'],
+                    'line_total' => $result['gross_amount'],
+                ];
+                continue;
+            }
+
             $product = $productsById[$item['product_id']] ?? null;
             if (! $product) {
                 return $this->apiFail("Unknown product_id: {$item['product_id']}", 422);
@@ -346,8 +394,13 @@ class SalesController extends BaseCrudController
             return $this->apiFail('At least one payment is required', 422);
         }
 
+        $activeMethodCodes = model(PaymentMethodModel::class)
+            ->where('company_id', $payload['company_id'])
+            ->where('is_active', 1)
+            ->findColumn('code') ?: [];
+
         foreach ($payments as $payment) {
-            if (! in_array($payment['method'] ?? null, PaymentModel::METHODS, true)) {
+            if (! in_array($payment['method'] ?? null, $activeMethodCodes, true)) {
                 return $this->apiFail('Invalid payment method: ' . ($payment['method'] ?? '(none)'), 422);
             }
             if (! is_numeric($payment['amount'] ?? null) || (float) $payment['amount'] <= 0) {
@@ -423,7 +476,9 @@ class SalesController extends BaseCrudController
                 return $this->validationFail($saleItemModel->errors());
             }
 
-            $product = $productsById[$line['product_id']];
+            // A custom item's line['product_id'] is null — nothing to look
+            // up, and correctly nothing to track inventory for either.
+            $product = $line['product_id'] !== null ? ($productsById[$line['product_id']] ?? null) : null;
             if ($product && (bool) $product->track_inventory) {
                 $inventory = $inventoryModel->forProductAtStore((int) $line['product_id'], (int) $payload['store_id']);
                 $balance = $inventoryCalc->applyDelta((float) ($inventory->quantity ?? 0), -$line['quantity']);

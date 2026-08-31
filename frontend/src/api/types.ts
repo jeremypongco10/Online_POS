@@ -98,12 +98,21 @@ export interface Store {
   company_id: number;
   name: string;
   code: string;
+  address: string | null;
   is_active: string | number;
 }
 
 export interface Register {
   id: number;
   store_id: number;
+  name: string;
+  code: string;
+  is_active: string | number;
+}
+
+/** `code` (not `id`) is what a Payment.method / payments.method value actually holds — see PaymentPanel.tsx. */
+export interface PaymentMethodOption {
+  id: number;
   name: string;
   code: string;
   is_active: string | number;

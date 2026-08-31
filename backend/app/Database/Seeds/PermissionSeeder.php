@@ -76,6 +76,9 @@ class PermissionSeeder extends Seeder
 
         'payments.view' => ['View Payments', 'Can view sale payments'],
 
+        'payment-methods.view' => ['View Payment Methods', 'Can view the payment methods offered at checkout'],
+        'payment-methods.manage' => ['Manage Payment Methods', 'Can add, rename, and activate/deactivate payment methods'],
+
         'returns.view' => ['View Returns', 'Can view sales returns'],
         'returns.create' => ['Create Returns', 'Can request a sales return'],
         // Deliberately separate from returns.create: approving is what

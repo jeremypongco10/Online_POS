@@ -3,6 +3,8 @@ import type { Product, TaxRate, Unit } from '../api/types';
 export interface CartLine {
   key: string;
   product: Product;
+  /** A cashier-typed line with no catalog product behind it — `product` is a synthetic stand-in (negative sentinel id) built purely so existing code that reads `line.product.name`/`.sku` keeps working unmodified. */
+  isCustom?: boolean;
   unit: Unit | null;
   taxRate: TaxRate | null;
   quantity: number;

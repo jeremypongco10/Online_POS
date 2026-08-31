@@ -235,7 +235,14 @@ export function BulkUpdatePricesScreen() {
   return (
     <Box>
       <Stack direction="row" spacing={2.5} sx={{ alignItems: 'center', mb: 2, flexWrap: 'wrap', rowGap: 1 }}>
-        <InlineSelectFilter label="Store" value={storeId} onChange={handleStoreChange} options={stores.map((s) => ({ value: String(s.id), label: s.name }))} minWidth={220} />
+        <InlineSelectFilter
+          label="Store"
+          value={storeId}
+          onChange={handleStoreChange}
+          options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+          minWidth={220}
+          disabled={applyToAllStores}
+        />
         {storeId && (
           <FormControlLabel
             control={<Checkbox checked={applyToAllStores} onChange={(e) => setApplyToAllStores(e.target.checked)} size="small" />}

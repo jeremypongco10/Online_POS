@@ -12,21 +12,14 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
-import type { Receipt } from '../api/types';
+import type { PaymentMethodOption, Receipt } from '../api/types';
 import { formatMoney } from './format';
 import { PopTransition } from '../PopTransition';
-
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Cash',
-  card: 'Card',
-  gcash: 'GCash',
-  maya: 'Maya',
-  bank_transfer: 'Bank Transfer',
-  other: 'Other',
-};
+import { METHOD_LABELS } from './PaymentPanel';
 
 /** Phase 18: the printable receipt — every field sourced from the sale's own frozen snapshot. */
-export function ReceiptModal({ receipt, onClose }: { receipt: Receipt; onClose: () => void }) {
+export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; methods: PaymentMethodOption[]; onClose: () => void }) {
+  const methodLabel = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth slots={{ transition: PopTransition }}>
       {/* `receipt-card` retained only as the hook for pos.css's @media print rules */}
@@ -134,7 +127,7 @@ export function ReceiptModal({ receipt, onClose }: { receipt: Receipt; onClose: 
         <Stack spacing={0.25} sx={{ mt: 1, pt: 1, borderTop: '1px dashed', borderColor: 'divider' }}>
           {receipt.payments.map((p, i) => (
             <Stack direction="row" sx={{ justifyContent: 'space-between' }} key={i}>
-              <span>{METHOD_LABELS[p.method] ?? p.method}</span>
+              <span>{methodLabel(p.method)}</span>
               <span>{formatMoney(parseFloat(p.amount))}</span>
             </Stack>
           ))}

@@ -33,7 +33,7 @@ export function OpenRegisterScreen({ registerId, registerName, onOpened }: Props
       });
       onOpened(session);
     } catch (err) {
-      reportError(err, 'Failed to open register');
+      reportError(err, 'Failed to open POS terminal');
     } finally {
       setSubmitting(false);
     }
@@ -66,7 +66,7 @@ export function OpenRegisterScreen({ registerId, registerName, onOpened }: Props
         }}
       >
         <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }} gutterBottom>
-          Open Register
+          Open POS Terminal
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           {registerName} has no open cash session. Count the drawer and enter the opening cash to start selling.
@@ -89,7 +89,7 @@ export function OpenRegisterScreen({ registerId, registerName, onOpened }: Props
           />
           {formError && <Alert severity="error">{formError}</Alert>}
           <Button type="submit" variant="contained" size="large" disabled={submitting} fullWidth>
-            {submitting ? 'Opening…' : 'Open Register'}
+            {submitting ? 'Opening…' : 'Open POS Terminal'}
           </Button>
         </Stack>
       </Paper>

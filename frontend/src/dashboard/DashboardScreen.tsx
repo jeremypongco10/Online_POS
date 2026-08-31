@@ -17,9 +17,9 @@ import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
 import { SearchableSelect } from '../admin/SearchableSelect';
-import type { DashboardData, Store } from '../api/types';
+import type { DashboardData, PaymentMethodOption, Store } from '../api/types';
 import { formatMoney } from '../pos/format';
-import { METHOD_LABELS, type PaymentMethod } from '../pos/PaymentPanel';
+import { METHOD_LABELS } from '../pos/PaymentPanel';
 
 function StatTile({
   label,
@@ -116,11 +116,24 @@ export function DashboardBody() {
   const [storeId, setStoreId] = useState<number | ''>('');
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
 
   useEffect(() => {
     if (!user || !canView) return;
     api.get<Store[]>(`/stores?company_id=${user.company_id}&is_active=1&per_page=50`).then(setStores);
+    // Not filtered to is_active — a deactivated method can still show up
+    // in today's payment breakdown for a payment taken before it was
+    // turned off, and that row should still get its real name, not just
+    // its raw code.
+    api
+      .get<PaymentMethodOption[]>('/payment-methods?per_page=50')
+      .then(setPaymentMethods)
+      .catch(() => {});
   }, [user, canView]);
+
+  function methodLabel(code: string): string {
+    return paymentMethods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
+  }
 
   useEffect(() => {
     if (!user || !canView) return;
@@ -236,7 +249,7 @@ export function DashboardBody() {
                 rows={data.payment_breakdown.map((row) => ({
                   key: row.method,
                   cells: [
-                    METHOD_LABELS[row.method as PaymentMethod] ?? row.method,
+                    methodLabel(row.method),
                     row.payment_count,
                     formatMoney(parseFloat(row.total_amount)),
                   ],

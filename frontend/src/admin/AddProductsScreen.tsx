@@ -13,6 +13,7 @@ import Paper from '@mui/material/Paper';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Alert from '@mui/material/Alert';
@@ -164,6 +165,7 @@ interface SingleForm {
   tax_rate_id: string;
   minimum_stock: string;
   is_active: boolean;
+  track_inventory: boolean;
 }
 
 const EMPTY_SINGLE: SingleForm = {
@@ -176,6 +178,7 @@ const EMPTY_SINGLE: SingleForm = {
   tax_rate_id: '',
   minimum_stock: '0',
   is_active: true,
+  track_inventory: true,
 };
 
 function SinglePanel({ categories, units, taxes }: RefData) {
@@ -227,7 +230,7 @@ function SinglePanel({ categories, units, taxes }: RefData) {
         tax_rate_id: form.tax_rate_id || null,
         minimum_stock: form.minimum_stock,
         is_active: form.is_active ? 1 : 0,
-        track_inventory: 1,
+        track_inventory: form.track_inventory ? 1 : 0,
       });
 
       if (imageFile) {
@@ -368,6 +371,18 @@ function SinglePanel({ categories, units, taxes }: RefData) {
               helperText={fieldErrors?.minimum_stock}
             />
           </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControlLabel
+              control={<Checkbox checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />}
+              label="Active"
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControlLabel
+              control={<Checkbox checked={form.track_inventory} onChange={(e) => setForm({ ...form, track_inventory: e.target.checked })} />}
+              label="Track Inventory"
+            />
+          </Grid>
 
           {formError && (
             <Grid size={{ xs: 12 }}>
@@ -400,6 +415,7 @@ interface BulkRow {
   tax_rate_id: string;
   minimum_stock: string;
   is_active: boolean;
+  track_inventory: boolean;
   error?: string;
 }
 
@@ -416,6 +432,7 @@ function newBulkRow(): BulkRow {
     tax_rate_id: '',
     minimum_stock: '0',
     is_active: true,
+    track_inventory: true,
   };
 }
 
@@ -424,6 +441,25 @@ function BulkPanel({ categories, units, taxes }: RefData) {
   const [rows, setRows] = useState<BulkRow[]>(() => [newBulkRow(), newBulkRow(), newBulkRow()]);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState<{ created: number; failed: number } | null>(null);
+  const defaultTax = taxes.find((t) => Number(t.is_default) === 1);
+  const defaultTaxId = defaultTax ? String(defaultTax.id) : '';
+  const taxDefaultApplied = useRef(false);
+
+  // Taxes load asynchronously after mount (same as SinglePanel), so the
+  // default can't be baked into the initial rows above — apply it once,
+  // the first time it becomes available, to every row still at its
+  // untouched empty tax_rate_id (not just the ones present at mount —
+  // a fast user could already be on row 4 by the time this fires).
+  useEffect(() => {
+    if (taxDefaultApplied.current || !defaultTaxId) return;
+    taxDefaultApplied.current = true;
+    setRows((prev) => prev.map((r) => (r.tax_rate_id ? r : { ...r, tax_rate_id: defaultTaxId })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTaxId]);
+
+  function freshRow(): BulkRow {
+    return { ...newBulkRow(), tax_rate_id: defaultTaxId };
+  }
 
   function updateRow(key: number, patch: Partial<BulkRow>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch, error: undefined } : r)));
@@ -434,7 +470,7 @@ function BulkPanel({ categories, units, taxes }: RefData) {
   }
 
   function addRow() {
-    setRows((prev) => [...prev, newBulkRow()]);
+    setRows((prev) => [...prev, freshRow()]);
   }
 
   const isBlank = (r: BulkRow) => !r.sku.trim() && !r.name.trim();
@@ -472,7 +508,7 @@ function BulkPanel({ categories, units, taxes }: RefData) {
           tax_rate_id: r.tax_rate_id || null,
           minimum_stock: r.minimum_stock,
           is_active: r.is_active ? 1 : 0,
-          track_inventory: 1,
+          track_inventory: r.track_inventory ? 1 : 0,
         })),
       });
 
@@ -495,7 +531,7 @@ function BulkPanel({ categories, units, taxes }: RefData) {
             const resultIndex = candidates.findIndex((c) => c.key === r.key);
             return { ...r, error: response.results[resultIndex]?.error ?? 'Failed to save' };
           });
-        return kept.length > 0 ? kept : [newBulkRow(), newBulkRow(), newBulkRow()];
+        return kept.length > 0 ? kept : [freshRow(), freshRow(), freshRow()];
       });
       setSummary({ created: response.created, failed: response.failed });
       if (response.created > 0) notify(`${response.created} product${response.created === 1 ? '' : 's'} added`);
@@ -506,8 +542,8 @@ function BulkPanel({ categories, units, taxes }: RefData) {
     }
   }
 
-  const cellSx = { py: 0.5, px: 1 };
-  const inputSx = { '& .MuiInputBase-input': { py: 0.75 } };
+  const cellSx = { py: 0.25, px: 1 };
+  const inputSx = { '& .MuiInputBase-input': { py: 0.5 } };
 
   return (
     <Box>
@@ -522,8 +558,9 @@ function BulkPanel({ categories, units, taxes }: RefData) {
               <TableCell sx={{ ...cellSx, minWidth: 160 }}>Unit</TableCell>
               <TableCell sx={{ ...cellSx, minWidth: 160 }}>Tax Rate</TableCell>
               <TableCell sx={{ ...cellSx, minWidth: 110 }}>Min. Stock</TableCell>
-              <TableCell align="center" sx={cellSx}>Active</TableCell>
-              <TableCell align="right" sx={{ ...cellSx, width: 1 }} />
+              <TableCell align="center" sx={{ ...cellSx, whiteSpace: 'nowrap' }}>Active</TableCell>
+              <TableCell align="center" sx={{ ...cellSx, whiteSpace: 'nowrap' }}>Track Inv.</TableCell>
+              <TableCell align="right" sx={{ ...cellSx, width: '1%', whiteSpace: 'nowrap' }} />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -591,7 +628,15 @@ function BulkPanel({ categories, units, taxes }: RefData) {
                     sx={{ p: 0.5 }}
                   />
                 </TableCell>
-                <TableCell align="right" sx={cellSx}>
+                <TableCell align="center" sx={cellSx}>
+                  <Checkbox
+                    checked={row.track_inventory}
+                    onChange={(e) => updateRow(row.key, { track_inventory: e.target.checked })}
+                    size="small"
+                    sx={{ p: 0.5 }}
+                  />
+                </TableCell>
+                <TableCell align="right" sx={{ ...cellSx, width: '1%', whiteSpace: 'nowrap' }}>
                   <Tooltip title="Remove row">
                     <IconButton size="small" onClick={() => removeRow(row.key)} disabled={rows.length === 1} sx={{ p: 0.5 }}>
                       <DeleteOutlineIcon fontSize="small" />
@@ -640,7 +685,7 @@ function BulkPanel({ categories, units, taxes }: RefData) {
 // Import from File (CSV)
 // ---------------------------------------------------------------------------
 
-const CSV_COLUMNS = ['sku', 'name', 'barcode', 'category', 'unit', 'tax_rate', 'minimum_stock', 'is_active'] as const;
+const CSV_COLUMNS = ['sku', 'name', 'barcode', 'category', 'unit', 'tax_rate', 'minimum_stock', 'is_active', 'track_inventory'] as const;
 
 interface ImportRow {
   line: number;
@@ -655,6 +700,7 @@ interface ImportRow {
   tax_rate_input: string;
   minimum_stock: string;
   is_active: boolean;
+  track_inventory: boolean;
   error?: string;
   warning?: string;
   imported?: boolean;
@@ -662,7 +708,7 @@ interface ImportRow {
 }
 
 function downloadTemplate() {
-  const csv = CSV_COLUMNS.join(',') + '\n' + 'ABC-001,Sample Product,1234567890123,Beverages,PCS,VAT 12%,5,yes\n';
+  const csv = CSV_COLUMNS.join(',') + '\n' + 'ABC-001,Sample Product,1234567890123,Beverages,PCS,VAT 12%,5,yes,yes\n';
   downloadCsv('product-import-template.csv', csv);
 }
 
@@ -717,6 +763,7 @@ function ImportPanel({ categories, units, taxes }: RefData) {
         const unitInput = get('unit');
         const taxInput = get('tax_rate');
         const activeRaw = get('is_active').toLowerCase();
+        const trackInventoryRaw = get('track_inventory').toLowerCase();
 
         const category = categoryInput ? findByName(categories, categoryInput) : undefined;
         const unit = unitInput ? units.find((u) => u.abbreviation.toLowerCase() === unitInput.toLowerCase() || u.name.toLowerCase() === unitInput.toLowerCase()) : undefined;
@@ -740,6 +787,7 @@ function ImportPanel({ categories, units, taxes }: RefData) {
           tax_rate_input: taxInput,
           minimum_stock: get('minimum_stock') || '0',
           is_active: activeRaw === '' || ['1', 'yes', 'true', 'y'].includes(activeRaw),
+          track_inventory: trackInventoryRaw === '' || ['1', 'yes', 'true', 'y'].includes(trackInventoryRaw),
           error: !sku ? 'SKU is required' : !name ? 'Name is required' : undefined,
           warning: unresolved.length > 0 ? `Not found, left blank: ${unresolved.join(', ')}` : undefined,
         };
@@ -768,7 +816,7 @@ function ImportPanel({ categories, units, taxes }: RefData) {
           tax_rate_id: r.tax_rate_id,
           minimum_stock: r.minimum_stock,
           is_active: r.is_active ? 1 : 0,
-          track_inventory: 1,
+          track_inventory: r.track_inventory ? 1 : 0,
         })),
       });
 
@@ -835,6 +883,8 @@ function ImportPanel({ categories, units, taxes }: RefData) {
                   <TableCell>Unit</TableCell>
                   <TableCell>Tax Rate</TableCell>
                   <TableCell align="right">Min. Stock</TableCell>
+                  <TableCell align="center">Active</TableCell>
+                  <TableCell align="center">Track Inv.</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
               </TableHead>
@@ -848,6 +898,8 @@ function ImportPanel({ categories, units, taxes }: RefData) {
                     <TableCell>{r.unit_input || '—'}</TableCell>
                     <TableCell>{r.tax_rate_input || '—'}</TableCell>
                     <TableCell align="right">{r.minimum_stock}</TableCell>
+                    <TableCell align="center">{r.is_active ? 'Yes' : 'No'}</TableCell>
+                    <TableCell align="center">{r.track_inventory ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
                       {r.imported === true && (
                         <Chip size="small" color="success" icon={<CheckCircleOutlinedIcon />} label="Imported" />

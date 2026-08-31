@@ -208,6 +208,14 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->get('(:num)', 'PaymentsController::show/$1', ['filter' => 'permission:payments.view']);
         });
 
+        $routes->group('payment-methods', static function (RouteCollection $routes) {
+            $routes->get('', 'PaymentMethodsController::index', ['filter' => 'permission:payment-methods.view']);
+            $routes->get('(:num)', 'PaymentMethodsController::show/$1', ['filter' => 'permission:payment-methods.view']);
+            $routes->post('', 'PaymentMethodsController::create', ['filter' => 'permission:payment-methods.manage']);
+            $routes->put('(:num)', 'PaymentMethodsController::update/$1', ['filter' => 'permission:payment-methods.manage']);
+            $routes->delete('(:num)', 'PaymentMethodsController::delete/$1', ['filter' => 'permission:payment-methods.manage']);
+        });
+
         $routes->group('returns', static function (RouteCollection $routes) {
             $routes->get('', 'ReturnsController::index', ['filter' => 'permission:returns.view']);
             $routes->get('eligible-items', 'ReturnsController::eligibleItems', ['filter' => 'permission:returns.create']);

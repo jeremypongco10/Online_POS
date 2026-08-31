@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
@@ -13,12 +14,16 @@ interface Props {
   autoFocus?: boolean;
   fullWidth?: boolean;
   sx?: SxProps<Theme>;
+  id?: string;
+  /** Extra icon(s) shown at the end, after the Clear button — the POS product search uses this for a decorative barcode-scan icon. */
+  trailingAdornment?: ReactNode;
 }
 
 /** A pill-shaped, borderless search field — used for both the admin list toolbars and the POS product search. */
-export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth, sx }: Props) {
+export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth, sx, id, trailingAdornment }: Props) {
   return (
     <TextField
+      id={id}
       placeholder={placeholder ?? 'Search…'}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -48,15 +53,19 @@ export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth
               <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
             </InputAdornment>
           ),
-          endAdornment: value ? (
-            <InputAdornment position="end">
-              <Tooltip title="Clear search">
-                <IconButton size="small" onClick={() => onChange('')} aria-label="Clear search" edge="end">
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </InputAdornment>
-          ) : undefined,
+          endAdornment:
+            value || trailingAdornment ? (
+              <InputAdornment position="end">
+                {value && (
+                  <Tooltip title="Clear search">
+                    <IconButton size="small" onClick={() => onChange('')} aria-label="Clear search" edge="end">
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {trailingAdornment}
+              </InputAdornment>
+            ) : undefined,
         },
       }}
     />

@@ -45,7 +45,7 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
       await api.post(`/cash-sessions/${session.id}/close`, { closing_balance: actual });
       onClosed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to close register');
+      setError(err instanceof ApiError ? err.message : 'Failed to close POS terminal');
     } finally {
       setSubmitting(false);
     }
@@ -57,7 +57,7 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
         direction="row"
         sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}
       >
-        <DialogTitle sx={{ p: 0, fontSize: 17, fontWeight: 700 }}>Close Register</DialogTitle>
+        <DialogTitle sx={{ p: 0, fontSize: 17, fontWeight: 700 }}>Close POS Terminal</DialogTitle>
         <Tooltip title="Close">
           <IconButton
             onClick={onCancel}
@@ -138,7 +138,7 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
             Cancel
           </Button>
           <Button variant="contained" onClick={handleClose} disabled={submitting || actualCash === ''}>
-            {submitting ? 'Closing…' : 'Close Register'}
+            {submitting ? 'Closing…' : 'Close POS Terminal'}
           </Button>
         </DialogActions>
       )}

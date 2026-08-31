@@ -17,10 +17,11 @@ interface Props {
    * Off by default so a lone filter elsewhere keeps its labeled look.
    */
   compactOnMobile?: boolean;
+  disabled?: boolean;
 }
 
 /** A searchable `select` filter for a ListToolbar's `extra` slot, with its label inline instead of stacked above (which would make it taller than the rest of the toolbar row). */
-export function InlineSelectFilter({ label, value, onChange, minWidth = 200, options, compactOnMobile }: Props) {
+export function InlineSelectFilter({ label, value, onChange, minWidth = 200, options, compactOnMobile, disabled }: Props) {
   return (
     <Stack
       direction="row"
@@ -38,6 +39,7 @@ export function InlineSelectFilter({ label, value, onChange, minWidth = 200, opt
         value={value}
         onChange={onChange}
         options={options}
+        disabled={disabled}
         sx={compactOnMobile ? { minWidth: { xs: 0, sm: minWidth }, width: { xs: '100%', sm: 'auto' }, flex: { xs: 1, sm: 'initial' } } : { minWidth }}
       />
     </Stack>

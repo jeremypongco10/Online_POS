@@ -6,21 +6,16 @@ use CodeIgniter\Model;
 
 class PaymentModel extends Model
 {
+    /**
+     * The one payment method code the app itself depends on rather than
+     * just displaying — CashSessionsController's drawer reconciliation
+     * sums payments WHERE method = self::METHOD_CASH. Every other code
+     * is fully admin-defined now (see PaymentMethodModel /
+     * PaymentMethodsController) — SalesController validates a payment's
+     * method dynamically against the caller's company's active payment
+     * methods rather than a fixed list.
+     */
     public const METHOD_CASH = 'cash';
-    public const METHOD_CARD = 'card';
-    public const METHOD_GCASH = 'gcash';
-    public const METHOD_MAYA = 'maya';
-    public const METHOD_BANK_TRANSFER = 'bank_transfer';
-    public const METHOD_OTHER = 'other';
-
-    public const METHODS = [
-        self::METHOD_CASH,
-        self::METHOD_CARD,
-        self::METHOD_GCASH,
-        self::METHOD_MAYA,
-        self::METHOD_BANK_TRANSFER,
-        self::METHOD_OTHER,
-    ];
 
     protected $table = 'payments';
     protected $primaryKey = 'id';
@@ -36,7 +31,10 @@ class PaymentModel extends Model
 
     protected $validationRules = [
         'sale_id' => ['label' => 'Sale', 'rules' => 'required|is_natural_no_zero'],
-        'method' => ['label' => 'Payment method', 'rules' => 'required|in_list[cash,card,gcash,maya,bank_transfer,other]'],
+        // Dynamic per-company validity (is this code one of the caller's
+        // active payment methods?) happens in SalesController, not here —
+        // this model has no company context to check against.
+        'method' => ['label' => 'Payment method', 'rules' => 'required|max_length[60]'],
         'amount' => ['label' => 'Amount', 'rules' => 'required|decimal'],
         'paid_at' => ['label' => 'Payment date/time', 'rules' => 'required'],
     ];

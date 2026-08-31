@@ -16,7 +16,7 @@ class ProductsController extends BaseCrudController
 {
     protected string $modelClass = ProductModel::class;
     protected array $allowedFilters = ['company_id', 'category_id', 'unit_id', 'tax_rate_id', 'is_active', 'track_inventory'];
-    protected array $allowedSorts = ['id', 'name', 'sku', 'minimum_stock', 'created_at'];
+    protected array $allowedSorts = ['id', 'name', 'sku', 'minimum_stock', 'is_active', 'created_at'];
     protected array $searchableFields = ['name', 'sku', 'barcode', 'description'];
     protected string $defaultSort = 'name';
 
@@ -31,11 +31,68 @@ class ProductsController extends BaseCrudController
     public function index()
     {
         $storeId = $this->request->getGet('store_id');
-        if ($storeId === null || $storeId === '') {
-            return parent::index();
+        if ($storeId !== null && $storeId !== '') {
+            return $this->indexWithStorePrice((int) $storeId);
         }
 
-        return $this->indexWithStorePrice((int) $storeId);
+        // "category" isn't a real column — the list shows the category's
+        // NAME, not its id, so sorting has to order by the joined name too
+        // or the visible order wouldn't look sorted at all. listResource()
+        // only knows how to order by a column on this table directly, so
+        // that one case is the only reason to bypass it here.
+        $sortParam = ltrim((string) $this->request->getGet('sort'), '-');
+        if ($sortParam === 'category') {
+            return $this->indexSortedByCategory();
+        }
+
+        return parent::index();
+    }
+
+    private function indexSortedByCategory()
+    {
+        $auth = Services::authContext();
+        $direction = str_starts_with((string) $this->request->getGet('sort'), '-') ? 'DESC' : 'ASC';
+
+        $builder = model(ProductModel::class)->builder();
+        $builder->select('products.*')
+            ->join('categories', 'categories.id = products.category_id', 'left')
+            ->where('products.company_id', $auth->companyId);
+
+        foreach (['category_id', 'unit_id', 'tax_rate_id', 'is_active', 'track_inventory'] as $field) {
+            $value = $this->request->getGet($field);
+            if ($value !== null && $value !== '') {
+                $builder->where("products.$field", $value);
+            }
+        }
+
+        $search = trim((string) $this->request->getGet('q'));
+        if ($search !== '') {
+            $builder->groupStart();
+            foreach (['name', 'sku', 'barcode', 'description'] as $i => $field) {
+                $method = $i === 0 ? 'like' : 'orLike';
+                $builder->{$method}("products.$field", $search);
+            }
+            $builder->groupEnd();
+        }
+
+        $perPage = max(1, min((int) ($this->request->getGet('per_page') ?? 15), 100));
+        $page = max(1, (int) ($this->request->getGet('page') ?? 1));
+        $total = $builder->countAllResults(false);
+        // NULLs (products with no category) sort last in both directions —
+        // otherwise DESC would put them first, ahead of every real category.
+        $rows = $builder
+            ->orderBy('categories.name IS NULL', 'ASC', false)
+            ->orderBy('categories.name', $direction)
+            ->orderBy('products.name', 'ASC')
+            ->get($perPage, ($page - 1) * $perPage)
+            ->getResult();
+
+        return $this->ok($rows, '', [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'last_page' => (int) ceil($total / $perPage) ?: 1,
+        ]);
     }
 
     private function indexWithStorePrice(int $storeId)
@@ -195,7 +252,15 @@ class ProductsController extends BaseCrudController
                 $results[] = ['index' => $i, 'success' => true, 'data' => $newRow];
                 $created++;
             } catch (DatabaseException $e) {
-                if (! str_contains($e->getMessage(), 'Duplicate entry')) {
+                // MySQL (production) phrases this "Duplicate entry '...' for
+                // key ..."; SQLite (the automated test suite's driver) says
+                // "UNIQUE constraint failed: products.company_id, products.
+                // barcode" instead — matching only the MySQL wording left
+                // this branch unreachable under SQLite, turning one bad row
+                // into a 500 for the whole batch instead of a per-row fail.
+                $isDuplicate = str_contains($e->getMessage(), 'Duplicate entry')
+                    || str_contains($e->getMessage(), 'UNIQUE constraint failed');
+                if (! $isDuplicate) {
                     throw $e;
                 }
                 $field = str_contains($e->getMessage(), 'barcode') ? 'barcode' : 'SKU';

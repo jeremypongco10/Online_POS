@@ -1,23 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
-import AppBar from '@mui/material/AppBar';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import Stack from '@mui/material/Stack';
-import Button from '@mui/material/Button';
-import Avatar from '@mui/material/Avatar';
-import Alert from '@mui/material/Alert';
-import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../auth/AuthContext';
-import { ThemeToggle } from '../ThemeToggle';
-import { ChangePasswordButton } from '../ChangePasswordModal';
-import { SearchableSelect } from '../admin/SearchableSelect';
+import { useConfirm } from '../ConfirmDialog';
+import { useSnackbar } from '../Snackbar';
 import { api, ApiError } from '../api/client';
 import type {
   Bagger,
   CashSession,
   Customer,
   LoyaltyCard,
+  PaymentMethodOption,
   ProductWithStorePrice,
   Receipt,
   Register,
@@ -26,25 +18,27 @@ import type {
   TaxRate,
   Unit,
 } from '../api/types';
-import { ProductSearch } from './ProductSearch';
-import { Cart } from './Cart';
-import { TotalsPanel } from './TotalsPanel';
-import { CustomerLoyaltyPanel } from './CustomerLoyaltyPanel';
-import { BaggerPanel } from './BaggerPanel';
-import { PaymentPanel, type Payment } from './PaymentPanel';
+import { ProductBrowser } from './ProductBrowser';
+import { ReceiptPanel } from './ReceiptPanel';
+import { StatusBar } from './StatusBar';
+import { AccountMenu } from './AccountMenu';
+import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
-import { CashMovementPanel } from './CashMovementPanel';
 import { ReceiptModal } from './ReceiptModal';
 import { calculateCart, type CartLine } from './posTypes';
+import { holdSale, listHeldSales, removeHeldSale, type HeldSale } from './holdSale';
+import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
 interface Props {
-  onOpenAdmin: () => void;
+  onOpenAdmin: (path?: string) => void;
 }
 
 export function PosScreen({ onOpenAdmin }: Props) {
   const { user, logout, hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const notify = useSnackbar();
 
   const [stores, setStores] = useState<Store[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
@@ -53,6 +47,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   const [units, setUnits] = useState<Unit[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
 
   const [cashSession, setCashSession] = useState<CashSession | null>(null);
   const [cashSessionLoading, setCashSessionLoading] = useState(true);
@@ -71,6 +66,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // component, so a plain re-render wouldn't reset them on its own.
   const [saleCounter, setSaleCounter] = useState(0);
 
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
+
   const totals = useMemo(() => calculateCart(lines), [lines]);
 
   useEffect(() => {
@@ -81,6 +79,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
     });
     api.get<Unit[]>('/units?per_page=50').then(setUnits);
     api.get<TaxRate[]>(`/taxes?company_id=${user.company_id}&is_active=1&per_page=50`).then(setTaxRates);
+    api.get<PaymentMethodOption[]>('/payment-methods?is_active=1&per_page=50').then(setPaymentMethods);
   }, [user]);
 
   useEffect(() => {
@@ -107,9 +106,16 @@ export function PosScreen({ onOpenAdmin }: Props) {
       .finally(() => setCashSessionLoading(false));
   }, [registerId]);
 
+  // Held sales are scoped per register, held only in this browser's
+  // localStorage (see holdSale.ts) — refresh the visible list whenever the
+  // register changes.
+  useEffect(() => {
+    setHeldSales(registerId ? listHeldSales(registerId) : []);
+  }, [registerId]);
+
   function addProduct(product: ProductWithStorePrice) {
     setLines((prev) => {
-      const existing = prev.find((l) => l.product.id === product.id);
+      const existing = prev.find((l) => !l.isCustom && l.product.id === product.id);
       const unit = units.find((u) => u.id === product.unit_id) ?? null;
       const step = 1 / 10 ** (unit?.decimal_places ?? 0);
 
@@ -131,6 +137,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
       };
       return [...prev, newLine];
     });
+    notify(`Added ${product.name}`);
   }
 
   function updateQuantity(key: string, quantity: number) {
@@ -154,6 +161,42 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setSaleCounter((n) => n + 1);
   }
 
+  async function handleCancel() {
+    if (lines.length === 0) return;
+    const ok = await confirm('Clear the current cart? This cannot be undone.', {
+      title: 'Cancel Sale',
+      confirmLabel: 'Clear Cart',
+    });
+    if (ok) resetSale();
+  }
+
+  function handleHold() {
+    if (!registerId || lines.length === 0) return;
+    holdSale(registerId, { lines, customer, card, bagger });
+    setHeldSales(listHeldSales(registerId));
+    resetSale();
+    notify('Sale held');
+  }
+
+  function handleResume(held: HeldSale) {
+    setLines(held.lines);
+    setCustomer(held.customer);
+    setCard(held.card);
+    setBagger(held.bagger);
+    setCheckoutError(null);
+    setSaleCounter((n) => n + 1);
+    if (registerId) {
+      removeHeldSale(registerId, held.id);
+      setHeldSales(listHeldSales(registerId));
+    }
+  }
+
+  function handleDiscardHeld(id: string) {
+    if (!registerId) return;
+    removeHeldSale(registerId, id);
+    setHeldSales(listHeldSales(registerId));
+  }
+
   async function checkout(payments: Payment[]) {
     if (!user || !storeId || !registerId || !cashSession || lines.length === 0) return;
 
@@ -167,13 +210,23 @@ export function PosScreen({ onOpenAdmin }: Props) {
         register_id: registerId,
         cash_session_id: cashSession.id,
         customer_id: customer?.id,
-        items: lines.map((l) => ({
-          product_id: l.product.id,
-          quantity: l.quantity,
-          unit_price: l.unitPrice,
-          discount: l.discount,
-          tax_rate_id: l.taxRate?.id,
-        })),
+        items: lines.map((l) =>
+          l.isCustom
+            ? {
+                name: l.product.name,
+                quantity: l.quantity,
+                unit_price: l.unitPrice,
+                discount: l.discount,
+                tax_rate_id: l.taxRate?.id,
+              }
+            : {
+                product_id: l.product.id,
+                quantity: l.quantity,
+                unit_price: l.unitPrice,
+                discount: l.discount,
+                tax_rate_id: l.taxRate?.id,
+              }
+        ),
         payments,
         bagger_id: bagger?.id,
         loyalty_card_id: card?.id,
@@ -187,6 +240,19 @@ export function PosScreen({ onOpenAdmin }: Props) {
       setSubmitting(false);
     }
   }
+
+  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt);
+  useKeyboardShortcuts({
+    enabled: !blockingDialogOpen,
+    onSearch: () => document.getElementById('pos-product-search')?.focus(),
+    onAddCustomer: () => document.getElementById('pos-action-add-customer')?.click(),
+    onHold: handleHold,
+    onPay: () => document.getElementById('pos-pay-button')?.click(),
+    onBagger: () => document.getElementById('pos-action-bagger')?.click(),
+    onRefund: () => document.getElementById('pos-action-refund')?.click(),
+    onReturn: () => document.getElementById('pos-action-return')?.click(),
+    onCancel: () => document.getElementById('pos-action-cancel')?.click(),
+  });
 
   if (!user) return null;
 
@@ -203,114 +269,108 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   return (
-    <Box sx={{ minHeight: '100svh', display: 'flex', flexDirection: 'column' }}>
-      <AppBar
-        position="static"
-        color="inherit"
-        elevation={0}
-        sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
-      >
-        <Toolbar sx={{ justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', py: 1 }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 2.25 }} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>
-              POS
-            </Typography>
-            <Stack
-              direction="row"
-              spacing={0.75}
-              useFlexGap
-              sx={{ alignItems: 'center', flexWrap: 'wrap', bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}
-            >
-              <SearchableSelect
-                value={storeId ? String(storeId) : ''}
-                onChange={(v) => setStoreId(Number(v))}
-                sx={{ minWidth: { xs: 140, sm: 180 }, flex: { xs: 1, sm: 'initial' }, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
-                options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
-              />
-              <SearchableSelect
-                value={registerId ? String(registerId) : ''}
-                onChange={(v) => setRegisterId(Number(v))}
-                sx={{ minWidth: { xs: 140, sm: 180 }, flex: { xs: 1, sm: 'initial' }, bgcolor: 'background.paper', boxShadow: 1, borderRadius: 1 }}
-                options={registers.map((r) => ({ value: String(r.id), label: r.name }))}
-              />
-            </Stack>
-          </Stack>
-
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}>
-              {cashSession && (
-                <Button size="small" onClick={() => setShowCloseRegister(true)} sx={{ color: 'text.secondary' }}>
-                  Close Register
-                </Button>
-              )}
-              {ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p)) && (
-                <Button size="small" onClick={onOpenAdmin} sx={{ color: 'text.secondary' }}>
-                  Back Office
-                </Button>
-              )}
-            </Stack>
-            <Stack
-              direction="row"
-              spacing={1.25}
-              sx={{ alignItems: 'center', pl: 2, borderLeft: '1px solid', borderColor: 'divider' }}
-            >
-              <ThemeToggle />
-              <ChangePasswordButton />
-              {/* No profile images in the system yet — a generic person icon stands in. */}
-              <Avatar sx={{ width: 28, height: 28, bgcolor: 'primary.main' }}>
-                <PersonIcon sx={{ fontSize: 17 }} />
-              </Avatar>
-              <Typography variant="body2" sx={{ fontWeight: 600, display: { xs: 'none', sm: 'block' } }}>
-                {user.name}
-              </Typography>
-              <Button size="small" onClick={logout}>
-                Log out
-              </Button>
-            </Stack>
-          </Stack>
-        </Toolbar>
-      </AppBar>
-
+    <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box
         sx={{
           flex: 1,
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '1fr 360px' },
-          gap: 2.25,
-          alignItems: 'start',
-          maxWidth: 1400,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          gap: { xs: 1.5, md: 2.25 },
+          maxWidth: 1600,
           mx: 'auto',
           width: '100%',
-          p: { xs: 2, md: 3 },
+          pl: { xs: 1.5, md: 3 },
+          overflow: 'hidden',
         }}
       >
-        <Stack spacing={2.25}>
-          <ProductSearch companyId={user.company_id} storeId={storeId} onAdd={addProduct} />
-          <Cart lines={lines} onQuantityChange={updateQuantity} onDiscountChange={updateDiscount} onRemove={removeLine} />
-        </Stack>
-
-        <Stack spacing={2.25}>
-          <CustomerLoyaltyPanel
+        <Box
+          sx={{
+            // Stacked on mobile (xs), this and the receipt column below
+            // split the viewport 60/40 rather than evenly — an even split
+            // left almost no visible room for the product grid once the
+            // search bar, category pills, and Actions row all took their
+            // fixed share of just half the screen.
+            flex: { xs: '3 1 0', md: '1 1 0' },
+            minWidth: 0,
+            minHeight: 0,
+            py: { xs: 1.5, md: 3 },
+            // No overflow here — ProductBrowser is hard-bounded to exactly
+            // this box's height; its own internal results-grid scroll is
+            // the only thing that ever scrolls, so the search bar, category
+            // pills, and view toggle are always fully visible.
+          }}
+        >
+          <ProductBrowser
+            companyId={user.company_id}
+            storeId={storeId}
+            onAdd={addProduct}
             customer={customer}
             card={card}
-            onAttach={(c, k) => {
+            onAttachCustomer={(c, k) => {
               setCustomer(c);
               setCard(k);
             }}
+            bagger={bagger}
+            onSelectBagger={setBagger}
+            cashSession={cashSession}
+            cartHasItems={lines.length > 0}
+            onCancel={handleCancel}
+            onRefund={() => onOpenAdmin('/admin/customers/returns')}
+            onReturn={() => onOpenAdmin('/admin/customers/returns')}
+            headerExtra={
+              <AccountMenu
+                user={user}
+                stores={stores}
+                registers={registers}
+                storeId={storeId}
+                registerId={registerId}
+                onStoreChange={setStoreId}
+                onRegisterChange={setRegisterId}
+                heldSales={heldSales}
+                onResumeHeld={handleResume}
+                onDiscardHeld={handleDiscardHeld}
+                cashSession={cashSession}
+                onCloseTerminal={() => setShowCloseRegister(true)}
+                canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
+                onOpenAdmin={() => onOpenAdmin()}
+                onLogout={logout}
+              />
+            }
           />
-          <BaggerPanel storeId={storeId} bagger={bagger} onSelect={setBagger} />
-          {cashSession && <CashMovementPanel session={cashSession} />}
-          <TotalsPanel totals={totals} />
-          {checkoutError && <Alert severity="error">{checkoutError}</Alert>}
-          <PaymentPanel
-            key={saleCounter}
-            total={totals.total}
-            disabled={lines.length === 0 || !registerId || !cashSession}
+        </Box>
+
+        <Box
+          sx={{
+            flex: { xs: '2 1 0', md: '0 1 clamp(340px, 32vw, 480px)' },
+            minWidth: { xs: 0, md: 320 },
+            minHeight: 0,
+            // No overflow here — ReceiptPanel is hard-bounded to exactly
+            // this box's height, and its own internal Cart scroll is the
+            // only thing that ever scrolls, so header/footer are always
+            // fully visible regardless of viewport height.
+          }}
+        >
+          <ReceiptPanel
+            cashierName={user.name}
+            lines={lines}
+            onQuantityChange={updateQuantity}
+            onDiscountChange={updateDiscount}
+            onRemove={removeLine}
+            totals={totals}
+            checkoutError={checkoutError}
+            paymentMethods={paymentMethods}
             submitting={submitting}
+            paymentDisabled={lines.length === 0 || !registerId || !cashSession}
             onCheckout={checkout}
+            saleCounter={saleCounter}
+            onHold={handleHold}
+            onPaymentDialogOpenChange={setPaymentDialogOpen}
           />
-        </Stack>
+        </Box>
       </Box>
+
+      <StatusBar />
 
       {showCloseRegister && cashSession && (
         <CloseRegisterModal
@@ -323,7 +383,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
         />
       )}
 
-      {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />}
+      {receipt && <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} />}
     </Box>
   );
 }

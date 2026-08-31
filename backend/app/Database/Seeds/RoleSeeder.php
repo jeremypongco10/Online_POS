@@ -67,7 +67,7 @@ class RoleSeeder extends Seeder
                     'purchases.view', 'purchases.create', 'purchases.manage',
                     'registers.view', 'registers.manage',
                     'cash-sessions.view', 'cash-sessions.manage',
-                    'payments.view',
+                    'payments.view', 'payment-methods.view', 'payment-methods.manage',
                     // A manager can both request AND approve — the only
                     // role below Company Admin trusted to authorize a
                     // refund themselves.
@@ -91,7 +91,7 @@ class RoleSeeder extends Seeder
                     'categories.view', 'units.view', 'taxes.view',
                     'stores.view', 'registers.view',
                     'cash-sessions.view', 'cash-sessions.manage',
-                    'payments.view',
+                    'payments.view', 'payment-methods.view',
                     'returns.view', 'returns.create', 'returns.approve',
                 ],
             ],
@@ -108,7 +108,7 @@ class RoleSeeder extends Seeder
                     // POS screen's store/register selector — not stores.manage.
                     'stores.view', 'registers.view',
                     'cash-sessions.view', 'cash-sessions.manage',
-                    'payments.view',
+                    'payments.view', 'payment-methods.view',
                     // Can request a return but deliberately NOT approve one
                     // — approving issues the refund, and that authority is
                     // reserved for Cashier Supervisor and above.

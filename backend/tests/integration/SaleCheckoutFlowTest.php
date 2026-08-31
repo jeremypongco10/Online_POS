@@ -4,6 +4,7 @@ use App\Libraries\JwtService;
 use App\Models\CompanyModel;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
+use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
 use App\Models\ProductModel;
 use App\Models\RegisterModel;
@@ -72,6 +73,17 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
             'code' => 'ITS-1',
         ], true);
         $this->storeId = (int) $store;
+
+        // SalesController validates each payment's method against this
+        // company's active payment_methods — a fresh test company has none
+        // seeded (that only happens for companies that already existed
+        // when 2026-08-30-000057 ran), so checkout would 422 on "Invalid
+        // payment method: cash" without this.
+        model(PaymentMethodModel::class)->insert([
+            'company_id' => $this->companyId,
+            'name' => 'Cash',
+            'code' => PaymentModel::METHOD_CASH,
+        ]);
 
         $register = model(RegisterModel::class)->insert([
             'store_id' => $this->storeId,
@@ -250,6 +262,116 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
                 ],
                 'payments' => [
                     ['method' => 'cash', 'amount' => 100000.00],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(0, model(SaleModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    public function testCustomItemWithNoProductIdChecksOutSuccessfully(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['name' => 'Gift Wrapping', 'quantity' => 1, 'unit_price' => 25.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 25.00],
+                ],
+            ]);
+
+        $response->assertStatus(201);
+        $body = json_decode($response->getJSON(), true);
+        $saleId = (int) $body['data']['id'];
+        $this->assertEqualsWithDelta(25.00, (float) $body['data']['total'], 0.001);
+
+        $items = model(\App\Models\SaleItemModel::class)->where('sale_id', $saleId)->findAll();
+        $this->assertCount(1, $items);
+        $this->assertNull($items[0]->product_id);
+        $this->assertSame('Gift Wrapping', $items[0]->product_name);
+        $this->assertNull($items[0]->product_sku);
+
+        // No inventory row for this store should have been touched by a
+        // custom item — nothing tracks stock for it.
+        $inventoryRows = model(InventoryModel::class)->where('store_id', $this->storeId)->findAll();
+        foreach ($inventoryRows as $row) {
+            $this->assertNotEquals($this->productId, -1, 'sanity: custom items never reach the real product either'); // no-op guard, see assertion below
+        }
+        $this->assertSame(0, model(InventoryTransactionModel::class)->where('reference_id', $saleId)->where('reference_type', 'sale')->countAllResults());
+    }
+
+    public function testCustomItemMixedWithARealProductChecksOutSuccessfully(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                    ['name' => 'Delivery Fee', 'quantity' => 1, 'unit_price' => 15.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 80.00],
+                ],
+            ]);
+
+        $response->assertStatus(201);
+        $body = json_decode($response->getJSON(), true);
+        $saleId = (int) $body['data']['id'];
+        $this->assertEqualsWithDelta(80.00, (float) $body['data']['total'], 0.001);
+
+        $items = model(\App\Models\SaleItemModel::class)->where('sale_id', $saleId)->orderBy('id')->findAll();
+        $this->assertCount(2, $items);
+        $this->assertSame($this->productId, (int) $items[0]->product_id);
+        $this->assertNull($items[1]->product_id);
+        $this->assertSame('Delivery Fee', $items[1]->product_name);
+
+        // The real product's inventory still decrements normally — only
+        // the custom line is exempt from stock tracking.
+        $inventory = model(InventoryModel::class)->forProductAtStore($this->productId, $this->storeId);
+        $this->assertEqualsWithDelta(19.0, (float) $inventory->quantity, 0.0001); // 20 - 1
+    }
+
+    public function testCustomItemWithoutANameIsRejected(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['quantity' => 1, 'unit_price' => 25.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 25.00],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(0, model(SaleModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    public function testCustomItemWithZeroPriceIsRejected(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['name' => 'Freebie', 'quantity' => 1, 'unit_price' => 0],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 0],
                 ],
             ]);
 

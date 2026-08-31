@@ -6,6 +6,7 @@ import { useSnackbar } from '../Snackbar';
 import { DetailView, StatusChip } from './DetailView';
 import { ProductEditModal } from './ProductEditModal';
 import { SearchableSelect } from './SearchableSelect';
+import { ImageHoverPreview } from './ImageHoverPreview';
 import { formatMoney } from '../pos/format';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
@@ -431,13 +432,15 @@ export function ProductLookupScreen() {
                     },
                   }}
                 >
-                  <Avatar
-                    variant="rounded"
-                    src={p.image_path ? assetUrl(p.image_path) : undefined}
-                    sx={{ width: 44, height: 44, bgcolor: 'action.hover', color: 'text.disabled', flexShrink: 0 }}
-                  >
-                    <ImageNotSupportedOutlinedIcon fontSize="small" />
-                  </Avatar>
+                  <ImageHoverPreview src={p.image_path ? assetUrl(p.image_path) : undefined}>
+                    <Avatar
+                      variant="rounded"
+                      src={p.image_path ? assetUrl(p.image_path) : undefined}
+                      sx={{ width: 44, height: 44, bgcolor: 'action.hover', color: 'text.disabled', flexShrink: 0 }}
+                    >
+                      <ImageNotSupportedOutlinedIcon fontSize="small" />
+                    </Avatar>
+                  </ImageHoverPreview>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
                       {p.name}
@@ -465,20 +468,22 @@ export function ProductLookupScreen() {
           >
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
               <Stack direction="row" spacing={2} sx={{ alignItems: 'center', minWidth: 0, flex: 1 }}>
-                <Avatar
-                  variant="rounded"
-                  src={selected.image_path ? assetUrl(selected.image_path) : undefined}
-                  sx={{
-                    width: { xs: 56, sm: 72 },
-                    height: { xs: 56, sm: 72 },
-                    flexShrink: 0,
-                    bgcolor: 'action.hover',
-                    color: 'text.disabled',
-                    boxShadow: '0 0 0 3px var(--mui-palette-background-paper), 0 0 0 4px color-mix(in srgb, var(--mui-palette-primary-main) 25%, transparent)',
-                  }}
-                >
-                  <ImageNotSupportedOutlinedIcon />
-                </Avatar>
+                <ImageHoverPreview src={selected.image_path ? assetUrl(selected.image_path) : undefined}>
+                  <Avatar
+                    variant="rounded"
+                    src={selected.image_path ? assetUrl(selected.image_path) : undefined}
+                    sx={{
+                      width: { xs: 56, sm: 72 },
+                      height: { xs: 56, sm: 72 },
+                      flexShrink: 0,
+                      bgcolor: 'action.hover',
+                      color: 'text.disabled',
+                      boxShadow: '0 0 0 3px var(--mui-palette-background-paper), 0 0 0 4px color-mix(in srgb, var(--mui-palette-primary-main) 25%, transparent)',
+                    }}
+                  >
+                    <ImageNotSupportedOutlinedIcon />
+                  </Avatar>
+                </ImageHoverPreview>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography variant="h6" sx={{ fontWeight: 700 }} noWrap>
                     {selected.name}

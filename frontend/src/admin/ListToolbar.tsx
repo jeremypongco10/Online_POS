@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -31,8 +30,13 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
           an icon). */}
       {extra}
       {/* Refresh sits inline with the search field (not stranded alone above it) on
-          every width — only the field itself grows to fill the row on a phone. */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          every width. The field itself grows to fill whatever room this group ends
+          up with — the row's full width on a phone, or (replacing what used to be a
+          separate, purely decorative spacer) whatever's left over next to `extra`
+          once `extra` is wide enough to force a wrap, so that row doesn't end in a
+          dead gap either. Capped so it doesn't balloon on a wide screen with
+          nothing else in the row. */}
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: { sm: 1 }, minWidth: 0 }}>
         {onRefresh && (
           <Tooltip title="Refresh">
             <span>
@@ -58,10 +62,9 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
         <SearchField
           value={search}
           onChange={onSearchChange}
-          sx={{ minWidth: { xs: 0, sm: 260 }, width: { xs: '100%', sm: 'auto' }, flex: { xs: 1, sm: 'initial' } }}
+          sx={{ minWidth: { xs: 0, sm: 260 }, maxWidth: { sm: 420 }, width: { xs: '100%', sm: '100%' }, flex: 1 }}
         />
       </Stack>
-      <Box sx={{ flex: 1, display: { xs: 'none', sm: 'block' } }} />
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
         {actions}
         {onAdd && (

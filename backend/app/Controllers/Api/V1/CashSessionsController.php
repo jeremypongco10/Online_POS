@@ -214,7 +214,7 @@ class CashSessionsController extends BaseCrudController
             ->join('sales', 'sales.id = payments.sale_id')
             ->where('sales.cash_session_id', $cashSessionId)
             ->where('sales.status', 'completed')
-            ->where('payments.method', 'cash')
+            ->where('payments.method', PaymentModel::METHOD_CASH)
             ->get()->getRow();
 
         return (float) ($result->amount ?? 0);

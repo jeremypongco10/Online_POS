@@ -21,7 +21,7 @@ export function useList<T>(endpoint: string, params: Record<string, string | num
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(20);
+  const [perPage, setPerPage] = useState(10);
   const [sort, setSort] = useState('');
   const [q, setQ] = useState('');
 

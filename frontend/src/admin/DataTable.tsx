@@ -195,6 +195,8 @@ export function DataTable<T>({
           rowsPerPage={perPage}
           onRowsPerPageChange={(e) => onPerPageChange(Number(e.target.value))}
           rowsPerPageOptions={[10, 20, 50, 100]}
+          showFirstButton
+          showLastButton
           sx={{
             borderTop: '1px solid',
             borderColor: 'divider',

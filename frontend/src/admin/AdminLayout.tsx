@@ -117,12 +117,13 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: 'settings',
     label: 'Settings',
-    description: 'Configure stores, registers, tax rates, and units.',
-    // Settings bundles four sub-tabs (Stores/Registers/Taxes/Units) — the
-    // nav entry itself needs to show up for any one of them, not just
-    // stores.view, or a role granted only e.g. registers.view has no way
-    // to reach the tab it was actually given permission for.
-    permissions: ['stores.view', 'registers.view', 'taxes.view', 'units.view'],
+    description: 'Configure stores, POS terminals, payment methods, tax rates, and units.',
+    // Settings bundles several sub-tabs (Stores/Registers/Payment Methods/
+    // Taxes/Units) — the nav entry itself needs to show up for any one of
+    // them, not just stores.view, or a role granted only e.g.
+    // registers.view has no way to reach the tab it was actually given
+    // permission for.
+    permissions: ['stores.view', 'registers.view', 'payment-methods.view', 'taxes.view', 'units.view'],
     icon: IconSettings,
   },
 ];
