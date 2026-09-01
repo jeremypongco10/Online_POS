@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -13,9 +13,11 @@ import Tooltip from '@mui/material/Tooltip';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
 import { api } from '../api/client';
 import type { Category, ProductWithStorePrice } from '../api/types';
 import { formatMoney, POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
+import { useSnackbar } from '../Snackbar';
 import { SearchField } from '../SearchField';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
@@ -23,32 +25,43 @@ import { ProductGrid } from './ProductGrid';
 type CategoryNode = Category & { children: CategoryNode[] };
 type ViewMode = 'grid' | 'list';
 
+// Leading "5*", "5x", or "5×" before a scanned/typed code means "add this
+// many" — the standard quantity-multiplier convention real POS/scanner
+// setups use, so a case of 24 doesn't need 24 individual scans.
+const QUANTITY_PREFIX = /^(\d+(?:\.\d+)?)\s*[x×*]\s*(.+)$/i;
+// Looser version with no requirement for anything after the separator —
+// matches the instant "5*" is typed, before the barcode part exists yet,
+// so the live search below can bail out while a multiplier is still being
+// entered rather than uselessly searching for the literal text "5*".
+const QUANTITY_PREFIX_STARTED = /^\d+(?:\.\d+)?\s*[x×*]/i;
+
 interface Props {
   companyId: number;
   storeId: number | null;
-  onAdd: (product: ProductWithStorePrice) => void;
-  /** Add Customer / overflow / account controls — rendered here, next to the search bar, since there's no separate header row above it anymore. */
-  toolbarExtra?: ReactNode;
-  /** Refund/Return/Cancellation — pinned below the results, outside the scrollable area. */
+  onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
+  /** The Actions row — pinned below the results, outside the scrollable area. */
   bottomExtra?: ReactNode;
 }
 
 /**
  * Category browsing + name/SKU/barcode search feeding a product grid (or
- * list) — barcode matching and category_id filtering are both already
- * supported server-side (ProductsController's $searchableFields includes
- * 'barcode', category_id is an accepted list filter), so a barcode scanner
- * that types into this same focused field "just works" with no dedicated
- * scan endpoint — the trailing icon is a visual affordance, not a separate
- * scan integration.
+ * list). A hardware barcode scanner just types into this same focused
+ * field like a fast keyboard, then sends Enter — handleSearchKeyDown()
+ * below catches that Enter and, on an exact barcode/SKU match, adds the
+ * product straight to the cart and clears the field for the next scan,
+ * rather than leaving the cashier to click a filtered-down grid. No
+ * dedicated scan endpoint needed — the trailing icon is a visual
+ * affordance for that, not a separate integration.
  */
-export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomExtra }: Props) {
+export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props) {
+  const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [results, setResults] = useState<ProductWithStorePrice[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -60,6 +73,24 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
 
     if (!storeId) {
       setResults([]);
+      return;
+    }
+
+    // A 1-2 character query is too broad to be useful and just churns
+    // requests while the cashier is still typing — wait for a real query
+    // (3+ chars) or an empty field (browse everything) before searching.
+    // Deliberately leaves `results` untouched rather than clearing it:
+    // clearing would flash the grid blank on every keystroke below the
+    // threshold, which reads as "no matches" rather than "still typing".
+    const trimmed = query.trim();
+    if (trimmed.length > 0 && trimmed.length < 3) {
+      return;
+    }
+
+    // A "5*..." quantity prefix is headed for handleSearchKeyDown on
+    // Enter, not a name/SKU/barcode search — searching the literal text
+    // "5*4800000000011" against the catalog would never match anything.
+    if (QUANTITY_PREFIX_STARTED.test(trimmed)) {
       return;
     }
 
@@ -90,8 +121,133 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
     };
   }, [query, categoryId, companyId, storeId]);
 
+  /**
+   * Clicking a product card moves focus to that card's button — deferred
+   * to the next frame so it wins over the browser's own post-click focus
+   * assignment, which would otherwise put it back on the card a moment
+   * later. Keeping the search field focused is what lets a cashier keep
+   * scanning items back-to-back without ever touching the mouse/keyboard
+   * again after the first click.
+   */
+  function focusSearch() {
+    requestAnimationFrame(() => {
+      document.getElementById('pos-product-search')?.focus();
+    });
+  }
+
   function handleAdd(product: ProductWithStorePrice) {
     onAdd(product);
+    focusSearch();
+  }
+
+  /**
+   * Reclaims focus after clicking anything else on the main screen — a
+   * category pill, a card, the view toggle, a cart quantity button, or
+   * even just empty space — since a barcode scanner needs this field
+   * focused to work at all, and a cashier shouldn't have to click back
+   * into it before every scan. Deliberately does NOT reclaim focus in
+   * two cases, checked against document.activeElement one frame after
+   * the blur (once the browser has settled where focus actually went):
+   *   - The new target is itself a text box (INPUT/TEXTAREA/contentEditable)
+   *     — e.g. a cart quantity/discount field, or a field inside a dialog
+   *     — where the cashier is clearly typing something else.
+   *   - The new target is outside the app's #root AND isn't just
+   *     <body>/<html> (which is where focus lands on a plain click into
+   *     empty space, not a real overlay) — every MUI Dialog/Menu/Popover/
+   *     Autocomplete dropdown/Snackbar renders as a portal directly under
+   *     <body>, so this one check covers all of them without needing to
+   *     enumerate each component's role.
+   */
+  function handleSearchBlur() {
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active.id === 'pos-product-search') return;
+
+      const isTextEntry = active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
+      const isBareBody = active === document.body || active === document.documentElement;
+      const isInsideApp = isBareBody || (document.getElementById('root')?.contains(active) ?? true);
+
+      if (!isTextEntry && isInsideApp) {
+        document.getElementById('pos-product-search')?.focus();
+      }
+    });
+  }
+
+  /**
+   * A hardware barcode scanner acts like a keyboard: it types the code
+   * into whatever's focused, then sends Enter — this is what turns that
+   * into "scan and add to cart" instead of just filtering the grid down
+   * to one result the cashier still has to click. Exact match only
+   * (barcode or SKU): a fuzzy name match that happens to contain the
+   * scanned text shouldn't get silently added. Bypasses the debounced
+   * search entirely with its own immediate lookup, since a scan's Enter
+   * can easily fire before that 250ms debounce has resolved.
+   *
+   * A leading "5*"/"5x" (QUANTITY_PREFIX) is stripped off before the
+   * lookup and passed through to onAdd as an explicit quantity — see
+   * PosScreen's addProduct(), which adds that many instead of its usual
+   * one-unit step when given one.
+   */
+  async function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    // Esc wipes a mistyped code / half-finished search and drops straight
+    // back to browsing, without the cashier reaching for the mouse or
+    // holding backspace. Handled on the field rather than as a global
+    // listener on purpose: Esc is also how MUI closes the Customer and
+    // Bagger dialogs, the More menu, and the discount popover, and those
+    // don't sit behind useKeyboardShortcuts' `enabled` gate — a global
+    // handler would wipe the search every time one of those was
+    // dismissed. Focus is inside the overlay in those cases, so this
+    // never fires there.
+    if (e.key === 'Escape') {
+      if (query === '') return;
+      e.preventDefault();
+      setQuery('');
+      return;
+    }
+
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    const raw = query.trim();
+    if (!raw || !storeId || scanning) return;
+
+    const prefixMatch = raw.match(QUANTITY_PREFIX);
+    const quantity = prefixMatch ? parseFloat(prefixMatch[1]) : undefined;
+    const code = prefixMatch ? prefixMatch[2].trim() : raw;
+    if (!code || (quantity !== undefined && !(quantity > 0))) {
+      notify('Enter a quantity greater than zero before the ×', 'error');
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setScanning(true);
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        company_id: String(companyId),
+        store_id: String(storeId),
+        is_active: '1',
+        q: code,
+        per_page: '10',
+      });
+      const matches = await api.get<ProductWithStorePrice[]>(`/products?${params.toString()}`);
+      const exact = matches.find((p) => p.barcode === code || p.sku === code);
+
+      if (exact && exact.selling_price !== null) {
+        onAdd(exact, quantity);
+        setQuery('');
+        focusSearch();
+      } else if (exact) {
+        notify(`${exact.name} has no price set at this store`, 'error');
+      } else {
+        notify(`No product found for "${code}"`, 'error');
+      }
+    } catch {
+      notify('Barcode lookup failed', 'error');
+    } finally {
+      setLoading(false);
+      setScanning(false);
+    }
   }
 
   const toggleButtonSx = {
@@ -109,6 +265,8 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
           id="pos-product-search"
           value={query}
           onChange={setQuery}
+          onKeyDown={handleSearchKeyDown}
+          onBlur={handleSearchBlur}
           placeholder="Search by product name, barcode or SKU"
           autoFocus
           fullWidth
@@ -119,9 +277,11 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
           // viewport and becomes completely unreachable.
           sx={{ minWidth: 0 }}
           trailingAdornment={
-            <IconButton size="small" aria-label="Scan barcode" tabIndex={-1} sx={{ color: 'text.secondary' }}>
-              <QrCodeScannerIcon fontSize="small" />
-            </IconButton>
+            <Tooltip title="Scan a barcode, or type qty*barcode (e.g. 5*4800000000011) to add several at once">
+              <IconButton size="small" aria-label="Scan barcode" tabIndex={-1} sx={{ color: 'text.secondary' }}>
+                <QrCodeScannerIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           }
         />
         {/* Fixed-footprint slot, always present — toggling the spinner's opacity instead of
@@ -148,7 +308,6 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
             </Tooltip>
           </ToggleButton>
         </ToggleButtonGroup>
-        {toolbarExtra}
       </Stack>
 
       <Box sx={{ mt: 2, flexShrink: 0 }}>
@@ -157,7 +316,20 @@ export function ProductSearch({ companyId, storeId, onAdd, toolbarExtra, bottomE
 
       {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 2, pr: 0.5, ...THIN_SCROLLBAR_SX }}>
-        {viewMode === 'grid' ? (
+        {results.length === 0 && !loading ? (
+          // Without this, a search that matches nothing just leaves a
+          // blank panel, which reads as a broken screen rather than an
+          // answer to what was typed.
+          <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
+            <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
+            </Typography>
+            <Typography variant="caption">
+              {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
+            </Typography>
+          </Stack>
+        ) : viewMode === 'grid' ? (
           <ProductGrid products={results} onAdd={handleAdd} />
         ) : (
           <ProductListView results={results} onAdd={handleAdd} />
@@ -177,21 +349,32 @@ function ProductListView({
   onAdd: (product: ProductWithStorePrice) => void;
 }) {
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 1, overflow: 'hidden' }}>
+    <Paper variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
       <List disablePadding>
         {results.map((p, i) => {
           const unpriced = p.selling_price === null;
           return (
-            <ListItemButton key={p.id} divider={i < results.length - 1} disabled={unpriced} onClick={() => !unpriced && onAdd(p)}>
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.25 }}>
-                <Typography variant="body2" sx={{ flex: 1 }}>
-                  {p.name}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {p.sku}
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700, color: unpriced ? 'error.main' : POS_ACCENT }}>
-                  {unpriced ? 'No price set' : formatMoney(parseFloat(p.selling_price as string))}
+            <ListItemButton
+              key={p.id}
+              divider={i < results.length - 1}
+              disabled={unpriced}
+              onClick={() => !unpriced && onAdd(p)}
+              sx={{ py: 1.25, px: 2 }}
+            >
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.5 }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                    {p.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {p.sku}
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: unpriced ? 'error.main' : POS_ACCENT }}
+                >
+                  {unpriced ? 'No price' : formatMoney(parseFloat(p.selling_price as string))}
                 </Typography>
               </Stack>
             </ListItemButton>

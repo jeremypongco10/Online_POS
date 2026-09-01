@@ -21,7 +21,7 @@ class CashSessionModel extends Model
     ];
 
     protected $validationRules = [
-        'register_id' => ['label' => 'Register', 'rules' => 'required|is_natural_no_zero'],
+        'register_id' => ['label' => 'POS Terminal', 'rules' => 'required|is_natural_no_zero'],
         'user_id' => ['label' => 'User', 'rules' => 'required|is_natural_no_zero'],
         'opening_balance' => ['label' => 'Opening balance', 'rules' => 'permit_empty|decimal'],
         'status' => ['label' => 'Status', 'rules' => 'permit_empty|in_list[open,closed]'],

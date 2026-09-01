@@ -26,7 +26,15 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   const selectedSx = { bgcolor: POS_ACCENT, color: '#fff', '&:hover': { bgcolor: POS_ACCENT } };
-  const unselectedSx = { bgcolor: 'transparent', borderColor: 'divider', color: 'text.primary' };
+  // A soft filled rest state rather than an outline: a long row of
+  // outlined pills reads as a row of empty boxes competing with the
+  // product cards below, where the actual content is.
+  const unselectedSx = {
+    bgcolor: 'action.hover',
+    borderColor: 'transparent',
+    color: 'text.secondary',
+    '&:hover': { bgcolor: 'action.selected', color: 'text.primary' },
+  };
 
   function updateScrollButtons() {
     const el = scrollerRef.current;

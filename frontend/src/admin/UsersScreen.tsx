@@ -46,7 +46,7 @@ interface CreateForm {
   phone: string;
   password: string;
   role_id: string;
-  /** Required (and required to be exactly one store) only when role_id resolves to a single-store role (Store Admin, Cashier, Cashier Supervisor) — see roleRequiresOneStore below. */
+  /** Required (and required to be exactly one store) only when role_id resolves to a single-store role (Store Admin, Cashier, Cashier Supervisor, Bagger) — see roleRequiresOneStore below. */
   store_id: string;
 }
 
@@ -147,7 +147,7 @@ export function UsersScreen() {
   // leave one of them assigned to anything other than exactly one store,
   // so the form requires it too rather than letting the request
   // round-trip just to find out. Mirrors UsersController::SINGLE_STORE_ROLES.
-  const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor'];
+  const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor', 'Bagger'];
   const roleRequiresOneStore = (roleId: string) => SINGLE_STORE_ROLES.includes(roles.find((r) => String(r.id) === roleId)?.name ?? '');
   const creatingSingleStoreRole = roleRequiresOneStore(createForm.role_id);
   const targetRequiresOneStore = storeAccessUserR ? roleRequiresOneStore(storeAccessUserR.role_id ? String(storeAccessUserR.role_id) : '') : false;

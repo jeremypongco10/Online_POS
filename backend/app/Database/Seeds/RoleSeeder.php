@@ -96,7 +96,7 @@ class RoleSeeder extends Seeder
                 ],
             ],
             'Cashier' => [
-                'description' => 'Rings up sales at the register',
+                'description' => 'Rings up sales at the POS terminal',
                 'permissions' => [
                     'products.view',
                     'inventory.view',

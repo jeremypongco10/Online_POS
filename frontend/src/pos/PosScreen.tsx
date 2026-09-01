@@ -21,12 +21,14 @@ import type {
 import { ProductBrowser } from './ProductBrowser';
 import { ReceiptPanel } from './ReceiptPanel';
 import { StatusBar } from './StatusBar';
+import { PosHeader } from './PosHeader';
 import { AccountMenu } from './AccountMenu';
 import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
 import { calculateCart, type CartLine } from './posTypes';
+import { formatQuantity } from './format';
 import { holdSale, listHeldSales, removeHeldSale, type HeldSale } from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
@@ -113,15 +115,25 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setHeldSales(registerId ? listHeldSales(registerId) : []);
   }, [registerId]);
 
-  function addProduct(product: ProductWithStorePrice) {
+  /**
+   * `quantity` comes from ProductSearch's barcode "5*"/"5x" prefix (see
+   * QUANTITY_PREFIX there) — a plain click or bare scan omits it and adds
+   * exactly one step, same as before.
+   */
+  function addProduct(product: ProductWithStorePrice, quantity?: number) {
+    const unit = units.find((u) => u.id === product.unit_id) ?? null;
+    const step = 1 / 10 ** (unit?.decimal_places ?? 0);
+    // A typed quantity is rounded to the unit's own precision — a
+    // whole-piece item can't take "5.567" — and floored at one step so a
+    // stray "0*" or rounding-to-zero doesn't silently add nothing.
+    const delta = quantity !== undefined ? Math.max(step, Math.round(quantity / step) * step) : step;
+
     setLines((prev) => {
       const existing = prev.find((l) => !l.isCustom && l.product.id === product.id);
-      const unit = units.find((u) => u.id === product.unit_id) ?? null;
-      const step = 1 / 10 ** (unit?.decimal_places ?? 0);
 
       if (existing) {
         return prev.map((l) =>
-          l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + step) * 1e6) / 1e6 } : l
+          l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + delta) * 1e6) / 1e6 } : l
         );
       }
 
@@ -131,13 +143,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
         product,
         unit,
         taxRate,
-        quantity: step,
+        quantity: delta,
         unitPrice: parseFloat(product.selling_price ?? '0') || 0,
         discount: 0,
       };
       return [...prev, newLine];
     });
-    notify(`Added ${product.name}`);
+    notify(delta !== step ? `Added ${formatQuantity(delta, unit?.abbreviation ?? null, unit?.decimal_places ?? 0)} × ${product.name}` : `Added ${product.name}`);
   }
 
   function updateQuantity(key: string, quantity: number) {
@@ -249,14 +261,38 @@ export function PosScreen({ onOpenAdmin }: Props) {
     onHold: handleHold,
     onPay: () => document.getElementById('pos-pay-button')?.click(),
     onBagger: () => document.getElementById('pos-action-bagger')?.click(),
-    onRefund: () => document.getElementById('pos-action-refund')?.click(),
-    onReturn: () => document.getElementById('pos-action-return')?.click(),
-    onCancel: () => document.getElementById('pos-action-cancel')?.click(),
+    // Refund/Return/Cancellation live behind the Actions row's "More"
+    // menu now, so their buttons only exist in the DOM while that menu is
+    // open — the DOM-click trick the rows above use would silently do
+    // nothing. These three have real callbacks right here, so call them.
+    onRefund: () => onOpenAdmin('/admin/customers/returns'),
+    onReturn: () => onOpenAdmin('/admin/customers/returns'),
+    onCancel: handleCancel,
   });
 
   if (!user) return null;
 
-  const selectedRegister = registers.find((r) => r.id === registerId);
+  // Number() on both sides, not `===`: the API encodes bigint ids as JSON
+  // strings ("3"), so storeId/registerId hold a string right after load
+  // but a real number once AccountMenu's picker sets them (it does
+  // Number(v)). A strict compare therefore silently stops matching the
+  // moment someone switches store or terminal — which blanked the
+  // StatusBar labels and, worse, skipped the open-register gate below.
+  const selectedStore = stores.find((s) => Number(s.id) === Number(storeId));
+  const selectedRegister = registers.find((r) => Number(r.id) === Number(registerId));
+
+  // StatusBar shows the store this user is *assigned* to rather than
+  // whichever the picker happens to be on. GET /stores is already scoped
+  // server-side to the caller's own user_stores rows, so for a
+  // store-restricted user that list IS their assignment — and since
+  // Cashier/Bagger/Store Admin/Cashier Supervisor are all enforced to
+  // exactly one store (UsersController::SINGLE_STORE_ROLES), that's a
+  // single unambiguous entry for essentially every POS user.
+  //
+  // More than one entry means either several assignments or an
+  // unrestricted admin (who has no assignment at all) — "the assigned
+  // store" has no single answer there, so fall back to the selected one.
+  const assignedStore = stores.length === 1 ? stores[0] : null;
 
   if (registerId && !cashSessionLoading && !cashSession && selectedRegister) {
     return (
@@ -276,11 +312,22 @@ export function PosScreen({ onOpenAdmin }: Props) {
           minHeight: 0,
           display: 'flex',
           flexDirection: { xs: 'column', md: 'row' },
-          gap: { xs: 1.5, md: 2.25 },
-          maxWidth: 1600,
-          mx: 'auto',
+          // Only on xs, where the columns are stacked and the gap is
+          // vertical breathing room between them. Side by side on md+
+          // they butt straight together — the receipt panel's own left
+          // border is the divider, so a gutter there just reads as a
+          // stripe of dead background between two panels.
+          gap: { xs: 1.5, md: 0 },
+          // Deliberately no maxWidth here — the receipt column already
+          // caps its own width via clamp() below, so letting this row run
+          // edge-to-edge just gives the product grid more columns on a
+          // wide monitor instead of stranding it in a centered strip with
+          // gray margins on either side.
           width: '100%',
-          pl: { xs: 1.5, md: 3 },
+          // No padding on this row at all: the product column supplies its
+          // own left padding internally (so its header sits flush at the
+          // top), and the receipt panel is meant to dock hard against the
+          // right edge rather than float with a gutter beside it.
           overflow: 'hidden',
         }}
       >
@@ -294,31 +341,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
             flex: { xs: '3 1 0', md: '1 1 0' },
             minWidth: 0,
             minHeight: 0,
-            py: { xs: 1.5, md: 3 },
-            // No overflow here — ProductBrowser is hard-bounded to exactly
-            // this box's height; its own internal results-grid scroll is
-            // the only thing that ever scrolls, so the search bar, category
-            // pills, and view toggle are always fully visible.
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          <ProductBrowser
-            companyId={user.company_id}
-            storeId={storeId}
-            onAdd={addProduct}
-            customer={customer}
-            card={card}
-            onAttachCustomer={(c, k) => {
-              setCustomer(c);
-              setCard(k);
-            }}
-            bagger={bagger}
-            onSelectBagger={setBagger}
+          {/* Scoped to this column rather than spanning the whole app:
+              everything it shows (store, terminal, cashier, account) is
+              context for browsing/ringing up, and keeping it out of the
+              receipt column lets the cart start at the very top of the
+              screen instead of being pushed down by a full-width bar. */}
+          <PosHeader
             cashSession={cashSession}
-            cartHasItems={lines.length > 0}
-            onCancel={handleCancel}
-            onRefund={() => onOpenAdmin('/admin/customers/returns')}
-            onReturn={() => onOpenAdmin('/admin/customers/returns')}
-            headerExtra={
+            actions={
               <AccountMenu
                 user={user}
                 stores={stores}
@@ -338,6 +372,40 @@ export function PosScreen({ onOpenAdmin }: Props) {
               />
             }
           />
+
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              pl: { xs: 1.5, md: 3 },
+              // Now that the row has no gap on md+, this is what keeps the
+              // product grid off the receipt panel's edge.
+              pr: { xs: 1.5, md: 2.5 },
+              py: { xs: 1.5, md: 2.5 },
+              // No overflow here — ProductBrowser is hard-bounded to exactly
+              // this box's height; its own internal results-grid scroll is
+              // the only thing that ever scrolls, so the search bar, category
+              // pills, and view toggle are always fully visible.
+            }}
+          >
+            <ProductBrowser
+              companyId={user.company_id}
+              storeId={storeId}
+              onAdd={addProduct}
+              customer={customer}
+              card={card}
+              onAttachCustomer={(c, k) => {
+                setCustomer(c);
+                setCard(k);
+              }}
+              bagger={bagger}
+              onSelectBagger={setBagger}
+              cartHasItems={lines.length > 0}
+              onCancel={handleCancel}
+              onRefund={() => onOpenAdmin('/admin/customers/returns')}
+              onReturn={() => onOpenAdmin('/admin/customers/returns')}
+            />
+          </Box>
         </Box>
 
         <Box
@@ -370,7 +438,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
         </Box>
       </Box>
 
-      <StatusBar />
+      <StatusBar storeName={(assignedStore ?? selectedStore)?.name ?? null} registerName={selectedRegister?.name ?? null} />
 
       {showCloseRegister && cashSession && (
         <CloseRegisterModal

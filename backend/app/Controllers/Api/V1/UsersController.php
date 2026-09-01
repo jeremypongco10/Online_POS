@@ -95,13 +95,17 @@ class UsersController extends BaseCrudController
 
     /**
      * These role names all mean "assigned to work at one specific store"
-     * — a Store Admin, Cashier, or Cashier Supervisor left unassigned
-     * (unrestricted, i.e. every store) or assigned to several contradicts
-     * what the role is for, so every path that sets a user's role or
-     * store access enforces exactly one store whenever this is true for
-     * the role in question.
+     * — a Store Admin, Cashier, Cashier Supervisor, or Bagger left
+     * unassigned (unrestricted, i.e. every store) or assigned to several
+     * contradicts what the role is for, so every path that sets a user's
+     * role or store access enforces exactly one store whenever this is
+     * true for the role in question.
+     *
+     * Mirrored in the frontend by UsersScreen's own SINGLE_STORE_ROLES,
+     * which only drives whether the form asks for a store up front —
+     * this list is the one that's actually enforced.
      */
-    private const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor'];
+    private const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor', 'Bagger'];
 
     private function roleRequiresExactlyOneStore(?int $roleId): bool
     {

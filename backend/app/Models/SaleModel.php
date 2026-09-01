@@ -28,7 +28,7 @@ class SaleModel extends Model
     protected $validationRules = [
         'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
         'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
-        'register_id' => ['label' => 'Register', 'rules' => 'required|is_natural_no_zero'],
+        'register_id' => ['label' => 'POS Terminal', 'rules' => 'required|is_natural_no_zero'],
         'user_id' => ['label' => 'User', 'rules' => 'required|is_natural_no_zero'],
         'bagger_id' => ['label' => 'Bagger', 'rules' => 'permit_empty|is_natural_no_zero'],
         'loyalty_card_id' => ['label' => 'Loyalty card', 'rules' => 'permit_empty|is_natural_no_zero'],

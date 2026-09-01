@@ -82,12 +82,15 @@ export function AccountMenu({
         <IconButton
           size="small"
           onClick={(e) => setAnchor(e.currentTarget)}
-          sx={{ border: '1px solid', borderColor: 'divider' }}
+          // p:0 with no border: this button is the tallest item in
+          // PosHeader, so its padding set the whole strip's floor —
+          // the avatar is already a clear enough target on its own.
+          sx={{ p: 0 }}
           aria-label="Account menu"
         >
           <Badge badgeContent={heldSales.length} color="primary" overlap="circular">
-            <Avatar sx={{ width: 26, height: 26, bgcolor: POS_ACCENT }}>
-              <PersonIcon sx={{ fontSize: 15 }} />
+            <Avatar sx={{ width: 28, height: 28, bgcolor: POS_ACCENT }}>
+              <PersonIcon sx={{ fontSize: 16 }} />
             </Avatar>
           </Badge>
         </IconButton>
@@ -130,7 +133,7 @@ export function AccountMenu({
               options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
             />
             <SearchableSelect
-              label="Register"
+              label="POS Terminal"
               value={registerId ? String(registerId) : ''}
               onChange={(v) => onRegisterChange(Number(v))}
               fullWidth

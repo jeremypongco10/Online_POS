@@ -4,10 +4,10 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutlineOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
-import Typography from '@mui/material/Typography';
 import type { CartTotals, CartLine } from './posTypes';
 import type { PaymentMethodOption } from '../api/types';
 import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
@@ -35,7 +35,7 @@ interface Props {
 
 const SectionDivider = () => <Divider sx={{ borderStyle: 'dashed' }} />;
 
-/** Right panel: one continuous card styled like a printed receipt — cashier name, item list, totals, payment, and Hold/Pay all inside a single border. Store/receipt#/date live in the account menu instead; Refund/Return/Cancellation live in the product panel's Actions row. */
+/** Right panel: one continuous card styled like a printed receipt — cashier line, item list, totals, payment, and Hold/Pay all inside a single border. Store/terminal context lives in PosHeader (which sits over the product column only, so this panel carries its own header); Refund/Return/Cancellation live in the product panel's Actions row. */
 export function ReceiptPanel({
   cashierName,
   lines,
@@ -67,6 +67,15 @@ export function ReceiptPanel({
   return (
     <Paper
       variant="outlined"
+      // Forces this whole subtree onto the theme's light color scheme
+      // (white paper, dark ink) regardless of the app's own dark/light
+      // setting — matches the "printed receipt" look this card is meant
+      // to have. Works because theme.ts sets cssVariables.colorSchemeSelector
+      // to 'class': MUI generates both `.light` and `.dark` variable blocks
+      // and every var(--mui-palette-*) below resolves against whichever
+      // one wraps it, so a bare className here is enough — no per-color
+      // overrides needed in Cart/TotalsPanel/PaymentPanel.
+      className="light"
       sx={{
         borderRadius: 0,
         overflow: 'hidden',
@@ -81,10 +90,16 @@ export function ReceiptPanel({
         flexDirection: 'column',
       }}
     >
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', px: 2.5, pt: 1, pb: 0.75, flexShrink: 0 }}>
+      {/* Receipt-style header line. PosHeader is scoped to the product
+          column now, so this panel needs to name its own cashier rather
+          than borrowing one from a bar above it. */}
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
         <PersonOutlineIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
         <Typography variant="caption" color="text.secondary">
-          Cashier: <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{cashierName}</Box>
+          Cashier:{' '}
+          <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
+            {cashierName}
+          </Box>
         </Typography>
       </Stack>
       <SectionDivider />
@@ -101,25 +116,47 @@ export function ReceiptPanel({
 
         <SectionDivider />
 
-        <Stack direction="row" spacing={1.5}>
+        {/* Pay is the primary action and carries the accent alone; Hold
+            Sale is deliberately neutral. Two equally-accented buttons
+            side by side made the cashier read both before acting. */}
+        <Stack direction="row" spacing={1.25}>
           <Button
             variant="outlined"
             size="large"
             startIcon={<PauseCircleOutlineIcon />}
             disabled={lines.length === 0}
             onClick={onHold}
-            sx={{ flex: 1, borderRadius: 999, color: POS_ACCENT, borderColor: POS_ACCENT, '&:hover': { borderColor: POS_ACCENT, bgcolor: `${POS_ACCENT}0d` } }}
+            sx={{
+              flex: '0 0 auto',
+              px: 2.5,
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              color: 'text.secondary',
+              borderColor: 'divider',
+              '&:hover': { borderColor: 'text.secondary', bgcolor: 'action.hover' },
+            }}
           >
-            Hold Sale
+            Hold
           </Button>
           <Button
             id="pos-pay-button"
             variant="contained"
             size="large"
+            disableElevation
             startIcon={<CreditCardOutlinedIcon />}
             disabled={paymentDisabled || lines.length === 0}
             onClick={() => setPaymentDialogOpen(true)}
-            sx={{ flex: 1, bgcolor: POS_ACCENT, '&:hover': { bgcolor: POS_ACCENT }, borderRadius: 999 }}
+            sx={{
+              flex: 1,
+              py: 1.35,
+              bgcolor: POS_ACCENT,
+              '&:hover': { bgcolor: '#1d4ed8' },
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 700,
+              fontSize: 16,
+            }}
           >
             Pay
           </Button>

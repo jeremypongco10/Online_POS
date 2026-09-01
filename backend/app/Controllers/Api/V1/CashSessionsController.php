@@ -53,7 +53,7 @@ class CashSessionsController extends BaseCrudController
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
-            'register_id' => ['label' => 'Register', 'rules' => 'required|is_natural_no_zero'],
+            'register_id' => ['label' => 'POS Terminal', 'rules' => 'required|is_natural_no_zero'],
             'opening_balance' => ['label' => 'Opening balance', 'rules' => 'required|decimal'],
         ];
 
@@ -62,7 +62,7 @@ class CashSessionsController extends BaseCrudController
         }
 
         if (! in_array((int) $payload['register_id'], $this->allowedRegisterIds(), true)) {
-            return $this->apiFail('You do not have access to this register', 403);
+            return $this->apiFail('You do not have access to this POS terminal', 403);
         }
 
         $alreadyOpen = $this->model
@@ -71,7 +71,7 @@ class CashSessionsController extends BaseCrudController
             ->first();
 
         if ($alreadyOpen) {
-            return $this->apiFail('This register already has an open cash session', 422);
+            return $this->apiFail('This POS terminal already has an open cash session', 422);
         }
 
         $id = $this->model->insert([

@@ -68,8 +68,8 @@ class PermissionSeeder extends Seeder
         'purchases.create' => ['Create Purchases', 'Can create purchase orders'],
         'purchases.manage' => ['Manage Purchases', 'Can edit and receive purchase orders'],
 
-        'registers.view' => ['View Registers', 'Can view POS registers'],
-        'registers.manage' => ['Manage Registers', 'Can create and edit registers'],
+        'registers.view' => ['View POS Terminals', 'Can view POS terminals'],
+        'registers.manage' => ['Manage POS Terminals', 'Can create and edit POS terminals'],
 
         'cash-sessions.view' => ['View Cash Sessions', 'Can view cash drawer sessions'],
         'cash-sessions.manage' => ['Manage Cash Sessions', 'Can open and close cash drawer sessions'],

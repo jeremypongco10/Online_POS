@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { FocusEvent, KeyboardEvent, ReactNode } from 'react';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
@@ -17,16 +17,22 @@ interface Props {
   id?: string;
   /** Extra icon(s) shown at the end, after the Clear button — the POS product search uses this for a decorative barcode-scan icon. */
   trailingAdornment?: ReactNode;
+  /** The POS product search uses this to catch the Enter a hardware barcode scanner sends after typing the scanned code. */
+  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+  /** The POS product search uses this to reclaim focus after it's lost, so a scan still works after clicking elsewhere on the screen. */
+  onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
 }
 
 /** A pill-shaped, borderless search field — used for both the admin list toolbars and the POS product search. */
-export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth, sx, id, trailingAdornment }: Props) {
+export function SearchField({ value, onChange, placeholder, autoFocus, fullWidth, sx, id, trailingAdornment, onKeyDown, onBlur }: Props) {
   return (
     <TextField
       id={id}
       placeholder={placeholder ?? 'Search…'}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      onBlur={onBlur}
       autoFocus={autoFocus}
       fullWidth={fullWidth}
       sx={[

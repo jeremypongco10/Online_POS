@@ -23,7 +23,7 @@ interface Props {
   onRemove: (key: string) => void;
 }
 
-const GRID_COLUMNS = 'minmax(0, 1fr) auto auto auto auto';
+const GRID_COLUMNS = 'minmax(0, 1fr) auto auto auto';
 
 export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Props) {
   if (lines.length === 0) {
@@ -33,10 +33,11 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           textAlign: 'center',
           color: 'text.secondary',
-          py: 5,
+          pt: 3,
+          pb: 5,
           gap: 0.75,
         }}
       >
@@ -57,25 +58,24 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
           gridTemplateColumns: GRID_COLUMNS,
           gap: 1.5,
           alignItems: 'center',
-          pb: 1,
+          pb: 0.75,
+          borderBottom: '2px solid',
+          borderColor: 'divider',
         }}
       >
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em' }}>
           ITEM
         </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em' }}>
           QTY
         </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'right' }}>
-          PRICE
-        </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'right' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textAlign: 'right' }}>
           AMOUNT
         </Typography>
         <Box sx={{ width: 26 }} />
       </Box>
 
-      <Stack spacing={1.5}>
+      <Stack>
         {lines.map((line) => (
           <CartRow key={line.key} line={line} onQuantityChange={onQuantityChange} onDiscountChange={onDiscountChange} onRemove={onRemove} />
         ))}
@@ -101,13 +101,31 @@ function CartRow({
   const [discountText, setDiscountText] = useState(String(line.discount || ''));
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: GRID_COLUMNS, gap: 1.5, alignItems: 'center' }}>
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: GRID_COLUMNS,
+        gap: 1.5,
+        alignItems: 'center',
+        // Padded, separated rows (rather than free-floating ones) give a
+        // long cart a scannable rhythm and a hover target that lines up
+        // with the row's own remove button.
+        py: 1,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        transition: 'background-color 0.12s ease',
+        '&:hover': { bgcolor: 'action.hover' },
+        '&:last-of-type': { borderBottom: 'none' },
+      }}
+    >
       <Box sx={{ minWidth: 0 }}>
         <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }} noWrap title={line.product.name}>
           {line.product.name}
         </Typography>
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          {/* Unit price already has its own PRICE column — showing it again here duplicated it right next to the discount tag. */}
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+            {formatMoney(line.unitPrice)}
+          </Typography>
           <Tooltip title={line.discount > 0 ? `Discount: -${formatMoney(line.discount)}` : 'Add discount'}>
             <Box
               component="button"
@@ -186,11 +204,7 @@ function CartRow({
         </IconButton>
       </Stack>
 
-      <Typography variant="caption" sx={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-        {formatMoney(line.unitPrice)}
-      </Typography>
-
-      <Typography variant="caption" sx={{ fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {formatMoney(totals.gross)}
       </Typography>
 

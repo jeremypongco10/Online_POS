@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react';
+import Avatar from '@mui/material/Avatar';
+import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
@@ -7,14 +9,27 @@ import Button from '@mui/material/Button';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import Alert from '@mui/material/Alert';
+import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
 import { api, ApiError } from '../api/client';
 import type { Customer, LoyaltyCard } from '../api/types';
+import { POS_ACCENT } from './format';
+import { initialsForName } from './productColor';
 
 interface Props {
   customer: Customer | null;
   card: LoyaltyCard | null;
   onAttach: (customer: Customer | null, card: LoyaltyCard | null) => void;
 }
+
+const sectionLabelSx = {
+  display: 'block',
+  mb: 1,
+  color: 'text.secondary',
+  fontWeight: 700,
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.06em',
+  fontSize: '0.6875rem',
+};
 
 /**
  * Customer + Loyalty Card sections together, since scanning a card is
@@ -76,79 +91,65 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2.25, borderRadius: 1.5 }}>
-      <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, letterSpacing: '0.06em' }}>
-        Customer
-      </Typography>
-
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', mt: 1.25, fontSize: 14 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ width: 70, flexShrink: 0 }}>
-          Customer:
-        </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {customer ? customer.name : 'Walk-in'}
-        </Typography>
+    <Stack spacing={2.5}>
+      {/* The dialog's own title already says "Customer" — this reads as
+          the answer to that question (who's attached right now), not a
+          second label for the same thing. Mirrors BaggerPanel's summary
+          card for the same reason. */}
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+        <Avatar
+          sx={{
+            width: 44,
+            height: 44,
+            fontWeight: 700,
+            bgcolor: customer ? POS_ACCENT : 'action.selected',
+            color: customer ? '#fff' : 'text.secondary',
+          }}
+        >
+          {customer ? initialsForName(customer.name) : <PersonOutlineIcon fontSize="small" />}
+        </Avatar>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary">
+            {customer ? 'Attached customer' : 'No customer attached'}
+          </Typography>
+          <Typography variant="body1" sx={{ fontWeight: 700 }} noWrap>
+            {customer ? customer.name : 'Walk-in'}
+          </Typography>
+          {card && (
+            <Typography variant="caption" color="text.secondary" noWrap>
+              Loyalty {card.card_number} · {card.status}
+            </Typography>
+          )}
+        </Box>
         {customer && (
-          <Button size="small" onClick={reset} sx={{ minWidth: 0, py: 0 }}>
+          <Button size="small" color="inherit" onClick={reset} sx={{ flexShrink: 0 }}>
             Clear
           </Button>
         )}
       </Stack>
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', mb: 0.5 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ width: 70, flexShrink: 0 }}>
-          Loyalty:
-        </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {card ? `${card.card_number} (${card.status})` : '—'}
-        </Typography>
-      </Stack>
 
-      <Typography
-        variant="caption"
-        sx={{ display: 'block', mt: 2, mb: 1, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}
-      >
-        Loyalty Card
-      </Typography>
-      <Stack component="form" direction="row" spacing={1} onSubmit={scanCard}>
-        <TextField
-          type="text"
-          label="Card Number"
-          value={cardNumber}
-          onChange={(e) => setCardNumber(e.target.value)}
-          fullWidth
-        />
-        <Button type="submit" variant="outlined" disabled={scanning} sx={{ whiteSpace: 'nowrap' }}>
-          {scanning ? 'Checking…' : 'Scan'}
-        </Button>
+      <Stack spacing={1}>
+        <Typography sx={sectionLabelSx}>Loyalty Card</Typography>
+        <Stack component="form" direction="row" spacing={1} onSubmit={scanCard}>
+          <TextField type="text" label="Card Number" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} fullWidth />
+          <Button type="submit" variant="outlined" disabled={scanning} sx={{ whiteSpace: 'nowrap' }}>
+            {scanning ? 'Checking…' : 'Scan'}
+          </Button>
+        </Stack>
+        {scanError && <Alert severity="error">{scanError}</Alert>}
       </Stack>
-      {scanError && (
-        <Alert severity="error" sx={{ mt: 1 }}>
-          {scanError}
-        </Alert>
-      )}
 
       {!card && (
-        <>
-          <Typography
-            variant="caption"
-            sx={{ display: 'block', mt: 2, mb: 1, color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}
-          >
-            Find Customer
-          </Typography>
-          <TextField
-            type="text"
-            label="Search"
-            value={searchQuery}
-            onChange={(e) => searchCustomers(e.target.value)}
-            fullWidth
-          />
+        <Stack spacing={1}>
+          <Typography sx={sectionLabelSx}>Find Customer</Typography>
+          <TextField type="text" label="Search by name, mobile, or code" value={searchQuery} onChange={(e) => searchCustomers(e.target.value)} fullWidth />
           {searching && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
               Searching…
             </Typography>
           )}
           {searchResults.length > 0 && (
-            <Paper variant="outlined" sx={{ mt: 1.25, borderRadius: 1, overflow: 'hidden' }}>
+            <Paper variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
               <List disablePadding>
                 {searchResults.map((c) => (
                   <ListItemButton
@@ -159,10 +160,13 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
                       setSearchQuery('');
                       setSearchResults([]);
                     }}
+                    sx={{ py: 1.25, px: 2 }}
                   >
-                    <Stack direction="row" sx={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography variant="body2">{c.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
+                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                        {c.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                         {c.mobile ?? c.customer_code}
                       </Typography>
                     </Stack>
@@ -171,8 +175,8 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
               </List>
             </Paper>
           )}
-        </>
+        </Stack>
       )}
-    </Paper>
+    </Stack>
   );
 }
