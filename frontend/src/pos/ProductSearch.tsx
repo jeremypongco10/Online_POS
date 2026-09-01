@@ -53,6 +53,20 @@ interface Props {
  * dedicated scan endpoint needed — the trailing icon is a visual
  * affordance for that, not a separate integration.
  */
+/**
+ * A touch screen (phone/tablet) rather than a mouse. Read once at module
+ * load: a device doesn't grow a mouse mid-shift, and re-evaluating per
+ * render would only add churn.
+ *
+ * This is what separates the two very different scanning setups this
+ * screen serves. With a mouse, holding focus on the search field costs
+ * nothing and is what makes a keyboard-wedge scanner work hands-free.
+ * On a touch device that same focus summons the on-screen keyboard over
+ * half the screen and keeps re-summoning it after every add — see the
+ * scanner/typing modes below.
+ */
+const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
+
 export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
@@ -63,6 +77,15 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Touch only. False = "scanner mode": the field is focused so a wedge
+   * scanner's keystrokes land in it, but inputMode="none" stops the
+   * on-screen keyboard from opening. True = the cashier tapped the field
+   * to type, so the keyboard is wanted. Always false on a mouse device,
+   * where inputMode is left alone entirely.
+   */
+  const [typingMode, setTypingMode] = useState(false);
 
   useEffect(() => {
     api.get<CategoryNode[]>('/categories/tree').then(setCategories).catch(() => setCategories([]));
@@ -135,9 +158,48 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     });
   }
 
+  /**
+   * Touch only, and the piece that makes scanner mode actually work: every
+   * time we're in (or fall back to) scanner mode, make sure the field holds
+   * focus, so a wedge scanner's keystrokes have somewhere to land without
+   * anyone tapping anything.
+   *
+   * Refocusing here is safe precisely because it runs *after* the commit
+   * that rendered inputMode="none" — Android re-reads inputMode when an
+   * element takes focus, so by this point there's no keyboard to raise.
+   * Doing it in the blur handler instead would refocus while the DOM still
+   * said inputMode="text", and the keyboard would spring straight back up.
+   *
+   * Also covers first load (typingMode starts false), which is why the
+   * field no longer needs autoFocus on touch.
+   */
+  useEffect(() => {
+    if (IS_TOUCH && !typingMode) focusSearch();
+  }, [typingMode]);
+
+  /**
+   * A tap on the field is the one unambiguous "I want to type" signal on
+   * a touch device — everything else (load, adding an item, tapping a
+   * category) leaves it in scanner mode with no keyboard.
+   *
+   * Blur-then-refocus because Android only decides about the keyboard when
+   * an element takes focus: flipping inputMode on an already-focused field
+   * would leave the keyboard shut.
+   */
+  function handleSearchPointerDown() {
+    if (!IS_TOUCH || typingMode) return;
+    setTypingMode(true);
+    document.getElementById('pos-product-search')?.blur();
+    focusSearch();
+  }
+
   function handleAdd(product: ProductWithStorePrice) {
     onAdd(product);
-    focusSearch();
+    // Back to scanner mode after an add — staying in typing mode would pop
+    // the keyboard open again on the refocus, the exact behaviour that made
+    // the phone unusable. The effect above restores focus.
+    if (IS_TOUCH && typingMode) setTypingMode(false);
+    else focusSearch();
   }
 
   /**
@@ -159,6 +221,16 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
    *     enumerate each component's role.
    */
   function handleSearchBlur() {
+    // On touch, tapping away while typing is how the cashier dismisses the
+    // keyboard — reclaiming focus *here* would drag it straight back up,
+    // since the field still says inputMode="text" at this point. Dropping
+    // to scanner mode instead lets the effect above refocus once the DOM
+    // says inputMode="none": keyboard dismissed, field still live to scan.
+    if (IS_TOUCH && typingMode) {
+      setTypingMode(false);
+      return;
+    }
+
     requestAnimationFrame(() => {
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || active.id === 'pos-product-search') return;
@@ -267,8 +339,15 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
           onChange={setQuery}
           onKeyDown={handleSearchKeyDown}
           onBlur={handleSearchBlur}
+          onPointerDown={handleSearchPointerDown}
           placeholder="Search by product name, barcode or SKU"
-          autoFocus
+          // autoFocus opens the on-screen keyboard on a phone the instant the
+          // screen loads. Touch gets focus from the mount effect above
+          // instead, in scanner mode, so scanning works with no keyboard.
+          autoFocus={!IS_TOUCH}
+          // Left undefined on a mouse device so nothing about the desktop
+          // behaviour changes.
+          inputMode={IS_TOUCH ? (typingMode ? 'text' : 'none') : undefined}
           fullWidth
           // Overrides SearchField's own 260px floor — on a narrow phone the
           // toolbar has less than 260px to spare once the view toggle, the
