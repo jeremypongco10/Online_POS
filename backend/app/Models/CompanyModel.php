@@ -17,6 +17,7 @@ class CompanyModel extends Model
     protected $allowedFields = [
         'trade_name', 'legal_name', 'tax_id', 'is_vat_registered', 'vat_registration_number',
         'email', 'phone', 'address', 'currency', 'timezone', 'is_active', 'loyalty_points_per_100',
+        'require_item_void_approval', 'require_cancel_approval',
     ];
 
     protected $validationRules = [
@@ -34,5 +35,11 @@ class CompanyModel extends Model
         // "Points earned per ₱100 of a sale's total" — 0 (the default) means
         // loyalty points aren't awarded automatically at all.
         'loyalty_points_per_100' => ['label' => 'Loyalty points per 100', 'rules' => 'permit_empty|is_natural'],
+        // Whether a supervisor must authorize before the POS drops a cart
+        // line / cancels the whole sale. Separate flags because the two
+        // differ sharply in frequency and risk — see the migration that
+        // split them.
+        'require_item_void_approval' => ['label' => 'Require supervisor approval to void an item', 'rules' => 'permit_empty|in_list[0,1]'],
+        'require_cancel_approval' => ['label' => 'Require supervisor approval to cancel a sale', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 }

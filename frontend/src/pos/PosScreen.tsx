@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import { useAuth } from '../auth/AuthContext';
-import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
 import { api, ApiError } from '../api/client';
 import type {
@@ -27,9 +26,18 @@ import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
+import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
 import { calculateCart, type CartLine } from './posTypes';
 import { formatQuantity } from './format';
-import { holdSale, listHeldSales, removeHeldSale, type HeldSale } from './holdSale';
+import {
+  clearDraftSale,
+  holdSale,
+  listHeldSales,
+  loadDraftSale,
+  removeHeldSale,
+  saveDraftSale,
+  type HeldSale,
+} from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
@@ -39,7 +47,6 @@ interface Props {
 
 export function PosScreen({ onOpenAdmin }: Props) {
   const { user, logout, hasPermission } = useAuth();
-  const confirm = useConfirm();
   const notify = useSnackbar();
 
   const [stores, setStores] = useState<Store[]>([]);
@@ -74,6 +81,17 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
+  // The item or whole-cart action awaiting supervisor sign-off. Held here
+  // rather than in Cart so the dialog survives the cart re-rendering
+  // underneath it.
+  const [voidSubject, setVoidSubject] = useState<VoidSubject | null>(null);
+  // The company's two void-approval switches (see SalesController::
+  // voidPolicy). Both default to true rather than false while they load,
+  // so a void/cancel can never slip through unapproved just because this
+  // hasn't come back from the server yet — they only ever loosen once the
+  // real values land.
+  const [requireItemVoidApproval, setRequireItemVoidApproval] = useState(true);
+  const [requireCancelApproval, setRequireCancelApproval] = useState(true);
 
   const totals = useMemo(() => calculateCart(lines), [lines]);
 
@@ -86,6 +104,16 @@ export function PosScreen({ onOpenAdmin }: Props) {
     api.get<Unit[]>('/units?per_page=50').then(setUnits);
     api.get<TaxRate[]>(`/taxes?company_id=${user.company_id}&is_active=1&per_page=50`).then(setTaxRates);
     api.get<PaymentMethodOption[]>('/payment-methods?is_active=1&per_page=50').then(setPaymentMethods);
+    api
+      .get<{ require_item_void_approval: boolean; require_cancel_approval: boolean }>('/sales/void-policy')
+      .then((res) => {
+        setRequireItemVoidApproval(res.require_item_void_approval);
+        setRequireCancelApproval(res.require_cancel_approval);
+      })
+      .catch(() => {
+        setRequireItemVoidApproval(true);
+        setRequireCancelApproval(true);
+      });
   }, [user]);
 
   useEffect(() => {
@@ -118,6 +146,44 @@ export function PosScreen({ onOpenAdmin }: Props) {
   useEffect(() => {
     setHeldSales(registerId ? listHeldSales(registerId) : []);
   }, [registerId]);
+
+  /**
+   * Recover the in-progress cart a refresh (or an accidental tab close)
+   * would otherwise have thrown away — `lines` is React state, so nothing
+   * survives a remount on its own. Keyed per terminal and dropped after
+   * 12h by loadDraftSale, so yesterday's abandoned cart can't reappear
+   * mid-shift.
+   *
+   * Runs on registerId rather than mount: registerId is null on the first
+   * render and only resolves after /registers comes back, so there is no
+   * key to read a draft under until then.
+   */
+  useEffect(() => {
+    if (!registerId) return;
+    const draft = loadDraftSale(registerId);
+    if (!draft) return;
+
+    setLines(draft.lines);
+    setCustomer(draft.customer);
+    setCard(draft.card);
+    setBagger(draft.bagger);
+    notify(`Recovered your in-progress sale (${draft.lines.length} item${draft.lines.length === 1 ? '' : 's'})`);
+    // notify is intentionally omitted — including it would re-run this on
+    // every snackbar render and re-restore the draft over the cashier's
+    // live edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerId]);
+
+  /**
+   * Autosave on every cart change. Deliberately writes the whole draft
+   * rather than diffing: these are a handful of small objects, and the
+   * cost of a stale/partial draft on recovery is far worse than the cost
+   * of the extra serialisation.
+   */
+  useEffect(() => {
+    if (!registerId) return;
+    saveDraftSale(registerId, { lines, customer, card, bagger });
+  }, [registerId, lines, customer, card, bagger]);
 
   /**
    * `quantity` comes from ProductSearch's barcode "5*"/"5x" prefix (see
@@ -170,6 +236,23 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, discount: Math.max(0, discount) } : l)));
   }
 
+  /**
+   * Cart's ± steppers. Rounded to the line's own unit precision so
+   * repeated float steps can't drift a whole-piece item to 2.9999999,
+   * and floored at one step — reaching zero would be a removal, and
+   * removals go through the supervisor-approved void path instead.
+   */
+  function updateQuantity(key: string, quantity: number) {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+        const step = 1 / 10 ** (l.unit?.decimal_places ?? 0);
+        const stepped = Math.max(step, Math.round(quantity / step) * step);
+        return { ...l, quantity: Math.round(stepped * 1e6) / 1e6 };
+      })
+    );
+  }
+
   function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
   }
@@ -181,15 +264,26 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setBagger(null);
     setCheckoutError(null);
     setSaleCounter((n) => n + 1);
+    // The autosave effect would clear this anyway once `lines` empties,
+    // but saying so here means a completed sale stops depending on that
+    // side effect staying true — this is the one place it really must
+    // not survive.
+    if (registerId) clearDraftSale(registerId);
   }
 
   async function handleCancel() {
     if (lines.length === 0) return;
-    const ok = await confirm('Clear the current cart? This cannot be undone.', {
-      title: 'Cancel Sale',
-      confirmLabel: 'Clear Cart',
-    });
-    if (ok) resetSale();
+
+    // Always through the dialog, whether or not a supervisor is needed:
+    // it also collects the reason, and a cancellation with no recorded
+    // reason is close to worthless when someone reviews the trail. The
+    // company setting decides only whether credentials come with it.
+    setVoidSubject({ kind: 'cart', itemCount: lines.length, amount: totals.total });
+  }
+
+  /** Cart's void (⊘) control on a line. Same dialog either way — requireItemVoidApproval decides whether it asks for a supervisor's credentials on top of the reason. */
+  function requestVoidLine(line: CartLine) {
+    setVoidSubject({ kind: 'item', line });
   }
 
   function handleHold() {
@@ -252,6 +346,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
         payments,
         bagger_id: bagger?.id,
         loyalty_card_id: card?.id,
+        // Catalogue prices are VAT-inclusive (Philippine shelf pricing),
+        // so the server must back the 12% out of each line rather than
+        // add it on top. Without this the request defaulted to exclusive
+        // (SalesController::create) and the recorded sale disagreed with
+        // the total the cashier and customer had just seen — and
+        // overcharged by the VAT.
+        prices_include_tax: true,
       });
       const fullReceipt = await api.get<Receipt>(`/sales/${sale.id}/receipt`);
       setReceipt(fullReceipt);
@@ -263,7 +364,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
     }
   }
 
-  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt);
+  // voidSubject included so F9/F5 can't fire behind the approval dialog —
+  // it has a password field in it, and a stray function key clearing the
+  // cart underneath would be especially confusing there.
+  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject);
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     onSearch: () => document.getElementById('pos-product-search')?.focus(),
@@ -271,11 +375,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
     onHold: handleHold,
     onPay: () => document.getElementById('pos-pay-button')?.click(),
     onBagger: () => document.getElementById('pos-action-bagger')?.click(),
-    // Refund/Return/Cancellation could DOM-click their own Actions row
-    // buttons too, but their handlers are trivial one-liners already
-    // available right here, so there's nothing to gain by indirecting
-    // through the DOM for these three.
-    onRefund: () => onOpenAdmin('/admin/customers/returns'),
+    // Return/Cancellation could DOM-click their own Actions row buttons
+    // too, but their handlers are trivial one-liners already available
+    // right here, so there's nothing to gain by indirecting through the
+    // DOM for these two.
     onReturn: () => onOpenAdmin('/admin/customers/returns'),
     onCancel: handleCancel,
   });
@@ -412,7 +515,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
               onSelectBagger={setBagger}
               cartHasItems={lines.length > 0}
               onCancel={handleCancel}
-              onRefund={() => onOpenAdmin('/admin/customers/returns')}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
             />
           </Box>
@@ -431,10 +533,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
         >
           <ReceiptPanel
             cashierName={user.name}
+            customer={customer}
+            bagger={bagger}
             lines={lines}
             lastAddedKey={lastAddedKey}
             onDiscountChange={updateDiscount}
-            onRemove={removeLine}
+            onQuantityChange={updateQuantity}
+            onRequestVoid={requestVoidLine}
             totals={totals}
             checkoutError={checkoutError}
             paymentMethods={paymentMethods}
@@ -462,6 +567,26 @@ export function PosScreen({ onOpenAdmin }: Props) {
       )}
 
       {receipt && <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} />}
+
+      <VoidApprovalDialog
+        subject={voidSubject}
+        requireApproval={voidSubject?.kind === 'cart' ? requireCancelApproval : requireItemVoidApproval}
+        storeId={storeId}
+        onClose={() => setVoidSubject(null)}
+        onApproved={(approvedBy) => {
+          // approvedBy is empty on the un-gated path (log-void), so the
+          // "approved by" clause only appears when someone actually did.
+          const by = approvedBy ? ` — approved by ${approvedBy}` : '';
+          if (voidSubject?.kind === 'item') {
+            removeLine(voidSubject.line.key);
+            notify(`Voided ${voidSubject.line.product.name}${by}`);
+          } else if (voidSubject?.kind === 'cart') {
+            resetSale();
+            notify(`Sale cancelled${by}`);
+          }
+          setVoidSubject(null);
+        }}
+      />
     </Box>
   );
 }

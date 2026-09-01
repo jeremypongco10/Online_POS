@@ -5,11 +5,10 @@ import Typography from '@mui/material/Typography';
 
 const SHORTCUTS: Array<[string, string]> = [
   ['F2', 'Search Product'],
-  ['F3', 'Add Customer'],
-  ['F4', 'Hold Sale'],
+  ['F3', 'Customer'],
+  ['F4', 'Bagger'],
   ['F5', 'Pay'],
-  ['F6', 'Bagger'],
-  ['F7', 'Refund'],
+  ['F6', 'Hold Sale'],
   ['F8', 'Return'],
   ['F9', 'Cancellation'],
   // Handled on the search field itself rather than in

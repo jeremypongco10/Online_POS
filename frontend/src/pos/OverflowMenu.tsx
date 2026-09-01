@@ -9,7 +9,7 @@ interface Props {
   cashSession: CashSession | null;
 }
 
-/** Houses Cash Movements behind the header's "more" button instead of always taking up space — Bagger and Add Customer live in the Actions row instead. */
+/** Houses Cash Movements behind the header's "more" button instead of always taking up space — Bagger and Customer live in the Actions row instead. */
 export function OverflowMenu({ anchorEl, onClose, cashSession }: Props) {
   return (
     <Popover

@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Models\AuditLogModel;
 use App\Models\CashMovementModel;
 use App\Models\CashSessionModel;
 use App\Models\PaymentModel;
@@ -185,7 +186,8 @@ class CashSessionsController extends BaseCrudController
 
     /**
      * @return array{opening_balance: float, cash_sales_total: float,
-     *   cash_in_total: float, cash_out_total: float, expected_balance: float}
+     *   cash_in_total: float, cash_out_total: float, expected_balance: float,
+     *   void_count: int, void_total: float, cancel_count: int}
      */
     private function buildSummary(object $session): array
     {
@@ -203,6 +205,51 @@ class CashSessionsController extends BaseCrudController
             'cash_in_total' => round((float) $cashIn, 2),
             'cash_out_total' => round((float) $cashOut, 2),
             'expected_balance' => round($expected, 2),
+            ...$this->voidSummary($session),
+        ];
+    }
+
+    /**
+     * Voids and cancellations this cashier performed during this shift.
+     *
+     * This is the number that actually catches abuse: an approval prompt
+     * on every void gets normalised away (and the supervisor's password
+     * shared), whereas "14 voids, ₱6,200" sitting on a close-out sheet is
+     * an outlier a supervisor spots instantly. Surfaced here rather than
+     * buried in the audit trail because closing the drawer is the one
+     * moment someone is already checking this cashier's shift.
+     *
+     * Drawn from audit_logs, which is where both the approved and the
+     * un-approved void paths write (SalesController::authorizeItemVoid
+     * and ::logVoid) — so switching approval off changes who signed for
+     * a void, never whether it was counted.
+     *
+     * Scoped by cashier + time window rather than by session id: an
+     * in-progress cart isn't attached to a cash session yet, so a void
+     * against it has no session to record.
+     */
+    private function voidSummary(object $session): array
+    {
+        $until = $session->closed_at ?? date('Y-m-d H:i:s');
+
+        $rows = model(AuditLogModel::class)
+            ->select("action, COUNT(*) AS n, COALESCE(SUM(JSON_EXTRACT(changes, '$.amount')), 0) AS amount")
+            ->where('user_id', $session->user_id)
+            ->whereIn('action', ['item-void', 'cart-void'])
+            ->where('created_at >=', $session->opened_at)
+            ->where('created_at <=', $until)
+            ->groupBy('action')
+            ->findAll();
+
+        $byAction = [];
+        foreach ($rows as $row) {
+            $byAction[$row->action] = $row;
+        }
+
+        return [
+            'void_count' => (int) ($byAction['item-void']->n ?? 0),
+            'void_total' => round((float) ($byAction['item-void']->amount ?? 0), 2),
+            'cancel_count' => (int) ($byAction['cart-void']->n ?? 0),
         ];
     }
 

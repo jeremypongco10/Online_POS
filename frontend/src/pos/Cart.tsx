@@ -8,18 +8,22 @@ import Popover from '@mui/material/Popover';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
-import CloseIcon from '@mui/icons-material/Close';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
+import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import type { CartLine } from './posTypes';
 import { calculateLine } from './posTypes';
-import { formatMoney, formatQuantity, POS_ACCENT } from './format';
+import { formatMoney, formatQuantity, taxIndicatorFor, POS_ACCENT, TAX_INDICATOR_LABELS } from './format';
 
 interface Props {
   lines: CartLine[];
   /** The most recently added/updated line, from any add path (tile click or scan) — scrolls it into view and briefly highlights it, so a cashier can always see what just landed in the cart. */
   lastAddedKey: string | null;
   onDiscountChange: (key: string, discount: number) => void;
-  onRemove: (key: string) => void;
+  onQuantityChange: (key: string, quantity: number) => void;
+  /** Opens the supervisor-approval dialog. The line is only dropped once that returns approved — this never removes anything by itself. */
+  onRequestVoid: (line: CartLine) => void;
 }
 
 // A monospace stack, not the UI's regular sans font, is what actually reads as "receipt" —
@@ -29,7 +33,7 @@ const RECEIPT_FONT = 'ui-monospace, "SFMono-Regular", "Courier New", monospace';
 
 const CART_ROW_DOM_ID = (key: string) => `cart-row-${key}`;
 
-export function Cart({ lines, lastAddedKey, onDiscountChange, onRemove }: Props) {
+export function Cart({ lines, lastAddedKey, onDiscountChange, onQuantityChange, onRequestVoid }: Props) {
   // Mirrors lastAddedKey but self-clears — the parent's key only changes on
   // the NEXT add, so without a local timeout the highlight would just stay
   // lit on whatever was last added instead of fading like a flash.
@@ -79,7 +83,8 @@ export function Cart({ lines, lastAddedKey, onDiscountChange, onRemove }: Props)
           line={line}
           highlighted={line.key === highlightKey}
           onDiscountChange={onDiscountChange}
-          onRemove={onRemove}
+          onQuantityChange={onQuantityChange}
+          onRequestVoid={onRequestVoid}
         />
       ))}
     </Stack>
@@ -90,16 +95,30 @@ function CartRow({
   line,
   highlighted,
   onDiscountChange,
-  onRemove,
+  onQuantityChange,
+  onRequestVoid,
 }: {
   line: CartLine;
   highlighted: boolean;
   onDiscountChange: (key: string, discount: number) => void;
-  onRemove: (key: string) => void;
+  onQuantityChange: (key: string, quantity: number) => void;
+  onRequestVoid: (line: CartLine) => void;
 }) {
   const totals = calculateLine(line);
   const [discountAnchor, setDiscountAnchor] = useState<HTMLElement | null>(null);
   const [discountText, setDiscountText] = useState(String(line.discount || ''));
+
+  // One step of whatever precision this line's unit carries — 1 for a
+  // whole-piece item, 0.001 for a weighed one — so "−" on 1.250 KG lands
+  // on 1.249 rather than 0.250.
+  const indicator = taxIndicatorFor(line.taxRate);
+
+  const step = 1 / 10 ** (line.unit?.decimal_places ?? 0);
+  // Deliberately floored at one step rather than allowed to reach zero:
+  // decrementing to nothing would be a removal, and removals are exactly
+  // what the supervisor-approved Void path exists to gate. Letting "−"
+  // empty a line would be a way around that.
+  const atMinimum = line.quantity - step < step / 2;
 
   return (
     <Box
@@ -108,15 +127,29 @@ function CartRow({
         // Dashed rather than solid — the same "torn perforation" line every
         // printed receipt uses between line items, instead of a spreadsheet
         // row border.
-        py: 0.3,
+        py: 0.85,
+        // Left padding specifically clears the highlight rule drawn at
+        // this box's leading edge — without it the product name sits
+        // flush against that bar the moment a row lights up. The dashed
+        // divider is on this same box, so it still spans the full width
+        // rather than being inset along with the content.
+        px: 1,
         borderBottom: '1px dashed',
         borderColor: 'divider',
-        // A brief tint on whatever a scan just touched — fades back out on
-        // its own once `highlighted` clears (see Cart's highlightKey timeout)
-        // rather than needing a second transition/animation to reverse.
-        bgcolor: highlighted ? `${POS_ACCENT}1f` : 'transparent',
-        transition: 'background-color 0.4s ease',
-        '&:hover': { bgcolor: highlighted ? `${POS_ACCENT}1f` : 'action.hover' },
+        // A brief marker on whatever a scan just touched — fades back out
+        // on its own once `highlighted` clears (see Cart's highlightKey
+        // timeout) rather than needing a second transition to reverse.
+        //
+        // An accent rule down the leading edge plus a barely-there wash,
+        // rather than the flat 12%-opacity block this replaced: that read
+        // as a coloured panel bolted onto a white receipt, and it muddied
+        // the monospace text sitting on top of it. The rule is drawn as an
+        // inset shadow so it costs no layout — a real border-left would
+        // indent every row by 3px whether highlighted or not.
+        bgcolor: highlighted ? `${POS_ACCENT}0a` : 'transparent',
+        boxShadow: `inset 3px 0 0 ${highlighted ? POS_ACCENT : 'transparent'}`,
+        transition: 'background-color 0.4s ease, box-shadow 0.4s ease',
+        '&:hover': { bgcolor: highlighted ? `${POS_ACCENT}0a` : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >
@@ -124,19 +157,32 @@ function CartRow({
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 1.5 }}>
         {/* Typography defaults to a 1.5 line-height meant for paragraphs — left alone, that padded
             each of these two lines far more than the row's own py did. */}
-        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 13, lineHeight: 1.2, minWidth: 0 }} noWrap title={line.product.name}>
+        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 15, lineHeight: 1.25, minWidth: 0 }} noWrap title={line.product.name}>
           {line.product.name}
         </Typography>
-        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 13, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-          {formatMoney(totals.gross)}
-        </Typography>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', flexShrink: 0 }}>
+          <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 15, lineHeight: 1.25, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            {formatMoney(totals.gross)}
+          </Typography>
+          {/* Trailing the amount, exactly where a BIR receipt prints it.
+              Deliberately quiet — it's a classification a customer checks
+              on request, not something a cashier reads every line. */}
+          <Tooltip title={TAX_INDICATOR_LABELS[indicator] ?? indicator}>
+            <Typography
+              component="span"
+              sx={{ fontFamily: RECEIPT_FONT, fontSize: 12, fontWeight: 700, color: 'text.disabled', cursor: 'help' }}
+            >
+              {indicator}
+            </Typography>
+          </Tooltip>
+        </Stack>
       </Stack>
 
       {/* Line 2: the qty × unit-price breakdown a receipt prints under the description, plus the
           only editable controls this line has (the printed page has none) at the trailing edge. */}
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mt: 0.25, gap: 1 }}>
         <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
-          <Typography sx={{ fontFamily: RECEIPT_FONT, fontSize: 11, lineHeight: 1.2, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+          <Typography sx={{ fontFamily: RECEIPT_FONT, fontSize: 13, lineHeight: 1.25, color: 'text.secondary', whiteSpace: 'nowrap' }}>
             {formatQuantity(line.quantity, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0)} × {formatMoney(line.unitPrice)}
           </Typography>
           <Tooltip title={line.discount > 0 ? `Discount: -${formatMoney(line.discount)}` : 'Add discount'}>
@@ -156,9 +202,9 @@ function CartRow({
                 '&:hover': { color: 'success.main' },
               }}
             >
-              <SellOutlinedIcon sx={{ fontSize: 11 }} />
+              <SellOutlinedIcon sx={{ fontSize: 13 }} />
               {line.discount > 0 && (
-                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 11 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 13 }}>
                   -{formatMoney(line.discount)}
                 </Typography>
               )}
@@ -166,20 +212,91 @@ function CartRow({
           </Tooltip>
         </Stack>
 
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
-          <Tooltip title="Remove">
-            <IconButton
-              onClick={() => onRemove(line.key)}
-              aria-label="Remove"
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0 }}>
+          {/* Quantity correction is unauthorized on purpose — a mis-scan
+              fixed mid-queue shouldn't need a supervisor walked over, and
+              nothing here can reach zero (see atMinimum). Clearing a line
+              outright is the gated action. */}
+          {/* A soft pill track with the buttons floating inside it, rather
+              than the boxed-and-divided control this replaced — three
+              hairline-separated cells read like a spreadsheet widget next
+              to the receipt's clean type. Same 32px outer footprint, so
+              the touch target didn't shrink: the 28px buttons plus the
+              track's own 2px inset add back up. */}
+          <Stack
+            direction="row"
+            sx={{
+              alignItems: 'center',
+              borderRadius: 999,
+              bgcolor: 'action.hover',
+              p: '2px',
+            }}
+          >
+            <Tooltip title={atMinimum ? 'Use Void to remove this item' : 'Reduce quantity'}>
+              {/* span, because a disabled MUI button doesn't fire the
+                  events Tooltip listens for and would show nothing at
+                  exactly the moment the hint is most useful. */}
+              <span>
+                <IconButton
+                  onClick={() => onQuantityChange(line.key, line.quantity - step)}
+                  disabled={atMinimum}
+                  aria-label="Reduce quantity"
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    p: 0,
+                    color: 'text.secondary',
+                    // Lifts out of the track on hover as a white disc —
+                    // the affordance the removed borders used to carry.
+                    '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT },
+                  }}
+                >
+                  <RemoveIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Typography
               sx={{
-                width: 20,
-                height: 20,
+                fontFamily: RECEIPT_FONT,
+                fontSize: 13,
+                fontWeight: 700,
+                minWidth: 26,
+                textAlign: 'center',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {formatQuantity(line.quantity, null, line.unit?.decimal_places ?? 0)}
+            </Typography>
+            <Tooltip title="Increase quantity">
+              <IconButton
+                onClick={() => onQuantityChange(line.key, line.quantity + step)}
+                aria-label="Increase quantity"
+                sx={{
+                  width: 28,
+                  height: 28,
+                  p: 0,
+                  color: 'text.secondary',
+                  '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT },
+                }}
+              >
+                <AddIcon sx={{ fontSize: 17 }} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+
+          <Tooltip title="Void item (needs supervisor approval)">
+            <IconButton
+              onClick={() => onRequestVoid(line)}
+              aria-label="Void item"
+              sx={{
+                width: 32,
+                height: 32,
                 p: 0,
                 color: 'text.secondary',
                 '&:hover': { color: 'error.main', backgroundColor: (t) => `color-mix(in srgb, ${t.palette.error.main} 12%, transparent)` },
               }}
             >
-              <CloseIcon sx={{ fontSize: 14 }} />
+              <BlockOutlinedIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
         </Stack>

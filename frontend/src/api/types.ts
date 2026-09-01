@@ -29,6 +29,14 @@ export interface TaxRate {
   name: string;
   rate: string;
   is_default: string | number;
+  /**
+   * The single-letter BIR receipt flag — V(atable), E(xempt),
+   * Z(ero-rated), N(on-VAT). Server-derived from the rate's
+   * classification (TaxService::indicator), never stored or edited, so it
+   * can't disagree with how a line using this rate is actually taxed.
+   * Optional because endpoints other than /taxes return bare rate rows.
+   */
+  indicator?: 'V' | 'E' | 'Z' | 'N';
 }
 
 export interface Product {
@@ -62,10 +70,11 @@ export interface BulkProductResponse {
   failed: number;
 }
 
-/** A Product as returned by `GET /products?store_id=` — price resolved for that one store, null if unpriced there. */
+/** A Product as returned by `GET /products?store_id=` — price and on-hand stock resolved for that one store, null if unpriced/never-stocked there. */
 export interface ProductWithStorePrice extends Product {
   cost_price: string | null;
   selling_price: string | null;
+  stock_quantity: string | null;
 }
 
 /** One row of `GET /products/{id}/prices` — every company store, priced or not. */
@@ -91,6 +100,10 @@ export interface Company {
   is_active: string | number;
   /** Points earned per ₱100 of a sale's total, applied automatically at checkout when a customer is attached. 0 = disabled. */
   loyalty_points_per_100: string | number;
+  /** Whether a supervisor must sign off before the POS drops a single cart line. Defaults to 0 — a mis-scan correction is logged, not blocked. See VoidApprovalDialog. */
+  require_item_void_approval: string | number;
+  /** Whether a supervisor must sign off before the whole cart is cancelled. Defaults to 1 — rare and high-signal, so the friction is worth it. */
+  require_cancel_approval: string | number;
 }
 
 export interface Store {
@@ -138,6 +151,11 @@ export interface CashSessionSummary {
   cash_in_total: number;
   cash_out_total: number;
   expected_balance: number;
+  /** Item voids this cashier made during the shift, and their value — the outlier-spotting figures on the close-out sheet. */
+  void_count: number;
+  void_total: number;
+  /** Whole-cart cancellations during the shift. */
+  cancel_count: number;
 }
 
 export interface Customer {
@@ -175,10 +193,12 @@ export interface LoyaltyCard {
   balance: string;
 }
 
+/** As returned by `GET /stores/{id}/baggers` — active Bagger-role users assigned to that store. See UserStoreModel::baggerQuery() for the exact column list. */
 export interface Bagger {
   id: number;
   name: string;
   username: string;
+  phone: string | null;
 }
 
 export interface SaleResponse {
@@ -209,6 +229,8 @@ export interface Receipt {
     discount: string;
     tax_amount: string;
     line_total: string;
+    /** V/E/Z/N, derived from the line's own persisted tax_type — how this item was taxed at the time of sale, not how its product would be taxed today. */
+    tax_indicator: 'V' | 'E' | 'Z' | 'N';
   }>;
   subtotal: string;
   discount_total: string;

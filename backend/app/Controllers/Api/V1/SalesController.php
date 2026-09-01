@@ -19,6 +19,7 @@ use App\Models\StoreModel;
 use App\Models\UnitModel;
 use App\Models\UserModel;
 use App\Models\UserStoreModel;
+use Config\Auth as AuthConfig;
 use Config\Database;
 use Config\Services;
 
@@ -65,6 +66,7 @@ class SalesController extends BaseCrudController
         $items = model(SaleItemModel::class)->where('sale_id', $id)->findAll();
         $payments = model(PaymentModel::class)->where('sale_id', $id)->findAll();
 
+        $taxService = Services::taxService();
         $vatAmount = 0.0;
         $vatExemptAmount = 0.0;
         $zeroRatedAmount = 0.0;
@@ -110,6 +112,11 @@ class SalesController extends BaseCrudController
                 'discount' => $item->discount,
                 'tax_amount' => $item->tax_amount,
                 'line_total' => $item->line_total,
+                // Read off the line's own persisted tax_type, so a
+                // reprint years later shows how the item was taxed at the
+                // time of sale rather than how its product would be taxed
+                // today.
+                'tax_indicator' => $taxService->indicatorForType($item->tax_type),
             ], $items),
             'subtotal' => $sale->subtotal,
             'discount_total' => $sale->discount_total,
@@ -556,6 +563,284 @@ class SalesController extends BaseCrudController
         Services::auditLogger()->log('create', 'Sale', $saleId, $sale->invoice_number, (array) $sale);
 
         return $this->created($sale);
+    }
+
+    /**
+     * POST /api/v1/sales/authorize-item-void
+     * body: { identifier, password, reason, product_name, quantity, amount, store_id? }
+     *
+     * Supervisor sign-off for voiding a single line out of an
+     * in-progress cart. Nothing is mutated here — the cart lives only in
+     * the browser until checkout, so there is no sale row to change yet.
+     * What this endpoint does is (a) prove the approver is real, active,
+     * and actually carries sales.void, and (b) write the void into the
+     * audit trail. The POS removes the line only after this returns 200.
+     *
+     * Deliberately NOT a login: it issues no token and touches no
+     * session. The cashier stays signed in throughout; the supervisor is
+     * only ever authenticated for this single decision.
+     *
+     * The account-safety checks mirror AuthController::login() on
+     * purpose — this accepts a password, so it is a credential endpoint
+     * and gets the same lockout, inactive-account, and failed-attempt
+     * handling. Skipping any of them would turn this into a softer side
+     * door for guessing a supervisor's password than the login form.
+     */
+    /**
+     * GET /api/v1/sales/void-policy
+     *
+     * The one company setting the POS itself needs before it can decide
+     * whether to open a VoidApprovalDialog or just remove a line/cancel
+     * the sale directly: Company::require_item_void_approval and
+     * ::require_cancel_approval. Exposed as its
+     * own tiny endpoint, rather than having the POS call GET /companies/
+     * {id}, because that route is gated on companies.view — a permission
+     * no POS-only role (Cashier, Bagger, Cashier Supervisor) holds, while
+     * every one of them needs this one boolean.
+     */
+    public function voidPolicy()
+    {
+        $auth = Services::authContext();
+        $company = model(CompanyModel::class)->find($auth->companyId);
+
+        // Both default to "required" when the company row can't be read at
+        // all — failing closed is the right way round for a control, and
+        // the caller can't tell the difference from a genuinely strict
+        // configuration.
+        return $this->ok([
+            'require_item_void_approval' => $company === null || (bool) $company->require_item_void_approval,
+            'require_cancel_approval' => $company === null || (bool) $company->require_cancel_approval,
+        ]);
+    }
+
+    /**
+     * POST /api/v1/sales/log-void
+     * body: { kind: 'item'|'cart', reason, product_name?, quantity?, amount?, item_count? }
+     *
+     * Records a void the cashier performed on their own authority, for
+     * the case where the company has approval switched off. No
+     * credentials: the point of turning approval off is that a mis-scan
+     * shouldn't need a supervisor walked over — but the event still has
+     * to reach the audit trail, or the setting would trade a real control
+     * for no record at all rather than for a lighter one.
+     *
+     * Same actions/entity types as the approved path, minus approved_by —
+     * so a voids report reads both kinds together and the absence of an
+     * approver is itself the signal that it was unsupervised.
+     */
+    public function logVoid()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+
+        if (! $this->validateData($payload, [
+            'kind' => ['label' => 'Kind', 'rules' => 'required|in_list[item,cart]'],
+            'reason' => ['label' => 'Reason', 'rules' => 'required|max_length[255]'],
+            'product_name' => ['label' => 'Item', 'rules' => 'permit_empty|max_length[150]'],
+            'quantity' => ['label' => 'Quantity', 'rules' => 'permit_empty|numeric'],
+            'amount' => ['label' => 'Amount', 'rules' => 'permit_empty|numeric'],
+            'item_count' => ['label' => 'Item count', 'rules' => 'permit_empty|is_natural_no_zero'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        if ($payload['kind'] === 'item') {
+            Services::auditLogger()->log('item-void', 'Cart Item', null, $payload['product_name'] ?? 'Item', [
+                'item' => $payload['product_name'] ?? null,
+                'quantity' => $payload['quantity'] ?? null,
+                'amount' => $payload['amount'] ?? null,
+                'reason' => $payload['reason'],
+            ]);
+        } else {
+            $count = (int) ($payload['item_count'] ?? 0);
+            $label = 'Entire cart (' . $count . ' item' . ($count === 1 ? '' : 's') . ')';
+
+            Services::auditLogger()->log('cart-void', 'Cart', null, $label, [
+                'item_count' => $count,
+                'amount' => $payload['amount'] ?? null,
+                'reason' => $payload['reason'],
+            ]);
+        }
+
+        return $this->ok(null, 'Void recorded');
+    }
+
+    public function authorizeItemVoid()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+
+        if (! $this->validateData($payload, [
+            'identifier' => ['label' => 'Supervisor username or email', 'rules' => 'required'],
+            'password' => ['label' => 'Password', 'rules' => 'required'],
+            'reason' => ['label' => 'Reason', 'rules' => 'required|max_length[255]'],
+            'product_name' => ['label' => 'Item', 'rules' => 'required|max_length[150]'],
+            'quantity' => ['label' => 'Quantity', 'rules' => 'permit_empty|numeric'],
+            'amount' => ['label' => 'Amount', 'rules' => 'permit_empty|numeric'],
+            'store_id' => ['label' => 'Store', 'rules' => 'permit_empty|is_natural_no_zero'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        $approver = $this->resolveVoidApprover($payload, 'item-void-denied', 'Cart Item', $payload['product_name']);
+        if (! is_object($approver)) {
+            return $approver;
+        }
+
+        // Attributed to the cashier (log() reads the request's own
+        // AuthContext), with the approver named in the payload — the
+        // trail needs to answer "who did it" and "who allowed it" as two
+        // separate questions.
+        Services::auditLogger()->log('item-void', 'Cart Item', null, $payload['product_name'], [
+            'item' => $payload['product_name'],
+            'quantity' => $payload['quantity'] ?? null,
+            'amount' => $payload['amount'] ?? null,
+            'reason' => $payload['reason'],
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ]);
+
+        return $this->ok([
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ], 'Void approved');
+    }
+
+    /**
+     * POST /api/v1/sales/authorize-cart-void
+     * body: { identifier, password, reason, item_count, amount, store_id? }
+     *
+     * Same shape and same guarantees as authorizeItemVoid() above — see
+     * that method's docblock — but for clearing the whole in-progress
+     * cart (Cancel Sale) rather than dropping one line. Kept as its own
+     * action/entity_type in the audit trail ('cart-void' on 'Cart')
+     * rather than reusing 'item-void', so the two read as distinct event
+     * kinds when a manager scans the trail later.
+     */
+    public function authorizeCartVoid()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+
+        if (! $this->validateData($payload, [
+            'identifier' => ['label' => 'Supervisor username or email', 'rules' => 'required'],
+            'password' => ['label' => 'Password', 'rules' => 'required'],
+            'reason' => ['label' => 'Reason', 'rules' => 'required|max_length[255]'],
+            'item_count' => ['label' => 'Item count', 'rules' => 'required|is_natural_no_zero'],
+            'amount' => ['label' => 'Amount', 'rules' => 'permit_empty|numeric'],
+            'store_id' => ['label' => 'Store', 'rules' => 'permit_empty|is_natural_no_zero'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        $label = 'Entire cart (' . $payload['item_count'] . ' item' . ((int) $payload['item_count'] === 1 ? '' : 's') . ')';
+
+        $approver = $this->resolveVoidApprover($payload, 'cart-void-denied', 'Cart', $label);
+        if (! is_object($approver)) {
+            return $approver;
+        }
+
+        Services::auditLogger()->log('cart-void', 'Cart', null, $label, [
+            'item_count' => (int) $payload['item_count'],
+            'amount' => $payload['amount'] ?? null,
+            'reason' => $payload['reason'],
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ]);
+
+        return $this->ok([
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ], 'Cancellation approved');
+    }
+
+    /**
+     * Shared credential/authority check behind both authorizeItemVoid()
+     * and authorizeCartVoid() — verifying a supervisor is real, active,
+     * unlocked, holds sales.void, and (if the caller is store-restricted)
+     * assigned to $payload['store_id'], logging every denial along the
+     * way under the caller-supplied $deniedAction/$entityType/$label.
+     *
+     * Returns the approver row on success, or a ResponseInterface to
+     * return immediately on failure — callers check with is_object().
+     * The account-safety handling here deliberately mirrors
+     * AuthController::login(): this accepts a password, so it is a
+     * credential endpoint and gets the same lockout, inactive-account,
+     * and failed-attempt handling. Skipping any of it would make this a
+     * softer side door for guessing a supervisor's password than the
+     * login form itself.
+     */
+    private function resolveVoidApprover(array $payload, string $deniedAction, string $entityType, string $label)
+    {
+        $auth = Services::authContext();
+        $userModel = model(UserModel::class);
+        $approver = $userModel->findByIdentifier($payload['identifier']);
+        $authConfig = config(AuthConfig::class);
+
+        // Cross-tenant approval must be impossible, so an approver from
+        // another company is treated exactly like a nonexistent one —
+        // same message, same 401 — rather than a distinct error that
+        // would confirm the account exists somewhere.
+        if ($approver && (int) $approver->company_id !== (int) $auth->companyId) {
+            $approver = null;
+        }
+
+        if ($approver && $userModel->isLocked($approver)) {
+            $minutesLeft = (int) ceil((strtotime($approver->locked_until) - time()) / 60);
+            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
+                'reason' => 'Approver account locked',
+                'identifier' => $payload['identifier'],
+            ]);
+
+            return $this->apiFail("That account is locked due to too many failed attempts. Try again in {$minutesLeft} minute(s).", 423);
+        }
+
+        if ($approver && ! (bool) $approver->is_active) {
+            $approver = null;
+        }
+
+        if (! $approver || ! password_verify($payload['password'], $approver->password_hash)) {
+            if ($approver) {
+                $userModel->registerFailedLogin($approver->id, $authConfig->maxLoginAttempts, $authConfig->lockoutMinutes);
+            }
+
+            // Logged even on failure: repeated failed void approvals on
+            // one terminal is exactly the pattern a manager reviewing the
+            // trail would want surfaced.
+            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
+                'reason' => 'Invalid supervisor credentials',
+                'identifier' => $payload['identifier'],
+            ]);
+
+            return $this->apiFail('Invalid supervisor credentials', 401);
+        }
+
+        if (! in_array('sales.void', $userModel->permissionSlugs((int) $approver->id), true)) {
+            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
+                'reason' => 'Approver lacks sales.void',
+                'approved_by' => $approver->name,
+            ]);
+
+            return $this->forbidden('That user is not authorized to approve voids');
+        }
+
+        // A store-restricted approver (Cashier Supervisor and Store Admin
+        // are pinned to exactly one store — see UsersController::
+        // SINGLE_STORE_ROLES) can only sign off at their own store. Zero
+        // rows means unrestricted, which is access to every store, so
+        // that case passes through untouched.
+        $storeId = isset($payload['store_id']) ? (int) $payload['store_id'] : null;
+        if ($storeId !== null) {
+            $approverStores = array_map(
+                static fn ($s) => (int) $s->id,
+                model(UserStoreModel::class)->storesForUser((int) $approver->id)
+            );
+
+            if ($approverStores !== [] && ! in_array($storeId, $approverStores, true)) {
+                return $this->forbidden('That supervisor is not assigned to this store');
+            }
+        }
+
+        $userModel->clearLoginLock((int) $approver->id);
+
+        return $approver;
     }
 
     /** POST /api/v1/sales/{id}/void  body: { reason? } */

@@ -10,6 +10,7 @@ import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
 import { DetailView, StatusChip } from './DetailView';
+import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import { SectionTabs } from './SectionTabs';
@@ -34,10 +35,12 @@ import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
+import Switch from '@mui/material/Switch';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty';
-const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty'];
+type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty' | 'security';
+const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty', 'security'];
 const TAB_LABELS: Record<Tab, string> = {
   stores: 'Stores',
   registers: 'POS Terminals',
@@ -45,14 +48,23 @@ const TAB_LABELS: Record<Tab, string> = {
   taxes: 'Taxes',
   units: 'Units',
   loyalty: 'Loyalty',
+  security: 'Security',
 };
+// Every other tab is visible on `${tab}.view` — Security edits the
+// companies table directly (like Loyalty does under the hood), and
+// that table is gated on companies.manage, not a security.view slug
+// that doesn't exist. Visibility and edit rights are the same
+// permission here on purpose: nobody should see a control they'd
+// immediately get a 403 trying to use, the way Loyalty's own
+// loyalty.manage/companies.manage split can (see LoyaltyTab).
+const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { security: 'companies.manage' };
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
   // A role can hold e.g. registers.view without stores.view — the tab
   // list (and the default landing tab) has to reflect whichever of the
   // four this particular user actually has, not always start on Stores.
-  const availableTabs = TABS.filter((t) => hasPermission(`${t}.view`));
+  const availableTabs = TABS.filter((t) => hasPermission(TAB_PERMISSIONS[t] ?? `${t}.view`));
   const [tab, setTab] = useRouteState<Tab>(2, TABS, availableTabs[0] ?? 'stores', (t) => `/admin/settings/${t}`);
 
   // Guards a stale/bookmarked URL pointing at a tab this user has since
@@ -78,6 +90,7 @@ export function SettingsScreen() {
       {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
       {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
+      {tab === 'security' && hasPermission('companies.manage') && <SecurityTab />}
     </div>
   );
 }
@@ -615,6 +628,28 @@ function RegistersTab() {
   );
 }
 
+/** V / E / Z / N — the flag a BIR receipt prints beside each line so a customer can see how that item was taxed. Colour-coded so the vatable case (the one that actually carries tax) stands apart from the three zero-tax classifications at a glance. */
+const TAX_INDICATOR_META: Record<string, { label: string; color: 'primary' | 'success' | 'info' | 'default' }> = {
+  V: { label: 'VATable', color: 'primary' },
+  E: { label: 'VAT-Exempt', color: 'success' },
+  Z: { label: 'Zero-Rated', color: 'info' },
+  N: { label: 'Non-VAT', color: 'default' },
+};
+
+function TaxIndicatorChip({ indicator }: { indicator: string }) {
+  const meta = TAX_INDICATOR_META[indicator] ?? { label: indicator, color: 'default' as const };
+  return (
+    <Tooltip title={meta.label}>
+      <Chip
+        size="small"
+        label={indicator}
+        color={meta.color}
+        sx={{ fontWeight: 800, width: 30, '& .MuiChip-label': { px: 0 } }}
+      />
+    </Tooltip>
+  );
+}
+
 function TaxesTab() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
@@ -668,6 +703,14 @@ function TaxesTab() {
   }
 
   const columns: Column<TaxRate>[] = [
+    {
+      key: 'indicator',
+      label: 'Flag',
+      width: 72,
+      // Not sortable: it's derived server-side per row (TaxService::
+      // indicator), so there's no column behind it for the API to ORDER BY.
+      render: (t) => (t.indicator ? <TaxIndicatorChip indicator={t.indicator} /> : '—'),
+    },
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'rate', label: 'Rate', align: 'right', sortKey: 'rate', width: 100, render: (t) => `${t.rate}%` },
     { key: 'is_default', label: 'Default', width: 100, render: (t) => (Number(t.is_default) === 1 ? 'Yes' : '—') },
@@ -802,6 +845,18 @@ function TaxesTab() {
         <DetailView
           fields={[
             { label: 'Name', value: viewing?.name },
+            {
+              label: 'Receipt flag',
+              value:
+                viewing?.indicator !== undefined ? (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    <TaxIndicatorChip indicator={viewing.indicator} />
+                    <Typography variant="body2" color="text.secondary">
+                      {TAX_INDICATOR_META[viewing.indicator]?.label}
+                    </Typography>
+                  </Stack>
+                ) : undefined,
+            },
             { label: 'Rate', value: viewing ? `${viewing.rate}%` : undefined },
             { label: 'Default', value: viewing ? (Number(viewing.is_default) === 1 ? 'Yes' : 'No') : undefined },
           ]}
@@ -1328,5 +1383,131 @@ function LoyaltyTab() {
         </Stack>
       )}
     </Paper>
+  );
+}
+
+/**
+ * A single toggle on the same company row Loyalty edits — see
+ * Company::require_item_void_approval / require_cancel_approval.
+ * Kept as its own tab (not a checkbox
+ * bolted onto Loyalty) since it's a security policy decision rather than
+ * a pricing/rewards one, and gated on companies.manage end to end: this
+ * is the flag that decides whether cashiers can bypass a supervisor at
+ * all, so unlike Loyalty there's no separate lighter-weight permission
+ * for it.
+ */
+function SecurityTab() {
+  const { user } = useAuth();
+  const notify = useSnackbar();
+  const [company, setCompany] = useState<Company | null>(null);
+  const [itemVoid, setItemVoid] = useState(false);
+  const [cancel, setCancel] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.company_id) return;
+    api
+      .get<Company>(`/companies/${user.company_id}`)
+      .then((c) => {
+        setCompany(c);
+        setItemVoid(Number(c.require_item_void_approval) === 1);
+        setCancel(Number(c.require_cancel_approval) === 1);
+      })
+      .finally(() => setLoading(false));
+  }, [user?.company_id]);
+
+  async function toggle(field: 'require_item_void_approval' | 'require_cancel_approval', next: boolean) {
+    if (!company) return;
+    const setter = field === 'require_item_void_approval' ? setItemVoid : setCancel;
+    // Optimistic, then reconciled from the response — a Switch that waits
+    // for the round trip before moving reads as broken/laggy for something
+    // this immediate.
+    setter(next);
+    setSaving(true);
+    try {
+      const updated = await api.put<Company>(`/companies/${company.id}`, { [field]: next ? 1 : 0 });
+      setCompany(updated);
+      setItemVoid(Number(updated.require_item_void_approval) === 1);
+      setCancel(Number(updated.require_cancel_approval) === 1);
+      notify('Security settings updated');
+    } catch (err) {
+      setter(!next);
+      notify(err instanceof ApiError ? err.message : 'Failed to save security settings', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Stack sx={{ alignItems: 'center', py: 6 }}>
+        <CircularProgress size={22} />
+      </Stack>
+    );
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <ShieldOutlinedIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          Void / cancel approval
+        </Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        When a switch is on, the cashier must have a supervisor (someone with the Void Sales permission) enter their own
+        username and password before the action goes through. Either way the cashier picks a reason, and every void,
+        cancellation, and denied attempt is recorded in the Audit Trail — turning a switch off changes who signs for it,
+        never whether it is recorded. Void counts and totals per shift also appear on the Close Terminal screen.
+      </Typography>
+
+      <Stack spacing={1.5}>
+        <SecurityToggle
+          title="Voiding a single item"
+          detail="Mis-scans are constant, so gating each one tends to end with the supervisor's password being shared — which removes the control and the attribution together. Recommended off."
+          checked={itemVoid}
+          disabled={saving}
+          onChange={(v) => toggle('require_item_void_approval', v)}
+        />
+        <SecurityToggle
+          title="Cancelling an entire sale"
+          detail="Rare and high-signal, so the friction is cheap and the alarm means something. Recommended on."
+          checked={cancel}
+          disabled={saving}
+          onChange={(v) => toggle('require_cancel_approval', v)}
+        />
+      </Stack>
+    </Paper>
+  );
+}
+
+function SecurityToggle({
+  title,
+  detail,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  detail: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <Stack
+      direction="row"
+      spacing={2}
+      sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2, borderRadius: 2, bgcolor: 'action.hover' }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {detail}
+        </Typography>
+      </Box>
+      <Switch checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} />
+    </Stack>
   );
 }

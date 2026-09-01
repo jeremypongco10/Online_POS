@@ -42,41 +42,57 @@ export function SnackbarProvider({ children }: { children: ReactNode }) {
   return (
     <SnackbarContext.Provider value={notify}>
       {children}
-      {/* Anchored bottom-right rather than under the header — the header's
+      {/* Bottom-LEFT, not bottom-right: on the POS the right corner is the
+          Pay button, and this fires on every single scan — it was landing
+          on top of the primary action at exactly the moment a cashier
+          reaches for it. Not anchored to the top either, since the header's
           height isn't constant (it wraps on narrow screens, and differs
-          between the admin shell and the POS AppBar), so a fixed top offset
-          would drift out of place and overlap whatever sits just below it. */}
+          between the admin shell and the POS), so a fixed top offset drifts
+          out of place.
+
+          pointerEvents:'none' on the container is the belt-and-braces part:
+          wherever this lands, it can never swallow a click meant for the UI
+          underneath it. That also makes a close button unworkable — which
+          is fine, it doesn't have one any more (see below). */}
       <MuiSnackbar
         open={open}
         autoHideDuration={3000}
         onClose={handleClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         slots={{ transition: SlideUp }}
-        sx={{ mb: { xs: 2, sm: 3 }, mr: { xs: 2, sm: 3 } }}
+        sx={{ mb: { xs: 2, sm: 3 }, ml: { xs: 2, sm: 3 }, pointerEvents: 'none' }}
       >
         <Alert
-          onClose={() => setOpen(false)}
           severity={state.severity}
           variant="standard"
+          // No dismiss button: this auto-hides in 3s and fires constantly
+          // while ringing up, so an X was a permanent piece of furniture
+          // nobody clicks — and one that padded the pill out sideways.
+          // Sized to its text rather than a 300px floor, so "Added aa"
+          // is a small pill instead of a banner.
           sx={{
-            minWidth: 300,
-            maxWidth: 400,
+            maxWidth: 360,
             alignItems: 'center',
+            py: 0.5,
+            pl: 1.25,
+            pr: 2,
             border: 0,
-            borderRadius: 3,
+            borderRadius: 2.5,
             bgcolor: `color-mix(in srgb, var(--mui-palette-${state.severity}-main) 10%, var(--mui-palette-background-paper))`,
-            boxShadow: '0 16px 32px -12px rgba(16, 24, 40, 0.28), 0 4px 12px rgba(16, 24, 40, 0.1)',
-            fontSize: 14,
+            boxShadow: '0 10px 24px -12px rgba(16, 24, 40, 0.3), 0 2px 6px rgba(16, 24, 40, 0.08)',
+            fontSize: 13.5,
             fontWeight: 600,
             color: 'text.primary',
             '& .MuiAlert-icon': {
+              // Bare glyph — the tinted disc behind it was doing the work
+              // of a status badge for what is only ever a passing
+              // confirmation, and it made the pill noticeably taller.
               color: `${state.severity}.main`,
-              bgcolor: `color-mix(in srgb, var(--mui-palette-${state.severity}-main) 18%, transparent)`,
-              borderRadius: '50%',
-              p: 0.75,
-              mr: 1.5,
+              mr: 1,
+              py: 0,
+              fontSize: 20,
             },
-            '& .MuiAlert-action': { pt: 0 },
+            '& .MuiAlert-message': { py: 0.25 },
           }}
         >
           {state.message}

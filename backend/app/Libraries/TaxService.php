@@ -224,6 +224,39 @@ class TaxService
         return $totals;
     }
 
+    /**
+     * The single-letter flag a BIR-style receipt prints beside each line
+     * so a customer can tell at a glance how that item was taxed:
+     * V(atable), E(xempt), Z(ero-rated), N(on-VAT).
+     *
+     * Derived from classify() rather than stored as an editable column on
+     * tax_rates, deliberately: a hand-entered letter could say "E" on a
+     * row that classify() treats as 12% VAT, and the receipt would then
+     * claim exempt while the sale actually charged the tax. Deriving it
+     * means the flag and the math can never disagree.
+     */
+    public function indicator(object $taxRate): string
+    {
+        return $this->indicatorForType($this->classify($taxRate));
+    }
+
+    /**
+     * Same flag, from an already-resolved tax type rather than a rate row
+     * — sale_items persists `tax_type` per line, so a receipt can be
+     * flagged from the sale as it was actually rung up, without
+     * re-reading (or depending on the continued existence of) the
+     * tax_rates row behind it.
+     */
+    public function indicatorForType(?string $taxType): string
+    {
+        return match ($taxType) {
+            self::TYPE_VAT => 'V',
+            self::TYPE_VAT_EXEMPT => 'E',
+            self::TYPE_ZERO_RATED => 'Z',
+            default => 'N',
+        };
+    }
+
     /** Classifies a tax_rates row by name (falls back to rate-based guess for unrecognized names). */
     public function classify(object $taxRate): string
     {

@@ -1,9 +1,15 @@
 import type { ApiEnvelope } from './types';
 
-// VITE_API_URL is baked in at build time (see .env.production) — falls
-// back to the local dev backend so `npm run dev` keeps working with no
-// env file present.
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1';
+// VITE_API_URL is baked in at build time (see .env.production) and wins
+// whenever it's set.
+//
+// The fallback follows whatever host the page itself was loaded from,
+// rather than a hard-coded "localhost": on a phone or tablet opening
+// http://192.168.x.x:5173, "localhost" would mean *that device*, so every
+// API call would fail with a connection refused. Deriving it means the
+// same dev build works from this machine and from anything else on the
+// LAN, and keeps working when DHCP hands out a different address.
+const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8081/api/v1`;
 
 // Uploaded files (product photos) are served as plain static files from
 // the backend's public/ root, not under /api/v1 — so a path the API

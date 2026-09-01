@@ -22,11 +22,10 @@ interface Props {
   onSelectBagger: (bagger: Bagger | null) => void;
   cartHasItems: boolean;
   onCancel: () => void;
-  onRefund: () => void;
   onReturn: () => void;
 }
 
-/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, cash movements, the account menu) lives in PosHeader instead, leaving this panel to do one job. Add Customer, Bagger, and the More menu sit in the Actions row pinned below the product list. */
+/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, cash movements, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the More menu sit in the Actions row pinned below the product list. */
 export function ProductBrowser({
   companyId,
   storeId,
@@ -38,7 +37,6 @@ export function ProductBrowser({
   onSelectBagger,
   cartHasItems,
   onCancel,
-  onRefund,
   onReturn,
 }: Props) {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
@@ -62,14 +60,25 @@ export function ProductBrowser({
               onOpenBagger={() => setBaggerDialogOpen(true)}
               cartHasItems={cartHasItems}
               onCancel={onCancel}
-              onRefund={onRefund}
               onReturn={onReturn}
             />
           </Stack>
         }
       />
 
-      <Dialog open={customerDialogOpen} onClose={() => setCustomerDialogOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={customerDialogOpen}
+        onClose={() => setCustomerDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        // Same focus-trap race as the Bagger dialog below: Dialog reclaims
+        // focus onto the Close button as the open transition finishes, so
+        // the customer-number field has to be focused after that, not via
+        // its own autoFocus. Worth the trick here because this field is
+        // the hardware scanner's target — a cashier scans a loyalty card
+        // the instant the dialog appears.
+        slotProps={{ transition: { onEntered: () => document.getElementById('customer-number-input')?.focus() } }}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           Customer
           <IconButton size="small" onClick={() => setCustomerDialogOpen(false)} aria-label="Close">
@@ -84,14 +93,19 @@ export function ProductBrowser({
       <Dialog
         open={baggerDialogOpen}
         onClose={() => setBaggerDialogOpen(false)}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
         // Dialog's own focus-trap reclaims focus (onto the Close button)
         // right as the open transition finishes, which is exactly when
         // `onEntered` fires — focusing here, after that, is what actually
-        // wins. Doing it any earlier (e.g. the select's own `autoFocus`)
+        // wins. Doing it any earlier (e.g. the field's own `autoFocus`)
         // just gets overridden a moment later.
-        slotProps={{ transition: { onEntered: () => document.getElementById('bagger-select-wrapper')?.querySelector('input')?.focus() } }}
+        //
+        // BaggerPanel only renders this filter above FILTER_THRESHOLD
+        // baggers; below that there's nothing to type into and the
+        // optional chaining makes this a no-op, which is the intended
+        // behaviour rather than an oversight.
+        slotProps={{ transition: { onEntered: () => document.getElementById('bagger-filter-input')?.focus() } }}
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           Bagger

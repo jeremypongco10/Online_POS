@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import Box from '@mui/material/Box';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import type { SxProps, Theme } from '@mui/material/styles';
@@ -22,16 +21,6 @@ interface Props {
   fullWidth?: boolean;
   autoFocus?: boolean;
   sx?: SxProps<Theme>;
-  /**
-   * Lets a caller focus this input imperatively — needed inside a Dialog,
-   * whose own focus-trap steals focus back after `autoFocus` fires (see
-   * BaggerPanel/ProductBrowser). Applied to a wrapping element rather than
-   * the input itself: Autocomplete generates and tracks its own id
-   * internally (for the listbox's aria-owns/aria-controls), and
-   * overriding that on the rendered TextField would desync it from what
-   * Autocomplete's ARIA attributes actually point to.
-   */
-  wrapperId?: string;
 }
 
 /**
@@ -53,11 +42,10 @@ export function SearchableSelect({
   fullWidth,
   autoFocus,
   sx,
-  wrapperId,
 }: Props) {
   const selected = options.find((o) => o.value === value) ?? null;
 
-  const autocomplete = (
+  return (
     <Autocomplete
       size="small"
       options={options}
@@ -81,6 +69,4 @@ export function SearchableSelect({
       )}
     />
   );
-
-  return wrapperId ? <Box id={wrapperId}>{autocomplete}</Box> : autocomplete;
 }

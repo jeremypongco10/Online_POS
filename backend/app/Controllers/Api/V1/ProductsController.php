@@ -21,12 +21,12 @@ class ProductsController extends BaseCrudController
     protected string $defaultSort = 'name';
 
     /**
-     * A ?store_id= on the list endpoint resolves each product's price at
-     * that store (left-joined, so an unpriced product still appears but
-     * with null cost_price/selling_price) — this is what the POS product
-     * search relies on. listResource() can't express a join, so this path
-     * bypasses it entirely rather than bolting a join onto the generic
-     * helper.
+     * A ?store_id= on the list endpoint resolves each product's price
+     * (and on-hand stock_quantity) at that store — both left-joined, so
+     * an unpriced or never-stocked product still appears, just with a
+     * null value — this is what the POS product search relies on.
+     * listResource() can't express a join, so this path bypasses it
+     * entirely rather than bolting one onto the generic helper.
      */
     public function index()
     {
@@ -104,9 +104,10 @@ class ProductsController extends BaseCrudController
         }
 
         $builder = model(ProductModel::class)->builder();
-        $builder->select('products.*, spp.cost_price, spp.selling_price')
+        $builder->select('products.*, spp.cost_price, spp.selling_price, inv.quantity AS stock_quantity')
             ->where('products.company_id', $auth->companyId)
-            ->join('store_product_prices spp', "spp.product_id = products.id AND spp.store_id = {$storeId}", 'left');
+            ->join('store_product_prices spp', "spp.product_id = products.id AND spp.store_id = {$storeId}", 'left')
+            ->join('inventory inv', "inv.product_id = products.id AND inv.store_id = {$storeId}", 'left');
 
         foreach (['category_id', 'unit_id', 'tax_rate_id', 'is_active', 'track_inventory'] as $field) {
             $value = $this->request->getGet($field);

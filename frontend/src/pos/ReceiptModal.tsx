@@ -13,7 +13,7 @@ import TableCell from '@mui/material/TableCell';
 import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
 import type { PaymentMethodOption, Receipt } from '../api/types';
-import { formatMoney } from './format';
+import { formatMoney, TAX_INDICATOR_LABELS } from './format';
 import { PopTransition } from '../PopTransition';
 import { METHOD_LABELS } from './PaymentPanel';
 
@@ -78,6 +78,11 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
               <TableCell sx={{ fontWeight: 600 }}>Qty</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Price</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Total</TableCell>
+              {/* The BIR tax flag, last: on a printed receipt it sits
+                  hard against the amount it classifies. Header left blank
+                  — "V/E/Z/N" as a column title reads as noise, and the
+                  legend under the table explains the letters properly. */}
+              <TableCell sx={{ fontWeight: 600, width: 16 }} />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -87,10 +92,20 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
                 <TableCell>{item.quantity}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.unit_price))}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.line_total))}</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>{item.tax_indicator}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+
+        {/* Only the classifications actually present on this sale — a
+            fixed four-letter legend under a receipt whose every line is
+            VATable is just wasted paper. */}
+        <Box sx={{ fontSize: 10.5, color: 'text.secondary', textAlign: 'center', mb: 1 }}>
+          {[...new Set(receipt.items.map((i) => i.tax_indicator))]
+            .map((flag) => `${flag} = ${TAX_INDICATOR_LABELS[flag] ?? flag}`)
+            .join('   ')}
+        </Box>
 
         <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
           <span>Subtotal</span>

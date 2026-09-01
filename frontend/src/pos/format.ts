@@ -35,6 +35,27 @@ export const HIDDEN_SCROLLBAR_SX = {
   '&::-webkit-scrollbar': { display: 'none' },
 } as const;
 
+/**
+ * The BIR receipt flag for a cart line — V(atable), E(xempt),
+ * Z(ero-rated), N(on-VAT).
+ *
+ * A line with no tax rate at all falls back to 'N', matching the
+ * server's own rule (TaxService::calculateLine treats a null rate as
+ * TYPE_NON_VAT), so an unassigned product is flagged the same way in the
+ * cart as it will be on the printed receipt.
+ */
+export function taxIndicatorFor(taxRate: { indicator?: string } | null): string {
+  return taxRate?.indicator ?? 'N';
+}
+
+/** Spelled out wherever the letters appear — a receipt convention, not something every cashier knows cold. Shared so the cart's tooltip and the receipt's legend can never drift apart. */
+export const TAX_INDICATOR_LABELS: Record<string, string> = {
+  V: 'VATable',
+  E: 'VAT-Exempt',
+  Z: 'Zero-Rated',
+  N: 'Non-VAT',
+};
+
 export function formatMoney(amount: number): string {
   return amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

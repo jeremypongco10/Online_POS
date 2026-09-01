@@ -102,6 +102,40 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
               </Typography>
             </Stack>
 
+            {/* Voids don't touch the drawer maths above — they're here
+                because closing out is the one moment someone is already
+                reviewing this cashier's shift, and a void count is what
+                actually exposes abuse. Hidden entirely on a clean shift so
+                the normal case stays quiet and a non-zero row draws the
+                eye. */}
+            {(summary.void_count > 0 || summary.cancel_count > 0) && (
+              <Stack spacing={0.5} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em' }}>
+                  THIS SHIFT
+                </Typography>
+                {summary.void_count > 0 && (
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Items voided ({summary.void_count})
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatMoney(summary.void_total)}
+                    </Typography>
+                  </Stack>
+                )}
+                {summary.cancel_count > 0 && (
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Sales cancelled
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {summary.cancel_count}
+                    </Typography>
+                  </Stack>
+                )}
+              </Stack>
+            )}
+
             <TextField
               label="Actual Cash (count the drawer)"
               type="number"

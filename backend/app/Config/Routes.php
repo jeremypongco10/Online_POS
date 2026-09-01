@@ -200,6 +200,25 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->get('(:num)/items', 'SalesController::items/$1', ['filter' => 'permission:sales.view']);
             $routes->get('(:num)/receipt', 'SalesController::receipt/$1', ['filter' => 'permission:sales.view']);
             $routes->post('', 'SalesController::create', ['filter' => 'permission:sales.create']);
+            // Gated on sales.create, not sales.void: the caller is the
+            // *cashier* asking for sign-off, and a cashier deliberately
+            // does not hold sales.void — the supervisor's own authority
+            // is checked inside the method against the credentials posted
+            // to it. Rate-limited like login for the same reason: it
+            // accepts a password, so it must not be a cheaper place to
+            // guess one than the login form is.
+            $routes->post('authorize-item-void', 'SalesController::authorizeItemVoid', ['filter' => ['rateLimit:10,300,void-auth', 'permission:sales.create']]);
+            $routes->post('authorize-cart-void', 'SalesController::authorizeCartVoid', ['filter' => ['rateLimit:10,300,void-auth', 'permission:sales.create']]);
+            // Gated on sales.create rather than companies.view/manage —
+            // every POS user needs to know this one flag before they even
+            // show a Void/Cancel control, while the Cashier role (and any
+            // POS-only role) deliberately lacks companies.view, which
+            // gates the full company record.
+            $routes->get('void-policy', 'SalesController::voidPolicy', ['filter' => 'permission:sales.create']);
+            // The un-gated counterpart to the two authorize-* routes above:
+            // used when the company has approval switched off, so the void
+            // still lands in the audit trail without a supervisor present.
+            $routes->post('log-void', 'SalesController::logVoid', ['filter' => 'permission:sales.create']);
             $routes->post('(:num)/void', 'SalesController::void/$1', ['filter' => 'permission:sales.void']);
         });
 

@@ -1,15 +1,25 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
 import Button from '@mui/material/Button';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import Alert from '@mui/material/Alert';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
+import CircularProgress from '@mui/material/CircularProgress';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
+import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
+import PhoneIphoneOutlinedIcon from '@mui/icons-material/PhoneIphoneOutlined';
+import MailOutlineIcon from '@mui/icons-material/MailOutlineOutlined';
+import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
+import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
 import { api, ApiError } from '../api/client';
 import type { Customer, LoyaltyCard } from '../api/types';
 import { POS_ACCENT } from './format';
@@ -23,7 +33,6 @@ interface Props {
 
 const sectionLabelSx = {
   display: 'block',
-  mb: 1,
   color: 'text.secondary',
   fontWeight: 700,
   textTransform: 'uppercase' as const,
@@ -31,12 +40,35 @@ const sectionLabelSx = {
   fontSize: '0.6875rem',
 };
 
+/** One icon + label + value line in the attached-customer detail block. Rendered only when the value exists, so a customer with no mobile doesn't get an empty row. */
+function DetailRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', minWidth: 0 }}>
+      <Box sx={{ color: 'text.disabled', display: 'flex', flexShrink: 0 }}>{icon}</Box>
+      <Typography variant="caption" sx={{ color: 'text.secondary', width: 78, flexShrink: 0 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }} noWrap title={value}>
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 /**
  * Customer + Loyalty Card sections together. A customer can be attached
- * two ways: typing their customer number (exact match on the unique,
- * auto-generated customer_code — the fast "scan" path, same shape as the
- * old card-number lookup it replaced), or a manual name/mobile/code
+ * two ways: typing/scanning their customer number (exact match on the
+ * unique, auto-generated customer_code), or a manual name/mobile/code
  * search below.
+ *
+ * GET /customers already decorates every row with `points`,
+ * `card_number`, and `loyalty_card_id` (see CustomersController::
+ * attachPoints — points is summed from the ledger, never a stored
+ * counter), so the profile card below can show a scanned customer's live
+ * balance without a second round trip. Those three are absent for a role
+ * without loyalty.view, which is why the points block is conditional
+ * rather than defaulting to 0 — "0 points" and "you can't see points"
+ * are different answers.
  */
 export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
   const [customerNumber, setCustomerNumber] = useState('');
@@ -93,91 +125,257 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
     setSearchResults([]);
   }
 
+  // The scan path attaches with a null `card` (the lookup returns the
+  // customer, not a card record), so the customer's own decorated fields
+  // are the primary source here and `card` is only a fallback for the
+  // paths that do carry one.
+  const cardNumber = customer?.card_number ?? card?.card_number ?? null;
+  const points = customer?.points ?? (card ? Number(card.points) : undefined);
+  const canSeePoints = points !== undefined;
+
   return (
     <Stack spacing={2.5}>
-      {/* The dialog's own title already says "Customer" — this reads as
-          the answer to that question (who's attached right now), not a
-          second label for the same thing. Mirrors BaggerPanel's summary
-          card for the same reason. */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
-        <Avatar
+      {customer ? (
+        <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', borderColor: `${POS_ACCENT}55` }}>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{
+              alignItems: 'center',
+              p: 2,
+              // A soft accent wash rather than a solid accent bar: this
+              // sits inside a dialog that's already competing for
+              // attention, and the points block below is what should read
+              // as the loud element.
+              background: `linear-gradient(135deg, ${POS_ACCENT}1f 0%, ${POS_ACCENT}0a 100%)`,
+            }}
+          >
+            <Avatar sx={{ width: 52, height: 52, fontWeight: 700, fontSize: 18, bgcolor: POS_ACCENT, color: '#fff' }}>
+              {initialsForName(customer.name)}
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                Attached customer
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.25 }} noWrap title={customer.name}>
+                {customer.name}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+                No. {customer.customer_code}
+              </Typography>
+            </Box>
+            <Button size="small" color="inherit" onClick={reset} sx={{ flexShrink: 0, fontWeight: 600 }}>
+              Clear
+            </Button>
+          </Stack>
+
+          {canSeePoints && (
+            <>
+              <Divider />
+              <Stack
+                direction="row"
+                spacing={2}
+                sx={{ alignItems: 'center', px: 2, py: 1.75, bgcolor: 'action.hover' }}
+              >
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    bgcolor: `${POS_ACCENT}1f`,
+                    color: POS_ACCENT,
+                  }}
+                >
+                  <LoyaltyOutlinedIcon fontSize="small" />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={sectionLabelSx}>Loyalty points</Typography>
+                  {points === null ? (
+                    <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>
+                      No loyalty card yet
+                    </Typography>
+                  ) : (
+                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', mt: 0.25 }}>
+                      <Typography sx={{ fontWeight: 800, fontSize: 26, lineHeight: 1, color: POS_ACCENT }}>
+                        {points.toLocaleString('en-PH')}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                        {points === 1 ? 'point' : 'points'}
+                      </Typography>
+                    </Stack>
+                  )}
+                </Box>
+                {card?.status && (
+                  <Chip
+                    size="small"
+                    label={card.status}
+                    color={card.status === 'active' ? 'success' : 'default'}
+                    sx={{ textTransform: 'capitalize', fontWeight: 600, flexShrink: 0 }}
+                  />
+                )}
+              </Stack>
+            </>
+          )}
+
+          {(cardNumber || customer.mobile || customer.email) && (
+            <>
+              <Divider />
+              <Stack spacing={1.25} sx={{ px: 2, py: 1.75 }}>
+                {cardNumber && (
+                  <DetailRow icon={<CreditCardOutlinedIcon fontSize="small" />} label="Card" value={cardNumber} />
+                )}
+                {customer.mobile && (
+                  <DetailRow icon={<PhoneIphoneOutlinedIcon fontSize="small" />} label="Mobile" value={customer.mobile} />
+                )}
+                {customer.email && (
+                  <DetailRow icon={<MailOutlineIcon fontSize="small" />} label="Email" value={customer.email} />
+                )}
+              </Stack>
+            </>
+          )}
+        </Paper>
+      ) : (
+        // A dashed placeholder rather than the filled summary row that
+        // used to sit here: "nothing attached yet" is a slot waiting to be
+        // filled, and dashes say that without needing extra words.
+        <Stack
+          spacing={0.5}
           sx={{
-            width: 44,
-            height: 44,
-            fontWeight: 700,
-            bgcolor: customer ? POS_ACCENT : 'action.selected',
-            color: customer ? '#fff' : 'text.secondary',
+            alignItems: 'center',
+            textAlign: 'center',
+            px: 2,
+            py: 3,
+            borderRadius: 3,
+            border: '1px dashed',
+            borderColor: 'divider',
           }}
         >
-          {customer ? initialsForName(customer.name) : <PersonOutlineIcon fontSize="small" />}
-        </Avatar>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="caption" color="text.secondary">
-            {customer ? 'Attached customer' : 'No customer attached'}
+          <Avatar sx={{ width: 48, height: 48, bgcolor: 'action.selected', color: 'text.secondary', mb: 0.5 }}>
+            <PersonOutlineIcon />
+          </Avatar>
+          <Typography variant="body1" sx={{ fontWeight: 700 }}>
+            Walk-in sale
           </Typography>
-          <Typography variant="body1" sx={{ fontWeight: 700 }} noWrap>
-            {customer ? customer.name : 'Walk-in'}
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            Scan a customer number below to see their points, or search by name.
           </Typography>
-          {customer && (
-            <Typography variant="caption" color="text.secondary" noWrap>
-              No. {customer.customer_code}
-              {card && ` · Loyalty ${card.card_number} · ${card.status}`}
-            </Typography>
-          )}
-        </Box>
-        {customer && (
-          <Button size="small" color="inherit" onClick={reset} sx={{ flexShrink: 0 }}>
-            Clear
-          </Button>
-        )}
-      </Stack>
+        </Stack>
+      )}
 
       <Stack spacing={1}>
-        <Typography sx={sectionLabelSx}>Customer Number</Typography>
+        <Typography sx={sectionLabelSx}>Customer number</Typography>
         <Stack component="form" direction="row" spacing={1} onSubmit={scanCustomerNumber}>
-          <TextField type="text" label="Customer Number" value={customerNumber} onChange={(e) => setCustomerNumber(e.target.value)} fullWidth />
-          <Button type="submit" variant="outlined" disabled={scanning} sx={{ whiteSpace: 'nowrap' }}>
-            {scanning ? 'Checking…' : 'Scan'}
+          <TextField
+            id="customer-number-input"
+            type="text"
+            placeholder="Scan or type the customer number"
+            value={customerNumber}
+            onChange={(e) => setCustomerNumber(e.target.value)}
+            fullWidth
+            autoComplete="off"
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <QrCodeScannerIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+          <Button
+            type="submit"
+            variant="contained"
+            disableElevation
+            disabled={scanning || customerNumber.trim() === ''}
+            sx={{ whiteSpace: 'nowrap', px: 2.5, bgcolor: POS_ACCENT, '&:hover': { bgcolor: '#1d4ed8' } }}
+          >
+            {scanning ? <CircularProgress size={20} color="inherit" /> : 'Look up'}
           </Button>
         </Stack>
-        {scanError && <Alert severity="error">{scanError}</Alert>}
+        {scanError ? (
+          <Alert severity="error" sx={{ borderRadius: 2 }}>
+            {scanError}
+          </Alert>
+        ) : (
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            A hardware scanner works here too — it submits on its own.
+          </Typography>
+        )}
       </Stack>
 
       {!customer && (
         <Stack spacing={1}>
-          <Typography sx={sectionLabelSx}>Find Customer</Typography>
-          <TextField type="text" label="Search by name, mobile, or code" value={searchQuery} onChange={(e) => searchCustomers(e.target.value)} fullWidth />
-          {searching && (
-            <Typography variant="body2" color="text.secondary">
-              Searching…
-            </Typography>
-          )}
+          <Typography sx={sectionLabelSx}>Find customer</Typography>
+          <TextField
+            type="text"
+            placeholder="Search by name, mobile, or code"
+            value={searchQuery}
+            onChange={(e) => searchCustomers(e.target.value)}
+            fullWidth
+            autoComplete="off"
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PersonSearchOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searching ? (
+                  <InputAdornment position="end">
+                    <CircularProgress size={16} />
+                  </InputAdornment>
+                ) : undefined,
+              },
+            }}
+          />
           {searchResults.length > 0 && (
             <Paper variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
               <List disablePadding>
-                {searchResults.map((c) => (
+                {searchResults.map((c, i) => (
                   <ListItemButton
                     key={c.id}
-                    divider
+                    divider={i < searchResults.length - 1}
                     onClick={() => {
                       onAttach(c, null);
                       setSearchQuery('');
                       setSearchResults([]);
                     }}
-                    sx={{ py: 1.25, px: 2 }}
+                    sx={{ py: 1.25, px: 1.75, gap: 1.5 }}
                   >
-                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.5 }}>
+                    <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 700, bgcolor: 'action.selected', color: 'text.secondary' }}>
+                      {initialsForName(c.name)}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
                         {c.name}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                        {c.mobile ?? c.customer_code}
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+                        {c.mobile ? `${c.mobile} · ${c.customer_code}` : c.customer_code}
                       </Typography>
-                    </Stack>
+                    </Box>
+                    {/* Points on the row itself, so picking between two
+                        similar names doesn't need a second lookup. */}
+                    {c.points !== undefined && c.points !== null && (
+                      <Chip
+                        size="small"
+                        label={`${c.points.toLocaleString('en-PH')} pts`}
+                        sx={{ flexShrink: 0, fontWeight: 600, bgcolor: `${POS_ACCENT}14`, color: POS_ACCENT }}
+                      />
+                    )}
                   </ListItemButton>
                 ))}
               </List>
             </Paper>
+          )}
+          {searchQuery.trim() !== '' && !searching && searchResults.length === 0 && (
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              No customers match “{searchQuery.trim()}”.
+            </Typography>
           )}
         </Stack>
       )}

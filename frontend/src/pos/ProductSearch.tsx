@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -143,6 +143,19 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, categoryId, companyId, storeId]);
+
+  /**
+   * Unpriced products sink to the bottom rather than being hidden: an
+   * item with no price for this store is a real data problem someone
+   * needs to fix, so silently filtering it out would just hide the bug.
+   * But it also can't be sold, so it has no claim on the prime slots at
+   * the top of the grid. Array.sort is stable in every engine this runs
+   * on, so the backend's own name ordering survives inside each group.
+   */
+  const orderedResults = useMemo(
+    () => [...results].sort((a, b) => Number(a.selling_price === null) - Number(b.selling_price === null)),
+    [results]
+  );
 
   /**
    * Clicking a product card moves focus to that card's button — deferred
@@ -394,7 +407,11 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
       </Box>
 
       {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pr: 0.5, ...THIN_SCROLLBAR_SX }}>
+      {/* px/pt give a hovered card's shadow somewhere to land instead of
+          being sliced off against the scroller's edge — the card itself no
+          longer moves (see ProductCard), so this only has to accommodate
+          the shadow. */}
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}>
         {results.length === 0 && !loading ? (
           // Without this, a search that matches nothing just leaves a
           // blank panel, which reads as a broken screen rather than an
@@ -409,9 +426,9 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
             </Typography>
           </Stack>
         ) : viewMode === 'grid' ? (
-          <ProductGrid products={results} onAdd={handleAdd} />
+          <ProductGrid products={orderedResults} onAdd={handleAdd} />
         ) : (
-          <ProductListView results={results} onAdd={handleAdd} />
+          <ProductListView results={orderedResults} onAdd={handleAdd} />
         )}
       </Box>
 

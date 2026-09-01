@@ -76,7 +76,10 @@ class UserStoreModel extends Model
     private function baggerQuery()
     {
         return $this->db->table('user_stores us')
-            ->select('u.id, u.name, u.username')
+            // phone is here for the POS Bagger dialog's profile card, which
+            // shows it as a contact detail — a supervisor reaching for whoever
+            // is bagging shouldn't have to leave the terminal to find it.
+            ->select('u.id, u.name, u.username, u.phone')
             ->join('users u', 'u.id = us.user_id')
             ->join('roles r', 'r.id = u.role_id')
             ->join('stores s', 's.id = us.store_id')
