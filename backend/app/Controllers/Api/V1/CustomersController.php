@@ -12,7 +12,9 @@ use Config\Services;
 class CustomersController extends BaseCrudController
 {
     protected string $modelClass = CustomerModel::class;
-    protected array $allowedFilters = ['company_id', 'is_active'];
+    // customer_code carries a unique index (per company), so an exact-match filter on it — used by the
+    // POS Customer dialog's quick-attach-by-number flow — can never return more than one row.
+    protected array $allowedFilters = ['company_id', 'is_active', 'customer_code'];
     protected array $allowedSorts = ['id', 'name', 'customer_code', 'created_at'];
     protected array $searchableFields = ['name', 'customer_code', 'email', 'mobile'];
     protected string $defaultSort = 'name';

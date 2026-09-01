@@ -36,7 +36,7 @@ export const HIDDEN_SCROLLBAR_SX = {
 } as const;
 
 export function formatMoney(amount: number): string {
-  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** "2" for a PCS-like unit, "1.250 KG" for a weighed unit — matches the unit's own decimal precision. */

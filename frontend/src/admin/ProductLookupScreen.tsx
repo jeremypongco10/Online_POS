@@ -642,15 +642,6 @@ export function ProductLookupScreen() {
                                 variant="standard"
                                 slotProps={{
                                   htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
-                                  input: {
-                                    startAdornment: (
-                                      <InputAdornment position="start">
-                                        <Typography variant="caption" color="text.secondary">
-                                          ₱
-                                        </Typography>
-                                      </InputAdornment>
-                                    ),
-                                  },
                                 }}
                                 value={row.cost_price ?? ''}
                                 onChange={(e) => updatePriceField(row.store_id, 'cost_price', e.target.value)}
@@ -673,15 +664,6 @@ export function ProductLookupScreen() {
                                 variant="standard"
                                 slotProps={{
                                   htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
-                                  input: {
-                                    startAdornment: (
-                                      <InputAdornment position="start">
-                                        <Typography variant="caption" color="text.secondary">
-                                          ₱
-                                        </Typography>
-                                      </InputAdornment>
-                                    ),
-                                  },
                                 }}
                                 value={row.selling_price ?? ''}
                                 onChange={(e) => updatePriceField(row.store_id, 'selling_price', e.target.value)}

@@ -1,10 +1,5 @@
-import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import PersonAddAlt1OutlinedIcon from '@mui/icons-material/PersonAddAlt1Outlined';
@@ -12,7 +7,6 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import UndoOutlinedIcon from '@mui/icons-material/UndoOutlined';
 import AssignmentReturnOutlinedIcon from '@mui/icons-material/AssignmentReturnOutlined';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import type { Bagger, Customer } from '../api/types';
 import { POS_ACCENT } from './format';
 
@@ -28,21 +22,20 @@ interface Props {
 }
 
 /**
- * Add Customer and Bagger are part of ringing up a normal sale, so they
- * stay on the surface. Refund, Return, and Cancellation are exceptions —
- * and the first two only navigate away to the Back Office Returns screen
- * anyway — so they sit behind "More" rather than presenting five equally
- * loud buttons where only two are routine.
+ * All five actions shown directly — Add Customer, Bagger, Refund, Return,
+ * and Cancellation — rather than tucking the latter three behind a "More"
+ * menu, so a cashier can see and reach every action in one click. Wraps
+ * to a second row on a narrow panel rather than clipping.
  *
- * Add Customer and Bagger keep their stable `id`s: useKeyboardShortcuts
- * triggers those two via a DOM click (their dialog state lives up in
- * ProductBrowser). The three menu items deliberately do NOT rely on that
- * — they'd be unclickable while the menu is closed — so PosScreen wires
- * F7/F8/F9 straight to the same callbacks this menu calls.
+ * Add Customer and Bagger keep stable `id`s that useKeyboardShortcuts
+ * triggers via a DOM click, since their dialog state lives up in
+ * ProductBrowser rather than here. Refund/Return/Cancel don't need that —
+ * PosScreen already wires F7/F8/F9 straight to the same onRefund/
+ * onReturn/onCancel callbacks these buttons call — but they keep `id`s
+ * too, for the same reason: parity with the other two, and a stable hook
+ * for tests.
  */
 export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger, cartHasItems, onCancel, onRefund, onReturn }: Props) {
-  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
-
   const actionSx = {
     justifyContent: 'flex-start',
     minWidth: 0,
@@ -57,13 +50,8 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
     '&:hover': { borderColor: POS_ACCENT, color: POS_ACCENT, bgcolor: `${POS_ACCENT}0a` },
   };
 
-  function runAndClose(action: () => void) {
-    setMoreAnchor(null);
-    action();
-  }
-
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 1 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 1 }}>
       <Tooltip title="Shortcut: F3">
         <Button
           id="pos-action-add-customer"
@@ -101,46 +89,54 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
         </Button>
       </Tooltip>
 
-      <Tooltip title="Refund, Return, Cancellation">
+      <Tooltip title="Shortcut: F7">
         <Button
+          id="pos-action-refund"
           variant="outlined"
-          aria-label="More actions"
-          onClick={(e) => setMoreAnchor(e.currentTarget)}
-          sx={{ ...actionSx, px: 1.25, justifyContent: 'center' }}
+          startIcon={<UndoOutlinedIcon fontSize="small" />}
+          onClick={onRefund}
+          sx={actionSx}
         >
-          <MoreHorizIcon fontSize="small" />
+          Refund
         </Button>
       </Tooltip>
 
-      <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-        <MenuItem onClick={() => runAndClose(onRefund)}>
-          <ListItemIcon>
-            <UndoOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Refund" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 3 }}>
-            F7
-          </Typography>
-        </MenuItem>
-        <MenuItem onClick={() => runAndClose(onReturn)}>
-          <ListItemIcon>
-            <AssignmentReturnOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Return" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 3 }}>
-            F8
-          </Typography>
-        </MenuItem>
-        <MenuItem disabled={!cartHasItems} onClick={() => runAndClose(onCancel)} sx={{ color: 'error.main' }}>
-          <ListItemIcon>
-            <CancelOutlinedIcon fontSize="small" color={cartHasItems ? 'error' : 'disabled'} />
-          </ListItemIcon>
-          <ListItemText primary="Cancel Sale" />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 3 }}>
-            F9
-          </Typography>
-        </MenuItem>
-      </Menu>
+      <Tooltip title="Shortcut: F8">
+        <Button
+          id="pos-action-return"
+          variant="outlined"
+          startIcon={<AssignmentReturnOutlinedIcon fontSize="small" />}
+          onClick={onReturn}
+          sx={actionSx}
+        >
+          Return
+        </Button>
+      </Tooltip>
+
+      <Tooltip title="Shortcut: F9">
+        <span>
+          <Button
+            id="pos-action-cancel"
+            variant="outlined"
+            disabled={!cartHasItems}
+            startIcon={<CancelOutlinedIcon fontSize="small" />}
+            onClick={onCancel}
+            sx={{
+              ...actionSx,
+              width: '100%',
+              color: 'error.main',
+              borderColor: 'error.main',
+              '&:hover': {
+                borderColor: 'error.dark',
+                color: 'error.dark',
+                backgroundColor: (t) => `color-mix(in srgb, ${t.palette.error.main} 8%, transparent)`,
+              },
+            }}
+          >
+            Cancel Sale
+          </Button>
+        </span>
+      </Tooltip>
     </Box>
   );
 }

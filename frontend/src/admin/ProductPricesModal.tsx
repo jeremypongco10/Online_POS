@@ -9,7 +9,6 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import Divider from '@mui/material/Divider';
-import InputAdornment from '@mui/material/InputAdornment';
 import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
@@ -210,15 +209,6 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                               variant="standard"
                               slotProps={{
                                 htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
-                                input: {
-                                  startAdornment: (
-                                    <InputAdornment position="start">
-                                      <Typography variant="caption" color="text.secondary">
-                                        ₱
-                                      </Typography>
-                                    </InputAdornment>
-                                  ),
-                                },
                               }}
                               value={row.cost_price ?? ''}
                               onChange={(e) => updateRow(row.store_id, 'cost_price', e.target.value)}
@@ -241,15 +231,6 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                               variant="standard"
                               slotProps={{
                                 htmlInput: { step: '0.01', style: { textAlign: 'right', fontSize: '0.8rem' } },
-                                input: {
-                                  startAdornment: (
-                                    <InputAdornment position="start">
-                                      <Typography variant="caption" color="text.secondary">
-                                        ₱
-                                      </Typography>
-                                    </InputAdornment>
-                                  ),
-                                },
                               }}
                               value={row.selling_price ?? ''}
                               onChange={(e) => updateRow(row.store_id, 'selling_price', e.target.value)}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
@@ -9,8 +9,6 @@ import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
-import RemoveIcon from '@mui/icons-material/Remove';
-import AddIcon from '@mui/icons-material/Add';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import type { CartLine } from './posTypes';
 import { calculateLine } from './posTypes';
@@ -18,14 +16,37 @@ import { formatMoney, formatQuantity, POS_ACCENT } from './format';
 
 interface Props {
   lines: CartLine[];
-  onQuantityChange: (key: string, quantity: number) => void;
+  /** The most recently added/updated line, from any add path (tile click or scan) — scrolls it into view and briefly highlights it, so a cashier can always see what just landed in the cart. */
+  lastAddedKey: string | null;
   onDiscountChange: (key: string, discount: number) => void;
   onRemove: (key: string) => void;
 }
 
-const GRID_COLUMNS = 'minmax(0, 1fr) auto auto auto';
+// A monospace stack, not the UI's regular sans font, is what actually reads as "receipt" —
+// it's what every dot-matrix/thermal receipt printer renders in, and it's what keeps a column
+// of prices lining up by eye even without a real table underneath.
+const RECEIPT_FONT = 'ui-monospace, "SFMono-Regular", "Courier New", monospace';
 
-export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Props) {
+const CART_ROW_DOM_ID = (key: string) => `cart-row-${key}`;
+
+export function Cart({ lines, lastAddedKey, onDiscountChange, onRemove }: Props) {
+  // Mirrors lastAddedKey but self-clears — the parent's key only changes on
+  // the NEXT add, so without a local timeout the highlight would just stay
+  // lit on whatever was last added instead of fading like a flash.
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    // 'center' rather than 'nearest' — 'nearest' does the *minimum* scroll needed, which is
+    // zero (i.e. no visible movement at all) whenever the row is already even barely in view,
+    // making the whole feature look broken on a short-ish cart. 'center' always lands the row
+    // in a clearly visible spot, so adding an item reliably produces a visible scroll.
+    document.getElementById(CART_ROW_DOM_ID(lastAddedKey))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightKey(lastAddedKey);
+    const id = setTimeout(() => setHighlightKey(null), 1200);
+    return () => clearTimeout(id);
+  }, [lastAddedKey]);
+
   if (lines.length === 0) {
     return (
       <Box
@@ -51,80 +72,72 @@ export function Cart({ lines, onQuantityChange, onDiscountChange, onRemove }: Pr
   }
 
   return (
-    <Box>
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: GRID_COLUMNS,
-          gap: 1.5,
-          alignItems: 'center',
-          pb: 0.75,
-          borderBottom: '2px solid',
-          borderColor: 'divider',
-        }}
-      >
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em' }}>
-          ITEM
-        </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em' }}>
-          QTY
-        </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textAlign: 'right' }}>
-          AMOUNT
-        </Typography>
-        <Box sx={{ width: 26 }} />
-      </Box>
-
-      <Stack>
-        {lines.map((line) => (
-          <CartRow key={line.key} line={line} onQuantityChange={onQuantityChange} onDiscountChange={onDiscountChange} onRemove={onRemove} />
-        ))}
-      </Stack>
-    </Box>
+    <Stack>
+      {lines.map((line) => (
+        <CartRow
+          key={line.key}
+          line={line}
+          highlighted={line.key === highlightKey}
+          onDiscountChange={onDiscountChange}
+          onRemove={onRemove}
+        />
+      ))}
+    </Stack>
   );
 }
 
 function CartRow({
   line,
-  onQuantityChange,
+  highlighted,
   onDiscountChange,
   onRemove,
 }: {
   line: CartLine;
-  onQuantityChange: (key: string, quantity: number) => void;
+  highlighted: boolean;
   onDiscountChange: (key: string, discount: number) => void;
   onRemove: (key: string) => void;
 }) {
   const totals = calculateLine(line);
-  const step = 1 / 10 ** (line.unit?.decimal_places ?? 0);
   const [discountAnchor, setDiscountAnchor] = useState<HTMLElement | null>(null);
   const [discountText, setDiscountText] = useState(String(line.discount || ''));
 
   return (
     <Box
+      id={CART_ROW_DOM_ID(line.key)}
       sx={{
-        display: 'grid',
-        gridTemplateColumns: GRID_COLUMNS,
-        gap: 1.5,
-        alignItems: 'center',
-        // Padded, separated rows (rather than free-floating ones) give a
-        // long cart a scannable rhythm and a hover target that lines up
-        // with the row's own remove button.
-        py: 1,
-        borderBottom: '1px solid',
+        // Dashed rather than solid — the same "torn perforation" line every
+        // printed receipt uses between line items, instead of a spreadsheet
+        // row border.
+        py: 0.3,
+        borderBottom: '1px dashed',
         borderColor: 'divider',
-        transition: 'background-color 0.12s ease',
-        '&:hover': { bgcolor: 'action.hover' },
+        // A brief tint on whatever a scan just touched — fades back out on
+        // its own once `highlighted` clears (see Cart's highlightKey timeout)
+        // rather than needing a second transition/animation to reverse.
+        bgcolor: highlighted ? `${POS_ACCENT}1f` : 'transparent',
+        transition: 'background-color 0.4s ease',
+        '&:hover': { bgcolor: highlighted ? `${POS_ACCENT}1f` : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }} noWrap title={line.product.name}>
+      {/* Line 1, receipt-style: description on the left, extended price on the right. */}
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 1.5 }}>
+        {/* Typography defaults to a 1.5 line-height meant for paragraphs — left alone, that padded
+            each of these two lines far more than the row's own py did. */}
+        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 13, lineHeight: 1.2, minWidth: 0 }} noWrap title={line.product.name}>
           {line.product.name}
         </Typography>
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-            {formatMoney(line.unitPrice)}
+        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 13, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {formatMoney(totals.gross)}
+        </Typography>
+      </Stack>
+
+      {/* Line 2: the qty × unit-price breakdown a receipt prints under the description, plus the
+          only editable controls this line has (the printed page has none) at the trailing edge. */}
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mt: 0.25, gap: 1 }}>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
+          <Typography sx={{ fontFamily: RECEIPT_FONT, fontSize: 11, lineHeight: 1.2, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+            {formatQuantity(line.quantity, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0)} × {formatMoney(line.unitPrice)}
           </Typography>
           <Tooltip title={line.discount > 0 ? `Discount: -${formatMoney(line.discount)}` : 'Add discount'}>
             <Box
@@ -152,7 +165,25 @@ function CartRow({
             </Box>
           </Tooltip>
         </Stack>
-      </Box>
+
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+          <Tooltip title="Remove">
+            <IconButton
+              onClick={() => onRemove(line.key)}
+              aria-label="Remove"
+              sx={{
+                width: 20,
+                height: 20,
+                p: 0,
+                color: 'text.secondary',
+                '&:hover': { color: 'error.main', backgroundColor: (t) => `color-mix(in srgb, ${t.palette.error.main} 12%, transparent)` },
+              }}
+            >
+              <CloseIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </Stack>
 
       <Popover
         open={Boolean(discountAnchor)}
@@ -183,45 +214,6 @@ function CartRow({
           </Button>
         </Stack>
       </Popover>
-
-      <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center', bgcolor: 'action.hover', borderRadius: 999, p: 0.25 }}>
-        <IconButton
-          onClick={() => onQuantityChange(line.key, Math.max(0, Math.round((line.quantity - step) * 1e6) / 1e6))}
-          aria-label="Decrease quantity"
-          sx={{ width: 26, height: 26, bgcolor: 'background.paper', '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT } }}
-        >
-          <RemoveIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-        <Typography variant="caption" sx={{ minWidth: 26, textAlign: 'center', fontWeight: 700 }}>
-          {formatQuantity(line.quantity, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0)}
-        </Typography>
-        <IconButton
-          onClick={() => onQuantityChange(line.key, Math.round((line.quantity + step) * 1e6) / 1e6)}
-          aria-label="Increase quantity"
-          sx={{ width: 26, height: 26, bgcolor: 'background.paper', '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT } }}
-        >
-          <AddIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Stack>
-
-      <Typography variant="caption" sx={{ fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-        {formatMoney(totals.gross)}
-      </Typography>
-
-      <Tooltip title="Remove">
-        <IconButton
-          onClick={() => onRemove(line.key)}
-          aria-label="Remove"
-          sx={{
-            width: 26,
-            height: 26,
-            color: 'text.secondary',
-            '&:hover': { color: 'error.main', backgroundColor: (t) => `color-mix(in srgb, ${t.palette.error.main} 12%, transparent)` },
-          }}
-        >
-          <CloseIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      </Tooltip>
     </Box>
   );
 }

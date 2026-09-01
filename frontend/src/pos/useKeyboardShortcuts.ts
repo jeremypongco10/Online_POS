@@ -15,10 +15,12 @@ interface Handlers {
 
 /**
  * F2 search / F3 add customer / F4 hold / F5 pay / F6 bagger / F7 refund /
- * F8 return / F9 cancellation — the last five just DOM-click their Actions
- * pill (see CartActionsRow's `id`s) rather than taking a lifted callback,
- * since Add Customer/Bagger's dialog state lives in ProductBrowser, not
- * here. preventDefault() reliably suppresses F5's native refresh under
+ * F8 return / F9 cancellation. Search/Add Customer/Pay/Bagger DOM-click
+ * their Actions row pill (see CartActionsRow's `id`s) rather than taking
+ * a lifted callback, since Add Customer/Bagger's dialog state lives in
+ * ProductBrowser, not here; Hold/Refund/Return/Cancel take a plain
+ * callback since PosScreen already owns those handlers directly.
+ * preventDefault() reliably suppresses F5's native refresh under
  * normal focused-tab conditions in Chrome/Edge/Firefox, but this isn't
  * guaranteed in every embedded/kiosk browser configuration — confirmed
  * manually during verification, not just assumed.

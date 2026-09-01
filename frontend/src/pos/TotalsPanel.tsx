@@ -4,6 +4,14 @@ import Divider from '@mui/material/Divider';
 import type { CartTotals } from './posTypes';
 import { formatMoney, POS_ACCENT } from './format';
 
+/**
+ * Deliberately container-less: this sits inside the receipt panel's tinted
+ * summary band, which already separates it from the white item list, and
+ * the Hold/Pay buttons directly below are themselves strong box shapes.
+ * Giving TOTAL its own card on top of that read as a third competing
+ * chip — closer to a disabled input than a figure — so the hierarchy here
+ * is carried by type size, weight and colour, with one rule for structure.
+ */
 export function TotalsPanel({ totals }: { totals: CartTotals }) {
   return (
     <Stack spacing={0.75}>
@@ -11,7 +19,7 @@ export function TotalsPanel({ totals }: { totals: CartTotals }) {
         <Typography variant="body2" color="text.secondary">
           Subtotal
         </Typography>
-        <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+        <Typography variant="body2" sx={{ color: 'text.primary', fontVariantNumeric: 'tabular-nums' }}>
           {formatMoney(totals.subtotal)}
         </Typography>
       </Stack>
@@ -27,10 +35,10 @@ export function TotalsPanel({ totals }: { totals: CartTotals }) {
         </Typography>
       </Stack>
 
-      <Divider sx={{ borderStyle: 'dashed', my: 0.5 }} />
+      <Divider sx={{ borderColor: 'rgba(15, 23, 42, 0.12)' }} />
 
-      {/* The one number the cashier reads out loud — deliberately the
-          largest thing on the receipt side, well clear of the line items. */}
+      {/* The one number the cashier reads out loud — the largest thing on
+          this side of the screen, and the only one in the accent colour. */}
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
         <Typography variant="body2" sx={{ fontWeight: 700, letterSpacing: '0.06em', color: 'text.secondary' }}>
           TOTAL

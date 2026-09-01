@@ -310,12 +310,12 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
         </ToggleButtonGroup>
       </Stack>
 
-      <Box sx={{ mt: 2, flexShrink: 0 }}>
+      <Box sx={{ mt: 1.25, flexShrink: 0 }}>
         <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
       </Box>
 
       {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 2, pr: 0.5, ...THIN_SCROLLBAR_SX }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pr: 0.5, ...THIN_SCROLLBAR_SX }}>
         {results.length === 0 && !loading ? (
           // Without this, a search that matches nothing just leaves a
           // blank panel, which reads as a broken screen rather than an
@@ -336,7 +336,7 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
         )}
       </Box>
 
-      {bottomExtra && <Box sx={{ mt: 2, flexShrink: 0 }}>{bottomExtra}</Box>}
+      {bottomExtra && <Box sx={{ mt: 1.25, flexShrink: 0 }}>{bottomExtra}</Box>}
     </Box>
   );
 }

@@ -18,7 +18,8 @@ import { PaymentPanel, type Payment } from './PaymentPanel';
 interface Props {
   cashierName: string;
   lines: CartLine[];
-  onQuantityChange: (key: string, quantity: number) => void;
+  /** The most recently added/updated cart line — Cart uses it to scroll that row into view and briefly highlight it. */
+  lastAddedKey: string | null;
   onDiscountChange: (key: string, discount: number) => void;
   onRemove: (key: string) => void;
   totals: CartTotals;
@@ -39,7 +40,7 @@ const SectionDivider = () => <Divider sx={{ borderStyle: 'dashed' }} />;
 export function ReceiptPanel({
   cashierName,
   lines,
-  onQuantityChange,
+  lastAddedKey,
   onDiscountChange,
   onRemove,
   totals,
@@ -105,16 +106,28 @@ export function ReceiptPanel({
       <SectionDivider />
 
       {/* The only scrollable region in this card — no floor on its height, so totals/payment/actions/Hold/Pay below can never be pushed out of view, even with a very long cart on a short screen. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2.5, pt: 2, pb: 2, ...THIN_SCROLLBAR_SX }}>
-        <Cart lines={lines} onQuantityChange={onQuantityChange} onDiscountChange={onDiscountChange} onRemove={onRemove} />
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pt: 1, pb: 1, ...THIN_SCROLLBAR_SX }}>
+        <Cart lines={lines} lastAddedKey={lastAddedKey} onDiscountChange={onDiscountChange} onRemove={onRemove} />
       </Box>
 
-      <Stack spacing={2} sx={{ p: 2.5, pt: 0, flexShrink: 0 }}>
-        <SectionDivider />
-
+      {/* A tinted band with a solid top edge, not just another dashed rule on the same white:
+          the totals and checkout actions are a summary zone, and against the white item list
+          above they need an actual background change to read as one instead of as more rows. */}
+      {/* The one gap this Stack controls is totals -> buttons, and it needs to be generous:
+          the TOTAL figure is set at h4, so a tighter gap left its descenders almost touching
+          the Pay button. */}
+      <Stack
+        spacing={2.5}
+        sx={{
+          px: 2.5,
+          py: 2,
+          flexShrink: 0,
+          bgcolor: '#f4f6fa',
+          borderTop: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
         <TotalsPanel totals={totals} />
-
-        <SectionDivider />
 
         {/* Pay is the primary action and carries the accent alone; Hold
             Sale is deliberately neutral. Two equally-accented buttons

@@ -23,8 +23,8 @@ export function ProductGrid({ products, onAdd }: Props) {
         // tile that changes size with the result count reads as a bug —
         // uniform tiles, with honest empty space under a short list, is
         // what every POS grid does and what stays scannable.
-        gridAutoRows: 184,
-        gap: 1.25,
+        gridAutoRows: 166,
+        gap: 0.75,
         // Keeps a short list packed at the top rather than letting the
         // rows drift apart to fill the panel.
         alignContent: 'start',

@@ -32,13 +32,14 @@ const sectionLabelSx = {
 };
 
 /**
- * Customer + Loyalty Card sections together, since scanning a card is
- * what attaches a customer (Phase 10 Step 24: Scan -> Validate -> Find
- * Customer -> Attach Customer). A customer can also be attached
- * manually by search, with no card.
+ * Customer + Loyalty Card sections together. A customer can be attached
+ * two ways: typing their customer number (exact match on the unique,
+ * auto-generated customer_code — the fast "scan" path, same shape as the
+ * old card-number lookup it replaced), or a manual name/mobile/code
+ * search below.
  */
 export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
-  const [cardNumber, setCardNumber] = useState('');
+  const [customerNumber, setCustomerNumber] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
 
@@ -46,20 +47,22 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
   const [searching, setSearching] = useState(false);
 
-  async function scanCard(e: FormEvent) {
+  async function scanCustomerNumber(e: FormEvent) {
     e.preventDefault();
-    if (cardNumber.trim() === '') return;
+    if (customerNumber.trim() === '') return;
 
     setScanning(true);
     setScanError(null);
     try {
-      const result = await api.get<{ card: LoyaltyCard; customer: Customer }>(
-        `/loyalty/scan?card_number=${encodeURIComponent(cardNumber.trim())}`
-      );
-      onAttach(result.customer, result.card);
-      setCardNumber('');
+      const results = await api.get<Customer[]>(`/customers?is_active=1&per_page=1&customer_code=${encodeURIComponent(customerNumber.trim())}`);
+      if (results.length === 0) {
+        setScanError('Customer number not recognized');
+        return;
+      }
+      onAttach(results[0], null);
+      setCustomerNumber('');
     } catch (err) {
-      setScanError(err instanceof ApiError ? err.message : 'Failed to validate card');
+      setScanError(err instanceof ApiError ? err.message : 'Failed to look up customer');
     } finally {
       setScanning(false);
     }
@@ -84,7 +87,7 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
 
   function reset() {
     onAttach(null, null);
-    setCardNumber('');
+    setCustomerNumber('');
     setScanError(null);
     setSearchQuery('');
     setSearchResults([]);
@@ -115,9 +118,10 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
           <Typography variant="body1" sx={{ fontWeight: 700 }} noWrap>
             {customer ? customer.name : 'Walk-in'}
           </Typography>
-          {card && (
+          {customer && (
             <Typography variant="caption" color="text.secondary" noWrap>
-              Loyalty {card.card_number} · {card.status}
+              No. {customer.customer_code}
+              {card && ` · Loyalty ${card.card_number} · ${card.status}`}
             </Typography>
           )}
         </Box>
@@ -129,9 +133,9 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
       </Stack>
 
       <Stack spacing={1}>
-        <Typography sx={sectionLabelSx}>Loyalty Card</Typography>
-        <Stack component="form" direction="row" spacing={1} onSubmit={scanCard}>
-          <TextField type="text" label="Card Number" value={cardNumber} onChange={(e) => setCardNumber(e.target.value)} fullWidth />
+        <Typography sx={sectionLabelSx}>Customer Number</Typography>
+        <Stack component="form" direction="row" spacing={1} onSubmit={scanCustomerNumber}>
+          <TextField type="text" label="Customer Number" value={customerNumber} onChange={(e) => setCustomerNumber(e.target.value)} fullWidth />
           <Button type="submit" variant="outlined" disabled={scanning} sx={{ whiteSpace: 'nowrap' }}>
             {scanning ? 'Checking…' : 'Scan'}
           </Button>
@@ -139,7 +143,7 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
         {scanError && <Alert severity="error">{scanError}</Alert>}
       </Stack>
 
-      {!card && (
+      {!customer && (
         <Stack spacing={1}>
           <Typography sx={sectionLabelSx}>Find Customer</Typography>
           <TextField type="text" label="Search by name, mobile, or code" value={searchQuery} onChange={(e) => searchCustomers(e.target.value)} fullWidth />

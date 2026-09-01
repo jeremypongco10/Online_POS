@@ -48,7 +48,7 @@ export function ProductCard({ product, onClick }: Props) {
           // plate is what keeps a `contain`-fitted image from sitting in an
           // odd colored letterbox — the calm-down here comes from removing
           // the saturated blocks below, not from tinting real photos.
-          <Box sx={{ width: '100%', flex: 1, minHeight: 64, bgcolor: '#fff', p: 1 }}>
+          <Box sx={{ width: '100%', flex: 1, minHeight: 52, bgcolor: '#fff', p: 0.75 }}>
             <Box
               component="img"
               src={assetUrl(product.image_path as string)}
@@ -62,7 +62,7 @@ export function ProductCard({ product, onClick }: Props) {
             sx={{
               width: '100%',
               flex: 1,
-              minHeight: 64,
+              minHeight: 52,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -77,13 +77,13 @@ export function ProductCard({ product, onClick }: Props) {
           </Box>
         )}
 
-        <Box sx={{ px: 1.25, py: 1, width: '100%', flexShrink: 0 }}>
+        <Box sx={{ px: 1, py: 0.75, width: '100%', flexShrink: 0 }}>
           <Typography
             variant="caption"
             title={product.name}
             sx={{
               fontWeight: 600,
-              lineHeight: 1.35,
+              lineHeight: 1.3,
               // Two lines instead of one hard truncation — "Palmolive
               // Shampoo Sachet" and "Palmolive Shower Gel" both collapsed
               // to the same "Palmolive Sha…" before, which is exactly the
@@ -92,14 +92,14 @@ export function ProductCard({ product, onClick }: Props) {
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              minHeight: '2.7em',
+              minHeight: '2.6em',
             }}
           >
             {product.name}
           </Typography>
           <Typography
             variant="body2"
-            sx={{ mt: 0.5, fontWeight: 700, color: unpriced ? 'error.main' : POS_ACCENT }}
+            sx={{ mt: 0.25, fontWeight: 700, color: unpriced ? 'error.main' : POS_ACCENT }}
           >
             {unpriced ? 'No price' : formatMoney(parseFloat(product.selling_price as string))}
           </Typography>

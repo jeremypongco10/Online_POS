@@ -56,6 +56,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [showCloseRegister, setShowCloseRegister] = useState(false);
 
   const [lines, setLines] = useState<CartLine[]>([]);
+  // Which cart line to scroll into view / highlight — set on every add (see
+  // addProduct), so the cashier can always see what just landed in the
+  // cart without hunting through a long list.
+  const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [card, setCard] = useState<LoyaltyCard | null>(null);
   const [bagger, setBagger] = useState<Bagger | null>(null);
@@ -118,7 +122,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
   /**
    * `quantity` comes from ProductSearch's barcode "5*"/"5x" prefix (see
    * QUANTITY_PREFIX there) — a plain click or bare scan omits it and adds
-   * exactly one step, same as before.
+   * exactly one step, same as before. Every add — click or scan — sets
+   * `lastAddedKey`, which Cart uses to scroll that line into view and
+   * briefly highlight it, so a cashier can always see what just landed in
+   * the cart regardless of how it got there.
    */
   function addProduct(product: ProductWithStorePrice, quantity?: number) {
     const unit = units.find((u) => u.id === product.unit_id) ?? null;
@@ -128,9 +135,15 @@ export function PosScreen({ onOpenAdmin }: Props) {
     // stray "0*" or rounding-to-zero doesn't silently add nothing.
     const delta = quantity !== undefined ? Math.max(step, Math.round(quantity / step) * step) : step;
 
-    setLines((prev) => {
-      const existing = prev.find((l) => !l.isCustom && l.product.id === product.id);
+    // Computed from the current `lines` (not the setLines updater's `prev`)
+    // so the resulting key is known synchronously, for the focus signal
+    // below — an add might land on an existing line (the product's
+    // already in the cart) or a freshly appended one, and either way this
+    // is the same key setLines is about to use.
+    const existing = lines.find((l) => !l.isCustom && l.product.id === product.id);
+    const key = existing ? existing.key : `${product.id}-${Date.now()}`;
 
+    setLines((prev) => {
       if (existing) {
         return prev.map((l) =>
           l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + delta) * 1e6) / 1e6 } : l
@@ -139,7 +152,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
       const taxRate = taxRates.find((t) => t.id === product.tax_rate_id) ?? null;
       const newLine: CartLine = {
-        key: `${product.id}-${Date.now()}`,
+        key,
         product,
         unit,
         taxRate,
@@ -149,11 +162,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
       };
       return [...prev, newLine];
     });
+    setLastAddedKey(key);
     notify(delta !== step ? `Added ${formatQuantity(delta, unit?.abbreviation ?? null, unit?.decimal_places ?? 0)} × ${product.name}` : `Added ${product.name}`);
-  }
-
-  function updateQuantity(key: string, quantity: number) {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, quantity: Math.max(0, quantity) } : l)));
   }
 
   function updateDiscount(key: string, discount: number) {
@@ -261,10 +271,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
     onHold: handleHold,
     onPay: () => document.getElementById('pos-pay-button')?.click(),
     onBagger: () => document.getElementById('pos-action-bagger')?.click(),
-    // Refund/Return/Cancellation live behind the Actions row's "More"
-    // menu now, so their buttons only exist in the DOM while that menu is
-    // open — the DOM-click trick the rows above use would silently do
-    // nothing. These three have real callbacks right here, so call them.
+    // Refund/Return/Cancellation could DOM-click their own Actions row
+    // buttons too, but their handlers are trivial one-liners already
+    // available right here, so there's nothing to gain by indirecting
+    // through the DOM for these three.
     onRefund: () => onOpenAdmin('/admin/customers/returns'),
     onReturn: () => onOpenAdmin('/admin/customers/returns'),
     onCancel: handleCancel,
@@ -381,7 +391,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               // Now that the row has no gap on md+, this is what keeps the
               // product grid off the receipt panel's edge.
               pr: { xs: 1.5, md: 2.5 },
-              py: { xs: 1.5, md: 2.5 },
+              py: { xs: 1, md: 1.5 },
               // No overflow here — ProductBrowser is hard-bounded to exactly
               // this box's height; its own internal results-grid scroll is
               // the only thing that ever scrolls, so the search bar, category
@@ -422,7 +432,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
           <ReceiptPanel
             cashierName={user.name}
             lines={lines}
-            onQuantityChange={updateQuantity}
+            lastAddedKey={lastAddedKey}
             onDiscountChange={updateDiscount}
             onRemove={removeLine}
             totals={totals}
