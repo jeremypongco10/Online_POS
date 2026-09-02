@@ -113,6 +113,14 @@ export interface Store {
   code: string;
   address: string | null;
   is_active: string | number;
+  /** A closing message printed at the BOTTOM of this store's own receipts — "Thank you, come again", a return policy, a promo, etc. The header is a fixed structured block (name/address/TIN/VAT Reg TIN/Serial/MIN below), so free text has no place there; this is the receipt's one free-text slot. Frozen onto each sale at checkout (Sale.store_receipt_footer_note is the copy a receipt actually reads), so editing this never rewrites a receipt already issued. */
+  receipt_footer_note: string | null;
+  /** BIR-mandated identifiers printed in the receipt's header — VAT Registration TIN, the POS unit's serial number, and its Machine Identification Number. Each frozen onto the sale at checkout, same as receipt_footer_note. */
+  vat_reg_tin: string | null;
+  pos_serial_no: string | null;
+  min_no: string | null;
+  /** Whether the three fields above actually print on this store's receipts — independent of whether they're filled in. Checked once at checkout (SalesController::create), so toggling this never changes a receipt already issued. */
+  show_bir_details: string | number;
 }
 
 export interface Register {
@@ -214,7 +222,15 @@ export interface SaleResponse {
 
 export interface Receipt {
   company: { name: string | null; tin: string | null };
-  store: { name: string | null; address: string | null };
+  store: {
+    name: string | null;
+    address: string | null;
+    vat_reg_tin: string | null;
+    pos_serial_no: string | null;
+    min_no: string | null;
+  };
+  /** Store.receipt_footer_note, frozen at checkout — prints at the very bottom of the receipt, physically far from the `store` header block above, hence its own top-level field rather than nested under `store`. */
+  footer_note: string | null;
   invoice_number: string;
   date: string;
   cashier: string | null;
@@ -234,6 +250,8 @@ export interface Receipt {
   }>;
   subtotal: string;
   discount_total: string;
+  /** Frozen at checkout from Store::show_bir_details — whether the VAT/VAT Exempt/Zero Rated breakdown below should print, on top of already gating store.vat_reg_tin/pos_serial_no/min_no. The figures themselves are always present; this is a display policy, not a claim the sale had no VAT. */
+  show_bir_details: boolean;
   vat_amount: number;
   vat_exempt_amount: number;
   zero_rated_amount: number;

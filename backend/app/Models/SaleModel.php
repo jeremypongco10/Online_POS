@@ -16,7 +16,8 @@ class SaleModel extends Model
 
     protected $allowedFields = [
         'company_id', 'company_name', 'company_tin',
-        'store_id', 'store_name', 'store_address',
+        'store_id', 'store_name', 'store_address', 'store_receipt_footer_note',
+        'store_vat_reg_tin', 'store_pos_serial_no', 'store_min_no', 'show_bir_details',
         'register_id', 'cash_session_id', 'customer_id', 'customer_name',
         'user_id', 'cashier_name', 'bagger_id', 'bagger_name',
         'loyalty_card_id', 'loyalty_card_number',

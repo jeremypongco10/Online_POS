@@ -97,7 +97,16 @@ class SalesController extends BaseCrudController
             'store' => [
                 'name' => $sale->store_name,
                 'address' => $sale->store_address,
+                'vat_reg_tin' => $sale->store_vat_reg_tin,
+                'pos_serial_no' => $sale->store_pos_serial_no,
+                'min_no' => $sale->store_min_no,
             ],
+            // Top-level, not nested under `store`: this prints at the
+            // BOTTOM of the receipt, physically far from the header block
+            // above, so it reads better as its own field than as one more
+            // property of `store` a renderer has to remember lives apart
+            // from the rest of that group.
+            'footer_note' => $sale->store_receipt_footer_note,
             'invoice_number' => $sale->invoice_number,
             'date' => $sale->sale_date,
             'cashier' => $sale->cashier_name,
@@ -120,6 +129,15 @@ class SalesController extends BaseCrudController
             ], $items),
             'subtotal' => $sale->subtotal,
             'discount_total' => $sale->discount_total,
+            // Frozen at checkout (Store::show_bir_details at the time of
+            // sale) — governs whether the frontend shows the VAT/VAT
+            // Exempt/Zero Rated breakdown below, on top of already gating
+            // the three store identifiers above. The figures themselves
+            // are still returned either way: this is a display policy,
+            // not a claim that the sale had no VAT, and the raw
+            // per-line tax_type on sale_items (unaffected by this flag)
+            // remains the source of truth for BIR sales reports.
+            'show_bir_details' => (bool) $sale->show_bir_details,
             'vat_amount' => round($vatAmount, 2),
             'vat_exempt_amount' => round($vatExemptAmount, 2),
             'zero_rated_amount' => round($zeroRatedAmount, 2),
@@ -427,6 +445,12 @@ class SalesController extends BaseCrudController
         $cashierId = (int) ($payload['user_id'] ?? Services::authContext()->userId);
         $company = model(CompanyModel::class)->find((int) $payload['company_id']);
         $store = model(StoreModel::class)->find((int) $payload['store_id']);
+        // Gates whether the BIR identifiers below are actually written
+        // onto the sale, not just whether they're filled in — see
+        // AddShowBirDetailsToStores. Consulted exactly once, right here:
+        // toggling the store's setting after this sale exists can never
+        // reach back and change what already printed.
+        $showBirDetails = $store === null || (bool) $store->show_bir_details;
         $cashier = model(UserModel::class)->find($cashierId);
         $customerName = ! empty($payload['customer_id'])
             ? (model(CustomerModel::class)->find((int) $payload['customer_id'])->name ?? null)
@@ -460,6 +484,16 @@ class SalesController extends BaseCrudController
             'company_tin' => $company->tax_id ?? null,
             'store_name' => $store->name ?? null,
             'store_address' => $store->address ?? null,
+            'store_receipt_footer_note' => $store->receipt_footer_note ?? null,
+            'store_vat_reg_tin' => $showBirDetails ? ($store->vat_reg_tin ?? null) : null,
+            'store_pos_serial_no' => $showBirDetails ? ($store->pos_serial_no ?? null) : null,
+            'store_min_no' => $showBirDetails ? ($store->min_no ?? null) : null,
+            // Also governs the VAT sales breakdown on the receipt (see
+            // ::receipt() below) — a store that hides its BIR identifiers
+            // almost always wants the whole BIR-specific block gone, not
+            // just the three identifier lines with a VAT breakdown still
+            // sitting underneath them.
+            'show_bir_details' => $showBirDetails ? 1 : 0,
             'cashier_name' => $cashier->name ?? null,
             'bagger_name' => $bagger->name ?? null,
             'customer_name' => $customerName,

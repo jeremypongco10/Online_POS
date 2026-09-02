@@ -29,6 +29,12 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           {receipt.company.tin && <Typography variant="inherit">TIN: {receipt.company.tin}</Typography>}
           <Typography variant="inherit">{receipt.store.name}</Typography>
           {receipt.store.address && <Typography variant="inherit">{receipt.store.address}</Typography>}
+          {/* BIR-conventional order: VAT Reg TIN, then MIN, then the
+              unit's own serial number — right after the business TIN
+              above, ahead of any free-text branch note. */}
+          {receipt.store.vat_reg_tin && <Typography variant="inherit">VAT REG TIN: {receipt.store.vat_reg_tin}</Typography>}
+          {receipt.store.min_no && <Typography variant="inherit">MIN: {receipt.store.min_no}</Typography>}
+          {receipt.store.pos_serial_no && <Typography variant="inherit">S/N: {receipt.store.pos_serial_no}</Typography>}
         </Box>
 
         <Stack spacing={0.25} sx={{ mb: 1.5, pb: 1.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
@@ -115,23 +121,33 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           <span>Discount</span>
           <span>-{formatMoney(parseFloat(receipt.discount_total))}</span>
         </Stack>
-        {receipt.vat_amount > 0 && (
-          <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
-            <span>VAT</span>
-            <span>{formatMoney(receipt.vat_amount)}</span>
-          </Stack>
-        )}
-        {receipt.vat_exempt_amount > 0 && (
-          <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
-            <span>VAT Exempt</span>
-            <span>{formatMoney(receipt.vat_exempt_amount)}</span>
-          </Stack>
-        )}
-        {receipt.zero_rated_amount > 0 && (
-          <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
-            <span>Zero Rated</span>
-            <span>{formatMoney(receipt.zero_rated_amount)}</span>
-          </Stack>
+        {/* Same store-level switch that already hides VAT Reg TIN/MIN/
+            Serial No above — frozen onto the sale at checkout, so
+            reconfiguring the store afterwards can't change whether an
+            already-issued receipt shows this breakdown. The figures
+            themselves are always present in `receipt`; this only decides
+            whether they're rendered. */}
+        {receipt.show_bir_details && (
+          <>
+            {receipt.vat_amount > 0 && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
+                <span>VAT</span>
+                <span>{formatMoney(receipt.vat_amount)}</span>
+              </Stack>
+            )}
+            {receipt.vat_exempt_amount > 0 && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
+                <span>VAT Exempt</span>
+                <span>{formatMoney(receipt.vat_exempt_amount)}</span>
+              </Stack>
+            )}
+            {receipt.zero_rated_amount > 0 && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
+                <span>Zero Rated</span>
+                <span>{formatMoney(receipt.zero_rated_amount)}</span>
+              </Stack>
+            )}
+          </>
         )}
         <Divider sx={{ my: 1 }} />
         <Stack direction="row" sx={{ justifyContent: 'space-between', fontWeight: 700, fontSize: 14 }}>
@@ -151,6 +167,19 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           <span>Change</span>
           <span>{formatMoney(parseFloat(receipt.change_due))}</span>
         </Stack>
+
+        {/* The receipt's one free-text slot, deliberately last — everything
+            above it is the fixed structured content (header identifiers,
+            line items, totals, payment); this is the closing message a
+            real receipt ends on. white-space: pre-line so a line break
+            entered in Settings renders as two lines here too. */}
+        {receipt.footer_note && (
+          <Box sx={{ textAlign: 'center', mt: 1.5, pt: 1.5, borderTop: '1px dashed', borderColor: 'divider' }}>
+            <Typography variant="inherit" sx={{ whiteSpace: 'pre-line' }}>
+              {receipt.footer_note}
+            </Typography>
+          </Box>
+        )}
       </DialogContent>
 
       <DialogActions className="modal-actions" sx={{ px: 3, pb: 2.5 }}>

@@ -98,6 +98,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // for, so more of the product grid stays visible instead of scrolling.
   usePosZoom();
 
+  // The DOM node ProductSearch's search field portals into — see
+  // PosHeader's searchSlotRef and ProductSearch's searchPortalTarget.
+  // State, not a plain ref object: PosHeader's callback ref fires during
+  // commit, and this component needs a re-render once that happens so the
+  // node actually reaches ProductBrowser/ProductSearch as a prop.
+  const [searchSlot, setSearchSlot] = useState<HTMLDivElement | null>(null);
+
   const totals = useMemo(() => calculateCart(lines), [lines]);
 
   useEffect(() => {
@@ -482,6 +489,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               screen instead of being pushed down by a full-width bar. */}
           <PosHeader
             cashSession={cashSession}
+            searchSlotRef={setSearchSlot}
             actions={
               <AccountMenu
                 user={user}
@@ -522,6 +530,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               companyId={user.company_id}
               storeId={storeId}
               onAdd={addProduct}
+              searchPortalTarget={searchSlot}
               customer={customer}
               card={card}
               onAttachCustomer={(c, k) => {
@@ -535,6 +544,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
             />
           </Box>
+
+          {/* Scoped to this column, same as PosHeader above — moved here
+              from a full-width sibling below the whole two-column row, so
+              it no longer cuts across the cart column too. The cart now
+              runs the full height of the screen; this bar bookends only
+              the product side, which is the side it actually describes
+              (store/terminal/cashier context for what's being rung up). */}
+          <StatusBar
+            cashierName={user.name}
+            storeName={(assignedStore ?? selectedStore)?.name ?? null}
+            registerName={selectedRegister?.name ?? null}
+          />
         </Box>
 
         <Box
@@ -549,7 +570,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }}
         >
           <ReceiptPanel
-            cashierName={user.name}
+            storeName={(assignedStore ?? selectedStore)?.name ?? null}
             customer={customer}
             bagger={bagger}
             lines={lines}
@@ -569,8 +590,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
           />
         </Box>
       </Box>
-
-      <StatusBar storeName={(assignedStore ?? selectedStore)?.name ?? null} registerName={selectedRegister?.name ?? null} />
 
       {showCloseRegister && cashSession && (
         <CloseRegisterModal

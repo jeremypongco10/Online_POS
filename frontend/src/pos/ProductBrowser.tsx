@@ -15,6 +15,8 @@ interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
+  /** Forwarded straight to ProductSearch — see that component's own doc for what this does. */
+  searchPortalTarget?: HTMLElement | null;
   customer: Customer | null;
   card: LoyaltyCard | null;
   onAttachCustomer: (customer: Customer | null, card: LoyaltyCard | null) => void;
@@ -30,6 +32,7 @@ export function ProductBrowser({
   companyId,
   storeId,
   onAdd,
+  searchPortalTarget,
   customer,
   card,
   onAttachCustomer,
@@ -48,6 +51,7 @@ export function ProductBrowser({
         companyId={companyId}
         storeId={storeId}
         onAdd={onAdd}
+        searchPortalTarget={searchPortalTarget}
         bottomExtra={
           // A rule instead of an "ACTIONS" caption — three self-describing
           // buttons don't need a header, and dropping it buys back a row

@@ -26,14 +26,17 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   const selectedSx = { bgcolor: POS_ACCENT, color: '#fff', '&:hover': { bgcolor: POS_ACCENT } };
-  // A soft filled rest state rather than an outline: a long row of
-  // outlined pills reads as a row of empty boxes competing with the
-  // product cards below, where the actual content is.
+  // A crisp white-with-border rest state, not a soft grey fill — this
+  // reads as a row of distinct pills sitting on the page rather than a
+  // row of tinted chips blending into it. The one solid-blue "All"/
+  // selected pill is then the only filled shape in the row, which is what
+  // makes it read as "the current filter" at a glance.
   const unselectedSx = {
-    bgcolor: 'action.hover',
-    borderColor: 'transparent',
+    bgcolor: '#fff',
+    border: '1px solid',
+    borderColor: 'divider',
     color: 'text.secondary',
-    '&:hover': { bgcolor: 'action.selected', color: 'text.primary' },
+    '&:hover': { borderColor: POS_ACCENT, color: POS_ACCENT, bgcolor: `${POS_ACCENT}0a` },
   };
 
   function updateScrollButtons() {

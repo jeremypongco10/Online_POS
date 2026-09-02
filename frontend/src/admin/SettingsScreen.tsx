@@ -11,6 +11,7 @@ import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
 import { DetailView, StatusChip } from './DetailView';
 import Box from '@mui/material/Box';
+import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import { SectionTabs } from './SectionTabs';
@@ -107,13 +108,21 @@ function StoresTab() {
   const [editing, setEditing] = useState<Store | null>(null);
   const [viewing, setViewing] = useState<Store | null>(null);
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ name: '', code: '', address: '', phone: '', email: '', is_active: true });
+  const [form, setForm] = useState({
+    name: '', code: '', address: '', phone: '', email: '',
+    receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', showBirDetails: true,
+    is_active: true,
+  });
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: '', code: '', address: '', phone: '', email: '', is_active: true });
+    setForm({
+      name: '', code: '', address: '', phone: '', email: '',
+      receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', showBirDetails: true,
+      is_active: true,
+    });
     clearErrors();
     setShow(true);
   }
@@ -126,6 +135,11 @@ function StoresTab() {
       address: '',
       phone: '',
       email: '',
+      receiptFooterNote: store.receipt_footer_note ?? '',
+      vatRegTin: store.vat_reg_tin ?? '',
+      posSerialNo: store.pos_serial_no ?? '',
+      minNo: store.min_no ?? '',
+      showBirDetails: Number(store.show_bir_details) === 1,
       is_active: Number(store.is_active) === 1,
     });
     clearErrors();
@@ -141,6 +155,11 @@ function StoresTab() {
       address: form.address || null,
       phone: form.phone || null,
       email: form.email || null,
+      receipt_footer_note: form.receiptFooterNote || null,
+      vat_reg_tin: form.vatRegTin || null,
+      pos_serial_no: form.posSerialNo || null,
+      min_no: form.minNo || null,
+      show_bir_details: form.showBirDetails ? 1 : 0,
       is_active: form.is_active ? 1 : 0,
     };
     try {
@@ -172,6 +191,29 @@ function StoresTab() {
   const columns: Column<Store>[] = [
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'code', label: 'Code', sortKey: 'code', width: 160 },
+    { key: 'vat_reg_tin', label: 'VAT Reg TIN', width: 150, render: (s) => s.vat_reg_tin ?? '—' },
+    { key: 'pos_serial_no', label: 'POS Serial No', width: 150, render: (s) => s.pos_serial_no ?? '—' },
+    { key: 'min_no', label: 'MIN No', width: 150, render: (s) => s.min_no ?? '—' },
+    {
+      key: 'show_bir_details',
+      label: 'On Receipt',
+      width: 130,
+      // Grayed out rather than a plain dash when there's nothing to show
+      // yet — "not printing" and "nothing entered" read as different
+      // states at a glance, the same distinction the View modal draws.
+      render: (s) =>
+        !s.vat_reg_tin && !s.pos_serial_no && !s.min_no ? (
+          <Typography variant="caption" color="text.disabled">
+            —
+          </Typography>
+        ) : (
+          <Chip
+            size="small"
+            label={Number(s.show_bir_details) === 1 ? 'Shown' : 'Hidden'}
+            color={Number(s.show_bir_details) === 1 ? 'success' : 'default'}
+          />
+        ),
+    },
     {
       key: 'is_active',
       label: 'Status',
@@ -328,6 +370,99 @@ function StoresTab() {
                 helperText={fieldErrors?.email}
               />
             </Grid>
+            {/* The three BIR-mandated identifiers a Philippine POS/CRM
+                receipt must carry, grouped together and ahead of the free-
+                text header note below — these are fixed accreditation
+                numbers issued by BIR, not editorial content, so they read
+                as a form section of their own rather than three more
+                stray text fields. */}
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="VAT Reg TIN"
+                fullWidth
+                placeholder="123-456-789-000"
+                value={form.vatRegTin}
+                onChange={(e) => {
+                  setForm({ ...form, vatRegTin: e.target.value });
+                  clearField('vat_reg_tin');
+                }}
+                error={!!fieldErrors?.vat_reg_tin}
+                helperText={fieldErrors?.vat_reg_tin}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="POS Serial No"
+                fullWidth
+                value={form.posSerialNo}
+                onChange={(e) => {
+                  setForm({ ...form, posSerialNo: e.target.value });
+                  clearField('pos_serial_no');
+                }}
+                error={!!fieldErrors?.pos_serial_no}
+                helperText={fieldErrors?.pos_serial_no}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="MIN No"
+                fullWidth
+                value={form.minNo}
+                onChange={(e) => {
+                  setForm({ ...form, minNo: e.target.value });
+                  clearField('min_no');
+                }}
+                error={!!fieldErrors?.min_no}
+                helperText={fieldErrors?.min_no ?? 'Machine Identification Number'}
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              {/* Independent of whether the three fields above are filled
+                  in — lets a store save its MIN/serial ahead of BIR
+                  accreditation going live, or pull them off the receipt
+                  temporarily, without losing the saved values either way.
+                  Also hides the VAT/VAT Exempt/Zero Rated sales breakdown
+                  further down the receipt (see ReceiptModal) — a store
+                  hiding its identifiers almost never wants that breakdown
+                  left showing on its own underneath them. */}
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={form.showBirDetails}
+                    onChange={(e) => setForm({ ...form, showBirDetails: e.target.checked })}
+                  />
+                }
+                label="Include VAT Reg TIN / POS Serial No / MIN No and the VAT sales breakdown on the printed receipt"
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              {/* Visually separated from the identifiers above, on purpose
+                  — the receipt's header is a fixed structured block (name,
+                  address, TIN, VAT Reg TIN, POS Serial No, MIN No), so a
+                  free-text field sitting right under it read as if it were
+                  part of that same header. This is a closing message
+                  instead: it prints at the very bottom of the receipt. */}
+              <Divider sx={{ my: 0.5 }} />
+              <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1.5, mb: 1 }}>
+                Receipt footer
+              </Typography>
+              <TextField
+                label="Receipt footer note"
+                fullWidth
+                multiline
+                minRows={2}
+                value={form.receiptFooterNote}
+                onChange={(e) => {
+                  setForm({ ...form, receiptFooterNote: e.target.value });
+                  clearField('receipt_footer_note');
+                }}
+                error={!!fieldErrors?.receipt_footer_note}
+                helperText={
+                  fieldErrors?.receipt_footer_note ??
+                  'Printed at the bottom of this store’s receipts only — e.g. "Thank you, come again" or a return policy. Changing it only affects sales rung up after the change.'
+                }
+              />
+            </Grid>
             {formError && (
               <Grid size={{ xs: 12 }}>
                 <Alert severity="error">{formError}</Alert>
@@ -353,6 +488,32 @@ function StoresTab() {
             { label: 'Name', value: viewing?.name },
             { label: 'Code', value: viewing?.code },
             { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
+            { label: 'VAT Reg TIN', value: viewing?.vat_reg_tin ?? '—' },
+            { label: 'POS Serial No', value: viewing?.pos_serial_no ?? '—' },
+            { label: 'MIN No', value: viewing?.min_no ?? '—' },
+            {
+              label: 'Shown on receipt',
+              value: viewing ? (
+                <Chip
+                  size="small"
+                  label={Number(viewing.show_bir_details) === 1 ? 'Yes' : 'No — saved but hidden'}
+                  color={Number(viewing.show_bir_details) === 1 ? 'success' : 'default'}
+                />
+              ) : undefined,
+            },
+            {
+              label: 'Receipt footer note',
+              // white-space: pre-line so an entered line break (e.g.
+              // separating a policy line from a slogan) actually shows
+              // as two lines here, matching how it prints on the receipt.
+              value: viewing?.receipt_footer_note ? (
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                  {viewing.receipt_footer_note}
+                </Typography>
+              ) : (
+                '—'
+              ),
+            },
           ]}
         />
         <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>

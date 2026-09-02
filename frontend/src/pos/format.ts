@@ -8,6 +8,17 @@
 export const POS_ACCENT = '#2563eb';
 
 /**
+ * PosHeader's own bar colour — a fixed dark navy, deliberately independent
+ * of the app's light/dark theme toggle rather than switching with it (the
+ * design this mirrors keeps its top bar dark regardless of light/dark
+ * mode). Everything painted on this bar — the logo swap, icon colours, the
+ * search pill's own background — is forced to match this rather than to
+ * theme.palette, the same reasoning ReceiptPanel forces its own light
+ * scheme regardless of the app-wide setting.
+ */
+export const POS_HEADER_BG = '#12163a';
+
+/**
  * The POS screen fits the viewport exactly (no page-level scrollbar) — each
  * column scrolls internally instead when its content overflows. A slim,
  * visible scrollbar is the affordance that tells someone more content sits

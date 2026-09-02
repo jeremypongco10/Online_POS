@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ToggleButton from '@mui/material/ToggleButton';
 import IconButton from '@mui/material/IconButton';
@@ -16,11 +14,13 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
 import { api } from '../api/client';
 import type { Category, ProductWithStorePrice } from '../api/types';
-import { formatMoney, POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
+import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
 import { useSnackbar } from '../Snackbar';
 import { SearchField } from '../SearchField';
+import { KeyHint } from './KeyHint';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
+import { ProductListView } from './ProductListView';
 import {
   PRODUCT_TILE_SELECTOR,
   focusFirstProductTile,
@@ -43,12 +43,30 @@ const QUANTITY_PREFIX = /^(\d+(?:\.\d+)?)\s*[x×*]\s*(.+)$/i;
 // entered rather than uselessly searching for the literal text "5*".
 const QUANTITY_PREFIX_STARTED = /^\d+(?:\.\d+)?\s*[x×*]/i;
 
+// A smaller batch than the backend's old 100-per-request cap: the grid now
+// loads more pages as the cashier scrolls (see loadMore below) instead of
+// fetching the entire matching catalog on every keystroke/category change.
+const PAGE_SIZE = 40;
+
 interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
   /** The Actions row — pinned below the results, outside the scrollable area. */
   bottomExtra?: ReactNode;
+  /**
+   * PosHeader's search-slot DOM node — when set, the search field portals
+   * there instead of rendering inline here. All of this component's own
+   * state and handlers (query, scanner mode, the debounced lookup, Esc/
+   * Enter/arrow-key behaviour) are completely unaffected: a portal only
+   * moves *where* a subtree paints, never which component owns its state
+   * or which fiber it's part of, so the DOM id (`pos-product-search`)
+   * every focus/shortcut lookup targets still resolves the same way.
+   * Falls back to rendering inline when null/undefined — before the
+   * header's ref attaches on first paint, and for any caller that never
+   * passes one at all.
+   */
+  searchPortalTarget?: HTMLElement | null;
 }
 
 /**
@@ -75,7 +93,7 @@ interface Props {
  */
 const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
 
-export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props) {
+export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPortalTarget }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -85,6 +103,22 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Infinite-scroll state for the grid/list below. `page` tracks the last
+  // page successfully appended; `hasMore` comes straight from the API's own
+  // meta.page < meta.last_page rather than being inferred from result count,
+  // since a short final page (e.g. 3 items) would otherwise look like "no
+  // more" when it's really just the tail of the catalog.
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped on every *new* search (query/category/store change) so a
+  // loadMore() response that resolves after the cashier has already typed
+  // something else gets silently dropped instead of appending stale rows
+  // onto a now-unrelated result set.
+  const requestIdRef = useRef(0);
+  const resultsContainerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   /**
    * True while the cashier is walking the results with the arrow keys.
@@ -119,6 +153,7 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
 
     if (!storeId) {
       setResults([]);
+      setHasMore(false);
       return;
     }
 
@@ -141,31 +176,103 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     }
 
     debounceRef.current = setTimeout(() => {
+      // Any in-flight loadMore() for the previous filters is now stale —
+      // this id bump is what makes its eventual response a no-op.
+      const requestId = ++requestIdRef.current;
       setLoading(true);
       const params = new URLSearchParams({
         company_id: String(companyId),
         store_id: String(storeId),
         is_active: '1',
-        // 100 is the backend's own hard cap (ProductsController) — high
-        // enough that a real catalog isn't silently truncated the way a
-        // smaller page size was (a 25th product never showed under "All"
-        // with no way to reach it, since this grid has no pagination UI).
-        per_page: '100',
+        page: '1',
+        per_page: String(PAGE_SIZE),
       });
-      if (query.trim() !== '') params.set('q', query.trim());
+      if (trimmed !== '') params.set('q', trimmed);
       if (categoryId !== null) params.set('category_id', String(categoryId));
 
       api
-        .get<ProductWithStorePrice[]>(`/products?${params.toString()}`)
-        .then(setResults)
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
+        .getPaged<ProductWithStorePrice>(`/products?${params.toString()}`)
+        .then(({ data, meta }) => {
+          if (requestId !== requestIdRef.current) return;
+          setResults(data);
+          setPage(1);
+          setHasMore(meta !== null && meta.page < meta.last_page);
+        })
+        .catch(() => {
+          if (requestId !== requestIdRef.current) return;
+          setResults([]);
+          setHasMore(false);
+        })
+        .finally(() => {
+          if (requestId === requestIdRef.current) setLoading(false);
+        });
     }, 250);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, categoryId, companyId, storeId]);
+
+  /**
+   * Fetches the next page and appends it — the counterpart to the effect
+   * above, which always replaces from page 1. Guarded against firing while
+   * a request (initial or another loadMore) is already in flight, and
+   * against firing once the backend says there's nothing left.
+   */
+  const loadMore = useCallback(() => {
+    if (!storeId || loading || loadingMore || !hasMore) return;
+    const trimmed = query.trim();
+    if (trimmed.length > 0 && trimmed.length < 3) return;
+    if (QUANTITY_PREFIX_STARTED.test(trimmed)) return;
+
+    const requestId = requestIdRef.current;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    const params = new URLSearchParams({
+      company_id: String(companyId),
+      store_id: String(storeId),
+      is_active: '1',
+      page: String(nextPage),
+      per_page: String(PAGE_SIZE),
+    });
+    if (trimmed !== '') params.set('q', trimmed);
+    if (categoryId !== null) params.set('category_id', String(categoryId));
+
+    api
+      .getPaged<ProductWithStorePrice>(`/products?${params.toString()}`)
+      .then(({ data, meta }) => {
+        if (requestId !== requestIdRef.current) return;
+        setResults((prev) => [...prev, ...data]);
+        setPage(nextPage);
+        setHasMore(meta !== null && meta.page < meta.last_page);
+      })
+      .catch(() => {
+        if (requestId !== requestIdRef.current) return;
+        // Stop retrying on a transient failure rather than hammering the
+        // API every time the sentinel re-enters view — scrolling away and
+        // back, or a filter change, is what gives the cashier another shot.
+        setHasMore(false);
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingMore(false);
+      });
+  }, [storeId, loading, loadingMore, hasMore, page, query, categoryId, companyId]);
+
+  // The sentinel sits just past the last row; once it scrolls into the
+  // results panel's own viewport (not the page's — `root` is that panel),
+  // the next page loads automatically. Re-subscribes whenever loadMore's
+  // own closure changes (new filters, new page, hasMore flips) so it always
+  // observes with fresh state rather than a stale first-render closure.
+  useEffect(() => {
+    const root = resultsContainerRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) loadMore();
+    }, { root, rootMargin: '200px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   /**
    * Unpriced products sink to the bottom rather than being hidden: an
@@ -179,6 +286,13 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     () => [...results].sort((a, b) => Number(a.selling_price === null) - Number(b.selling_price === null)),
     [results]
   );
+
+  // A first load has nothing on screen yet, so it fills the panel with
+  // placeholders; a scroll-in page only needs a few, since there are
+  // already real rows above them doing the explaining.
+  const initialLoading = loading && results.length === 0;
+  const gridSkeletons = initialLoading ? 12 : loadingMore ? 4 : 0;
+  const listSkeletons = initialLoading ? 8 : loadingMore ? 3 : 0;
 
   /**
    * Clicking a product card moves focus to that card's button — deferred
@@ -414,47 +528,87 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     '&.Mui-selected': { bgcolor: `${POS_ACCENT}1a`, color: POS_ACCENT, '&:hover': { bgcolor: `${POS_ACCENT}26` } },
   } as const;
 
-  return (
-    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
-        <SearchField
-          id="pos-product-search"
-          value={query}
-          onChange={setQuery}
-          onKeyDown={handleSearchKeyDown}
-          onBlur={handleSearchBlur}
-          onPointerDown={handleSearchPointerDown}
-          // F2/Esc are carried here rather than in a legend along the bottom
-          // of the screen, alongside every other shortcut now shown on the
-          // control it drives.
-          placeholder="Search by product name, barcode or SKU  ·  F2"
-          // autoFocus opens the on-screen keyboard on a phone the instant the
-          // screen loads. Touch gets focus from the mount effect above
-          // instead, in scanner mode, so scanning works with no keyboard.
-          autoFocus={!IS_TOUCH}
-          // Left undefined on a mouse device so nothing about the desktop
-          // behaviour changes.
-          inputMode={IS_TOUCH ? (typingMode ? 'text' : 'none') : undefined}
-          fullWidth
-          // Overrides SearchField's own 260px floor — on a narrow phone the
-          // toolbar has less than 260px to spare once the view toggle, the
-          // overflow menu, and the account avatar are accounted for, and
-          // without this the avatar gets pushed past the edge of the
-          // viewport and becomes completely unreachable.
-          sx={{ minWidth: 0 }}
-          trailingAdornment={
+  // The search field + its loading spinner, as one unit — this is the part
+  // that portals into PosHeader's dark bar (see searchPortalTarget on
+  // Props). Kept as a local JSX variable rather than inline in the return
+  // below so the exact same element tree can render in either of the two
+  // spots without duplicating it.
+  const searchFieldNode = (
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+      <SearchField
+        id="pos-product-search"
+        value={query}
+        onChange={setQuery}
+        onKeyDown={handleSearchKeyDown}
+        onBlur={handleSearchBlur}
+        onPointerDown={handleSearchPointerDown}
+        // F2/Esc are carried here rather than in a legend along the bottom
+        // of the screen, alongside every other shortcut now shown on the
+        // control it drives.
+        placeholder="Search by product name, barcode or SKU"
+        // autoFocus opens the on-screen keyboard on a phone the instant the
+        // screen loads. Touch gets focus from the mount effect above
+        // instead, in scanner mode, so scanning works with no keyboard.
+        autoFocus={!IS_TOUCH}
+        // Left undefined on a mouse device so nothing about the desktop
+        // behaviour changes.
+        inputMode={IS_TOUCH ? (typingMode ? 'text' : 'none') : undefined}
+        fullWidth
+        sx={{
+          minWidth: 0,
+          // This field now lives on PosHeader's fixed-dark bar (or falls
+          // back to sitting on a plain page background) — either way it
+          // needs to read as a solid white pill regardless of the app's
+          // own light/dark theme toggle, the same reasoning PosHeader
+          // itself is a fixed colour rather than a themed one.
+          '& .MuiOutlinedInput-root': {
+            bgcolor: '#fff',
+            // Squarer than SearchField's own pill default. That full
+            // round is right for the short search boxes on the admin
+            // toolbars, but this field is far wider, and at this length a
+            // 999px radius turns the ends into big empty caps that push
+            // the icon and the F2 badge inwards. Overridden here rather
+            // than on SearchField itself so the admin toolbars keep the
+            // shape they were designed with.
+            borderRadius: 2,
+            '&:hover': { bgcolor: '#fff' },
+            '&.Mui-focused': { bgcolor: '#fff', boxShadow: `0 0 0 2px ${POS_ACCENT}` },
+          },
+        }}
+        // F2 used to be spelled out in the placeholder; now shown as its
+        // own small badge like every other shortcut (see KeyHint), so it
+        // doesn't get lost in a long placeholder string on a narrower bar.
+        trailingAdornment={
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <KeyHint label="F2" />
             <Tooltip title="Scan a barcode, or type qty*barcode (e.g. 5*4800000000011) to add several at once">
               <IconButton size="small" aria-label="Scan barcode" tabIndex={-1} sx={{ color: 'text.secondary' }}>
                 <QrCodeScannerIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-          }
-        />
-        {/* Fixed-footprint slot, always present — toggling the spinner's opacity instead of
-            mounting/unmounting it means the toolbar's height never changes, so category pills
-            and the results grid below never jump when a search starts or finishes. */}
-        <Box sx={{ width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <CircularProgress size={14} thickness={5} sx={{ color: POS_ACCENT, opacity: loading ? 1 : 0 }} />
+          </Stack>
+        }
+      />
+      {/* Fixed-footprint slot, always present — toggling the spinner's opacity instead of
+          mounting/unmounting it means the search field's own width never changes underneath it
+          when a search starts or finishes. */}
+      <Box sx={{ width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress size={14} thickness={5} sx={{ color: POS_ACCENT, opacity: loading ? 1 : 0 }} />
+      </Box>
+    </Stack>
+  );
+
+  return (
+    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {searchPortalTarget ? createPortal(searchFieldNode, searchPortalTarget) : searchFieldNode}
+
+      {/* Category pills + the grid/list toggle share a row now that the
+          toggle no longer sits with the search field above — that field
+          moved up onto PosHeader's bar, and the toggle belongs with what
+          it's actually switching the view of. */}
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 1.25, flexShrink: 0 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
         </Box>
         <ToggleButtonGroup
           value={viewMode}
@@ -476,10 +630,6 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
         </ToggleButtonGroup>
       </Stack>
 
-      <Box sx={{ mt: 1.25, flexShrink: 0 }}>
-        <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
-      </Box>
-
       {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
       {/* px/pt give a hovered card's shadow somewhere to land instead of
           being sliced off against the scroller's edge — the card itself no
@@ -489,6 +639,7 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
           whichever tile has focus, and productGridNav works out the row
           width from the DOM rather than from which component rendered. */}
       <Box
+        ref={resultsContainerRef}
         onKeyDown={handleResultsKeyDown}
         // A pointer press ends keyboard browsing, so clicking a card still
         // hands focus back to the search field for the next scan.
@@ -510,70 +661,39 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
               {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
             </Typography>
           </Stack>
-        ) : viewMode === 'grid' ? (
-          <ProductGrid products={orderedResults} onAdd={handleAdd} />
         ) : (
-          <ProductListView results={orderedResults} onAdd={handleAdd} />
+          <>
+            {/* Placeholders rather than a spinner, and rendered inside the
+                grid/table itself: on a first load they show the shape of
+                what's coming instead of a blank panel, and on a scroll-in
+                page they extend the existing columns so nothing jumps when
+                the real rows arrive. */}
+            {viewMode === 'grid' ? (
+              <ProductGrid products={orderedResults} onAdd={handleAdd} skeletonCount={gridSkeletons} />
+            ) : (
+              <ProductListView results={orderedResults} onAdd={handleAdd} skeletonCount={listSkeletons} />
+            )}
+            {/* Invisible trigger for the next page — only mounted while
+                there's actually more to fetch, so the observer has nothing
+                to watch (and loadMore never fires) once the catalog ends. */}
+            {hasMore && <Box ref={sentinelRef} sx={{ height: 1 }} />}
+            {/* Closes the loop on a paged list: without it, a cashier who
+                scrolls to the bottom can't tell whether that's the whole
+                catalog or just the next batch failing to arrive. Only
+                worth saying once more than one page has actually loaded. */}
+            {!hasMore && !loading && !loadingMore && results.length > PAGE_SIZE && (
+              <Typography
+                variant="caption"
+                sx={{ display: 'block', textAlign: 'center', py: 2.5, color: 'text.disabled' }}
+              >
+                {`All ${results.length} products loaded`}
+              </Typography>
+            )}
+          </>
         )}
       </Box>
 
       {bottomExtra && <Box sx={{ mt: 1.25, flexShrink: 0 }}>{bottomExtra}</Box>}
     </Box>
-  );
-}
-
-function ProductListView({
-  results,
-  onAdd,
-}: {
-  results: ProductWithStorePrice[];
-  onAdd: (product: ProductWithStorePrice) => void;
-}) {
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
-      <List disablePadding>
-        {results.map((p, i) => {
-          const unpriced = p.selling_price === null;
-          return (
-            <ListItemButton
-              key={p.id}
-              data-pos-tile=""
-              divider={i < results.length - 1}
-              disabled={unpriced}
-              onClick={() => !unpriced && onAdd(p)}
-              // Same accent focus ring as the grid tiles — arrow-key
-              // browsing works in this view too, so it needs the same
-              // unmistakable "you are here".
-              sx={{
-                py: 1.25,
-                px: 2,
-                '&.Mui-focusVisible': {
-                  outline: `2px solid ${POS_ACCENT}`,
-                  outlineOffset: '-2px',
-                  bgcolor: `${POS_ACCENT}14`,
-                },
-              }}
-            >
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.5 }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-                    {p.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {p.sku}
-                  </Typography>
-                </Box>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: unpriced ? 'error.main' : POS_ACCENT }}
-                >
-                  {unpriced ? 'No price' : formatMoney(parseFloat(p.selling_price as string))}
-                </Typography>
-              </Stack>
-            </ListItemButton>
-          );
-        })}
-      </List>
-    </Paper>
   );
 }

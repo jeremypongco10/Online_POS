@@ -1,10 +1,11 @@
 /**
- * Hues used only as a *tint source* for a photo-less product tile — see
- * ProductCard, which blends these into the surrounding surface rather than
- * filling a tile with them solid. A wall of saturated blocks (the old
- * treatment) fought the prices and the cart for attention; a soft tint
- * still gives each product a stable, recognizable identity without
- * shouting.
+ * Hues for a photo-less product tile's avatar chip — see ProductCard.
+ * Tried as a full-tile wash first (fought the prices/cart for attention),
+ * then as plain white with only the initials coloured (too flat to scan,
+ * every card read the same at a glance). A small solid chip is the
+ * middle ground: the card itself stays white, but there's still a
+ * distinct colour to spot per product, on the same avatar-badge pattern
+ * BaggerPanel/CustomerLoyaltyPanel already use elsewhere in the POS.
  */
 const PALETTE = [
   '#4f46e5', '#0891b2', '#059669', '#d97706',
@@ -18,20 +19,6 @@ export function colorForName(name: string): string {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   }
   return PALETTE[hash % PALETTE.length];
-}
-
-/**
- * Soft tinted surface + readable ink for a photo-less tile, derived from
- * the product's hue. Both are mixed against theme tokens rather than
- * hard-coded, so the same hue stays legible in light and dark mode
- * without a second palette.
- */
-export function tileTint(name: string): { bg: string; fg: string } {
-  const hue = colorForName(name);
-  return {
-    bg: `color-mix(in srgb, ${hue} 12%, var(--mui-palette-background-paper))`,
-    fg: `color-mix(in srgb, ${hue} 60%, var(--mui-palette-text-primary))`,
-  };
 }
 
 /** "MK" for "Milk", "CB" for "Coca Cola" — up to two letters for a photo-less product's fallback tile. */

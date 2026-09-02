@@ -7,7 +7,6 @@ import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutlineOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
-import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import type { CartTotals, CartLine } from './posTypes';
@@ -19,8 +18,9 @@ import { PaymentPanel, type Payment } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
 
 interface Props {
-  cashierName: string;
-  /** Shown on the header line only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. */
+  /** The store this terminal is ringing up on — same name the printed receipt carries at the top. Unlike Customer/Bagger below, this is always present (every sale happens at some store), so it isn't wrapped in a presence check the way they are. */
+  storeName: string | null;
+  /** Shown here only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. Cashier identity itself lives in StatusBar, not here. */
   customer: Customer | null;
   bagger: Bagger | null;
   lines: CartLine[];
@@ -44,27 +44,6 @@ interface Props {
 const SectionDivider = () => <Divider sx={{ borderStyle: 'dashed' }} />;
 
 /**
- * The Cashier line — the only one guaranteed to be there, so it's the
- * only one that gets a text label and its own row. "Label: Value" reads
- * fine alone; once Customer/Bagger join it below, the same label-per-row
- * treatment ran to three separate lines, so those two are compacted onto
- * a single shared row instead (see InlineFact).
- */
-function HeaderLine({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
-      <Box sx={{ display: 'flex', color: 'text.secondary', flexShrink: 0 }}>{icon}</Box>
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 700, minWidth: 0 }} noWrap title={value}>
-        {value}
-      </Typography>
-    </Stack>
-  );
-}
-
-/**
  * Icon + value only, no text label — Customer and Bagger share one row
  * this way instead of each claiming a full line. The icon alone is enough
  * to tell them apart (loyalty tag vs. bag), the way the buttons that open
@@ -82,9 +61,9 @@ function InlineFact({ icon, value, trailing }: { icon: ReactNode; value: string;
   );
 }
 
-/** Right panel: one continuous card styled like a printed receipt — cashier line, item list, totals, payment, and Hold/Pay all inside a single border. Store/terminal context lives in PosHeader (which sits over the product column only, so this panel carries its own header); Return/Cancellation live in the product panel's Actions row. */
+/** Right panel: one continuous card styled like a printed receipt — customer/bagger (when attached), item list, totals, payment, and Hold/Pay, all inside a single border. Store/terminal/cashier context lives in PosHeader/StatusBar instead; Return/Cancellation live in the product panel's Actions row. */
 export function ReceiptPanel({
-  cashierName,
+  storeName,
   customer,
   bagger,
   lines,
@@ -140,16 +119,28 @@ export function ReceiptPanel({
         flexDirection: 'column',
       }}
     >
-      {/* Receipt-style header, two lines max. PosHeader is scoped to the
-          product column now, so this panel names its own cashier rather
-          than borrowing one from a bar above it. Customer and Bagger join
-          it only once attached — an always-present "Customer: —" row
-          would just be noise on the walk-in sales that are the common
-          case — and share one row rather than each taking its own. */}
-      <Stack spacing={0.5} sx={{ px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
-        <HeaderLine icon={<PersonOutlineIcon sx={{ fontSize: 14 }} />} label="Cashier:" value={cashierName} />
-        {(customer || bagger) && (
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* The store letterhead — bold like a receipt's own masthead line,
+          not a caption like Customer/Bagger below it, and always shown
+          rather than gated on a presence check: every sale happens at
+          some store, so there's no "nothing to show" state for this the
+          way there is for an unattached customer. */}
+      {storeName && (
+        <>
+          <Typography sx={{ fontWeight: 700, fontSize: 15, textAlign: 'center', px: 2.5, pt: 1.5, pb: 1 }}>
+            {storeName}
+          </Typography>
+          <SectionDivider />
+        </>
+      )}
+
+      {/* Customer/Bagger only — Cashier moved down to StatusBar (the app's
+          actual footer, at the bottom of the whole screen) rather than to
+          the bottom of this panel, which is what "footer" turned out to
+          mean. Still hidden entirely on a walk-in sale with no bagger, so
+          this doesn't reappear as a header with nothing in it. */}
+      {(customer || bagger) && (
+        <>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap', px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
             {customer && (
               <InlineFact
                 icon={<LoyaltyOutlinedIcon sx={{ fontSize: 14 }} />}
@@ -171,12 +162,12 @@ export function ReceiptPanel({
             )}
             {bagger && <InlineFact icon={<Inventory2OutlinedIcon sx={{ fontSize: 14 }} />} value={bagger.name} />}
           </Stack>
-        )}
-      </Stack>
-      <SectionDivider />
+          <SectionDivider />
+        </>
+      )}
 
       {/* The only scrollable region in this card — no floor on its height, so totals/payment/actions/Hold/Pay below can never be pushed out of view, even with a very long cart on a short screen. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pt: 1, pb: 1, ...THIN_SCROLLBAR_SX }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pt: 1.5, pb: 1, ...THIN_SCROLLBAR_SX }}>
         <Cart
           lines={lines}
           lastAddedKey={lastAddedKey}
@@ -198,15 +189,12 @@ export function ReceiptPanel({
           px: 2.5,
           py: 2,
           flexShrink: 0,
-          // Was a hardcoded '#f4f6fa' — a flat hex picked without
-          // reference to the actual palette, so it sat a visibly
-          // different, slightly blue-tinted white next to the pure-white
-          // cart list and Paper above it. 'action.hover' is a
-          // theme-derived tint of this Paper's own background (still
-          // resolved against the forced-light scheme via className
-          // "light" above), so it reads as a shaded step down from white
-          // rather than an unrelated color dropped in beside it.
-          bgcolor: 'action.hover',
+          // Plain white now, matching the cart list above it — was tinted
+          // first '#f4f6fa' then 'action.hover' to read as a separate
+          // summary zone, but both left a visible seam against the rest
+          // of this all-white card. The top border below is enough on
+          // its own to mark where the totals band starts.
+          bgcolor: '#fff',
           borderTop: '1px solid',
           borderColor: 'divider',
         }}

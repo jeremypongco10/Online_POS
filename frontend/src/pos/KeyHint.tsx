@@ -6,6 +6,15 @@ import Box from '@mui/material/Box';
  * "F9 cancels" reads it where the cancelling happens, and the row of hints
  * that used to restate all of them can go.
  *
+ * Styled as an actual keycap — a small raised pill with its own
+ * background and a hairline "pressed edge" shadow along the bottom — not
+ * bare inline text with nothing to separate it from the button's own
+ * label. Deliberately a fixed light/dark neutral rather than tinted to
+ * match each button's own colour: a solid badge in the button's own hue
+ * (tried first) read as loud and slightly alarming on the red Cancel Sale
+ * button, and inconsistent from one button to the next since every
+ * button here carries a different colour.
+ *
  * Hidden below md for the same reason StatusBar's strip was: a touchscreen
  * has no F-keys, so on a phone or tablet these badges are dead pixels on
  * buttons that are already tight for room.
@@ -15,19 +24,37 @@ export function KeyHint({ label, onAccent = false }: { label: string; onAccent?:
     <Box
       component="kbd"
       sx={{
-        display: { xs: 'none', md: 'inline' },
+        display: { xs: 'none', md: 'inline-flex' },
+        alignItems: 'center',
+        justifyContent: 'center',
         ml: 0.75,
-        // No border, no background, no chip. These sit inside buttons that
-        // already carry an outline (or a solid fill), and a bordered badge
-        // in there read as a box inside a box — the busiest thing in the
-        // row, for its least important content. Weight and opacity carry
-        // it instead: present when looked for, ignorable when not.
-        color: 'inherit',
-        opacity: onAccent ? 0.75 : 0.5,
+        minWidth: 20,
+        height: 18,
+        px: 0.6,
+        borderRadius: 0.75,
         fontFamily: 'inherit',
-        fontSize: 11,
-        fontWeight: 600,
+        fontSize: 10.5,
+        fontWeight: 700,
         letterSpacing: '0.02em',
+        lineHeight: 1,
+        // Two palettes: a theme-aware neutral keycap for the outlined
+        // buttons (Customer/Bagger/Return/Cancel/Hold) — 'action.selected'
+        // + 'divider' rather than a hard-coded rgba(0,0,0,…), so it stays
+        // visible in dark mode instead of nearly vanishing against an
+        // already-dark button — and a white-on-accent one for Pay, whose
+        // background is always the solid brand blue regardless of theme.
+        ...(onAccent
+          ? {
+              bgcolor: 'rgba(255,255,255,0.22)',
+              color: '#fff',
+              boxShadow: 'inset 0 -1.5px 0 rgba(0,0,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.3)',
+            }
+          : {
+              bgcolor: 'action.selected',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'divider',
+            }),
       }}
     >
       {label}
