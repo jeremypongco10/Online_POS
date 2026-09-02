@@ -102,4 +102,45 @@ class UserModel extends Model
             'locked_until' => null,
         ]);
     }
+
+    /**
+     * Roles held to one active session at a time. Cashier only, by
+     * deliberate choice: a cashier's sign-in is the attribution on every
+     * sale and the accountability for a drawer, so the same account being
+     * live on two terminals makes both ambiguous. Supervisors and admins
+     * are left unrestricted because reviewing the Back Office on a laptop
+     * while a terminal is signed in is a normal thing for them to do.
+     *
+     * Matched on role name, the same way canAccessPos() on the frontend
+     * decides who lands on the POS screen.
+     */
+    private const SINGLE_SESSION_ROLES = ['Cashier'];
+
+    public function isSingleSessionRole(?int $roleId): bool
+    {
+        if ($roleId === null) {
+            return false;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null && in_array($role->name, self::SINGLE_SESSION_ROLES, true);
+    }
+
+    /**
+     * Invalidates every token this user already holds, by stamping the
+     * moment from which tokens are considered valid. JwtAuthFilter (and
+     * the refresh endpoint) reject anything issued earlier, so an older
+     * session is dropped on its next request rather than needing each of
+     * its tokens tracked and revoked individually.
+     *
+     * Written straight through the query builder for the same reason as
+     * locked_until above: it must never be mass-assignable via PUT /users.
+     */
+    public function startExclusiveSession(int $userId): void
+    {
+        $this->db->table($this->table)->where('id', $userId)->update([
+            'session_valid_from' => date('Y-m-d H:i:s'),
+        ]);
+    }
 }

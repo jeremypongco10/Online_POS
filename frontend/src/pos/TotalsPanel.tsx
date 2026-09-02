@@ -51,19 +51,11 @@ export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCou
         </Typography>
       </Stack>
 
-      {/* Below the total and visibly quieter, because this is a
-          disclosure, not a charge: shelf prices already contain the VAT,
-          so it is being reported out of the total rather than added to
-          it. Printed above the total as its own line it read as "+VAT"
-          and made the subtotal look short by that amount. */}
-      <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-        <Typography variant="caption" color="text.secondary">
-          VAT included
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
-          {formatMoney(totals.taxTotal)}
-        </Typography>
-      </Stack>
+      {/* No VAT line here on purpose. It is still computed (totals.taxTotal,
+          and the server recomputes it independently at checkout) and still
+          printed on the receipt — this panel is what the cashier watches
+          while ringing up, where the breakdown is noise rather than
+          something acted on. */}
     </Stack>
   );
 }

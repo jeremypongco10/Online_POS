@@ -16,6 +16,7 @@ import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
 import { PaymentPanel, type Payment } from './PaymentPanel';
+import { KeyHint } from './KeyHint';
 
 interface Props {
   cashierName: string;
@@ -234,6 +235,7 @@ export function ReceiptPanel({
             }}
           >
             Hold
+            <KeyHint label="F6" />
           </Button>
           <Button
             id="pos-pay-button"
@@ -255,6 +257,7 @@ export function ReceiptPanel({
             }}
           >
             Pay
+            <KeyHint label="F5" onAccent />
           </Button>
         </Stack>
       </Stack>

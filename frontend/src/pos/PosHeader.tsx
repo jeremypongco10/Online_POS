@@ -5,8 +5,10 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import { useColorScheme } from '@mui/material/styles';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import type { CashSession } from '../api/types';
 import { OverflowMenu } from './OverflowMenu';
+import { PosHelpDialog } from './PosHelpDialog';
 import logoLight from '../assets/logo.png';
 import logoDark from '../assets/logo-dark.png';
 
@@ -29,6 +31,10 @@ export function PosHeader({ cashSession, actions }: Props) {
   const logo = resolvedMode === 'dark' ? logoDark : logoLight;
 
   const [overflowAnchor, setOverflowAnchor] = useState<HTMLElement | null>(null);
+  // Owned here rather than in PosScreen so the header stays self-contained;
+  // F1 reaches it by DOM-clicking the button below, the same way the other
+  // shortcuts reach controls whose state isn't lifted.
+  const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <Stack
@@ -49,6 +55,18 @@ export function PosHeader({ cashSession, actions }: Props) {
       <Box sx={{ flex: 1 }} />
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        <Tooltip title="Controls & shortcuts (F1)">
+          <IconButton
+            id="pos-help-button"
+            size="small"
+            onClick={() => setHelpOpen(true)}
+            aria-label="Controls and shortcuts"
+            sx={{ color: 'text.secondary' }}
+          >
+            <HelpOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
         <Tooltip title="Cash movements">
           <IconButton
             size="small"
@@ -64,6 +82,7 @@ export function PosHeader({ cashSession, actions }: Props) {
       </Stack>
 
       <OverflowMenu anchorEl={overflowAnchor} onClose={() => setOverflowAnchor(null)} cashSession={cashSession} />
+      <PosHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </Stack>
   );
 }

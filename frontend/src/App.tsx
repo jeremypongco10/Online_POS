@@ -7,6 +7,7 @@ import { Login } from './Login';
 import { PosScreen } from './pos/PosScreen';
 import { AdminScreen } from './admin/AdminScreen';
 import { useRouteState } from './routing';
+import { useBrowserKeyGuard } from './useBrowserKeyGuard';
 import './pos/pos.css';
 import './admin/admin.css';
 
@@ -76,6 +77,10 @@ function Gate() {
 }
 
 function App() {
+  // Here, not in Gate: Gate returns early for the loading and logged-out
+  // states, but this has to hold on every screen the app can show.
+  useBrowserKeyGuard();
+
   return (
     <AuthProvider>
       <SnackbarProvider>

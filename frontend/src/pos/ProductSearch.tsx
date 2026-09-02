@@ -21,6 +21,14 @@ import { useSnackbar } from '../Snackbar';
 import { SearchField } from '../SearchField';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
+import {
+  PRODUCT_TILE_SELECTOR,
+  focusFirstProductTile,
+  focusProductSearch,
+  nextTileIndex,
+  productTiles,
+  tileColumnCount,
+} from './productGridNav';
 
 type CategoryNode = Category & { children: CategoryNode[] };
 type ViewMode = 'grid' | 'list';
@@ -77,6 +85,21 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * True while the cashier is walking the results with the arrow keys.
+   *
+   * Without this, keyboard browsing is impossible: handleSearchBlur exists
+   * to drag focus back to the search field the moment it lands on anything
+   * else in the app (so a scanner always has somewhere to type), and a
+   * product tile is exactly such a thing — focus bounced straight back on
+   * every arrow press. A ref rather than state because it's read inside a
+   * requestAnimationFrame callback and must never be a render behind.
+   *
+   * Cleared by a pointer press on the results, so clicking a card keeps its
+   * original behaviour: focus returns to the search field, ready to scan.
+   */
+  const keyboardBrowsingRef = useRef(false);
 
   /**
    * Touch only. False = "scanner mode": the field is focused so a wedge
@@ -212,7 +235,11 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     // the keyboard open again on the refocus, the exact behaviour that made
     // the phone unusable. The effect above restores focus.
     if (IS_TOUCH && typingMode) setTypingMode(false);
-    else focusSearch();
+    // Adding from the keyboard leaves focus on the tile, so the arrows can
+    // carry straight on to the next product. Pulling focus back to the
+    // search field here — right for a click — would end the run after one
+    // item and make arrow browsing useless for a multi-item sale.
+    else if (!keyboardBrowsingRef.current) focusSearch();
   }
 
   /**
@@ -247,6 +274,10 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     requestAnimationFrame(() => {
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || active.id === 'pos-product-search') return;
+
+      // Arrow-key browsing is a deliberate move onto a product tile, not
+      // focus wandering off — leave it alone.
+      if (keyboardBrowsingRef.current && active.closest(PRODUCT_TILE_SELECTOR)) return;
 
       const isTextEntry = active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
       const isBareBody = active === document.body || active === document.documentElement;
@@ -287,6 +318,18 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
       if (query === '') return;
       e.preventDefault();
       setQuery('');
+      return;
+    }
+
+    // Down Arrow leaves the search box and picks up the first product, so
+    // the whole browse-and-add loop is reachable without the mouse. Only
+    // when there's something to land on — otherwise the key is left alone
+    // rather than swallowed into a no-op.
+    if (e.key === 'ArrowDown') {
+      if (focusFirstProductTile()) {
+        keyboardBrowsingRef.current = true;
+        e.preventDefault();
+      }
       return;
     }
 
@@ -335,6 +378,34 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
     }
   }
 
+  /**
+   * Arrow/Home/End/Esc movement between product tiles. Enter and Space are
+   * deliberately absent: every tile is a ButtonBase, which already activates
+   * on both, and re-implementing that here would only risk adding twice.
+   */
+  function handleResultsKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const container = e.currentTarget;
+    const tiles = productTiles(container);
+    const current = tiles.indexOf(document.activeElement as HTMLElement);
+    // Focus is somewhere else in the results (or nowhere) — not ours to move.
+    if (current === -1) return;
+
+    const target = nextTileIndex(e.key, current, tiles.length, tileColumnCount(container));
+    if (target === null) return;
+
+    e.preventDefault();
+    if (target === 'search') {
+      keyboardBrowsingRef.current = false;
+      focusProductSearch();
+      return;
+    }
+    keyboardBrowsingRef.current = true;
+    tiles[target].focus();
+    // 'nearest' on purpose: the minimum scroll that reveals the tile, so a
+    // step sideways within a visible row doesn't jerk the whole list.
+    tiles[target].scrollIntoView({ block: 'nearest' });
+  }
+
   const toggleButtonSx = {
     gap: 0.5,
     px: 1.5,
@@ -353,7 +424,10 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
           onKeyDown={handleSearchKeyDown}
           onBlur={handleSearchBlur}
           onPointerDown={handleSearchPointerDown}
-          placeholder="Search by product name, barcode or SKU"
+          // F2/Esc are carried here rather than in a legend along the bottom
+          // of the screen, alongside every other shortcut now shown on the
+          // control it drives.
+          placeholder="Search by product name, barcode or SKU  ·  F2"
           // autoFocus opens the on-screen keyboard on a phone the instant the
           // screen loads. Touch gets focus from the mount effect above
           // instead, in scanner mode, so scanning works with no keyboard.
@@ -411,7 +485,18 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra }: Props)
           being sliced off against the scroller's edge — the card itself no
           longer moves (see ProductCard), so this only has to accommodate
           the shadow. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}>
+      {/* One handler for both view modes: the keydown bubbles here from
+          whichever tile has focus, and productGridNav works out the row
+          width from the DOM rather than from which component rendered. */}
+      <Box
+        onKeyDown={handleResultsKeyDown}
+        // A pointer press ends keyboard browsing, so clicking a card still
+        // hands focus back to the search field for the next scan.
+        onPointerDown={() => {
+          keyboardBrowsingRef.current = false;
+        }}
+        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}
+      >
         {results.length === 0 && !loading ? (
           // Without this, a search that matches nothing just leaves a
           // blank panel, which reads as a broken screen rather than an
@@ -452,10 +537,22 @@ function ProductListView({
           return (
             <ListItemButton
               key={p.id}
+              data-pos-tile=""
               divider={i < results.length - 1}
               disabled={unpriced}
               onClick={() => !unpriced && onAdd(p)}
-              sx={{ py: 1.25, px: 2 }}
+              // Same accent focus ring as the grid tiles — arrow-key
+              // browsing works in this view too, so it needs the same
+              // unmistakable "you are here".
+              sx={{
+                py: 1.25,
+                px: 2,
+                '&.Mui-focusVisible': {
+                  outline: `2px solid ${POS_ACCENT}`,
+                  outlineOffset: '-2px',
+                  bgcolor: `${POS_ACCENT}14`,
+                },
+              }}
             >
               <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 1.5 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>

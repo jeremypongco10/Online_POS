@@ -65,6 +65,17 @@ class AuthController extends BaseApiController
         $userModel->update($user->id, ['last_login_at' => date('Y-m-d H:i:s')]);
         Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login');
 
+        // Roles held to one session at a time (cashiers) drop any earlier
+        // sign-in here: the newest terminal wins and the previous one is
+        // bounced on its next request. Stamped before the token is issued
+        // below so this login's own token isn't caught by its own stamp.
+        if ($userModel->isSingleSessionRole($user->role_id !== null ? (int) $user->role_id : null)) {
+            $userModel->startExclusiveSession((int) $user->id);
+            // Re-read so tokenResponse and the response body carry the
+            // stamp that was just written rather than the stale row.
+            $user = $userModel->find($user->id);
+        }
+
         return $this->tokenResponse($user);
     }
 
@@ -130,6 +141,20 @@ class AuthController extends BaseApiController
 
         if (! $user || ! (bool) $user->is_active) {
             return $this->unauthorized('Account is no longer active');
+        }
+
+        // This endpoint is public — it takes the refresh token in the body
+        // rather than passing through JwtAuthFilter — so the filter's
+        // "issued before X" checks have to be repeated here. Without them a
+        // superseded session could simply refresh itself a brand new access
+        // token (iat = now, so past every check) and walk straight back in,
+        // defeating both the single-session rule and password invalidation.
+        if ($user->password_changed_at !== null && (int) $claims->iat < strtotime($user->password_changed_at)) {
+            return $this->unauthorized('Session invalidated by a password change. Please log in again.');
+        }
+
+        if ($user->session_valid_from !== null && (int) $claims->iat < strtotime($user->session_valid_from)) {
+            return $this->unauthorized('Signed in on another device. Please log in again.');
         }
 
         // Rotate: the old refresh token is single-use.

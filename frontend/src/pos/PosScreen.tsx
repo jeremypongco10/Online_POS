@@ -39,6 +39,7 @@ import {
   type HeldSale,
 } from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { usePosZoom } from './usePosZoom';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
 interface Props {
@@ -92,6 +93,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // real values land.
   const [requireItemVoidApproval, setRequireItemVoidApproval] = useState(true);
   const [requireCancelApproval, setRequireCancelApproval] = useState(true);
+
+  // Scales the page down on a screen smaller than this layout was drawn
+  // for, so more of the product grid stays visible instead of scrolling.
+  usePosZoom();
 
   const totals = useMemo(() => calculateCart(lines), [lines]);
 
@@ -370,17 +375,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject);
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
-    onSearch: () => document.getElementById('pos-product-search')?.focus(),
-    onAddCustomer: () => document.getElementById('pos-action-add-customer')?.click(),
-    onHold: handleHold,
-    onPay: () => document.getElementById('pos-pay-button')?.click(),
-    onBagger: () => document.getElementById('pos-action-bagger')?.click(),
+    search: () => document.getElementById('pos-product-search')?.focus(),
+    customer: () => document.getElementById('pos-action-add-customer')?.click(),
+    hold: handleHold,
+    pay: () => document.getElementById('pos-pay-button')?.click(),
+    bagger: () => document.getElementById('pos-action-bagger')?.click(),
+    help: () => document.getElementById('pos-help-button')?.click(),
     // Return/Cancellation could DOM-click their own Actions row buttons
     // too, but their handlers are trivial one-liners already available
     // right here, so there's nothing to gain by indirecting through the
     // DOM for these two.
-    onReturn: () => onOpenAdmin('/admin/customers/returns'),
-    onCancel: handleCancel,
+    return: () => onOpenAdmin('/admin/customers/returns'),
+    cancel: handleCancel,
   });
 
   if (!user) return null;
@@ -418,7 +424,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   return (
-    <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <Box
+      sx={{
+        // Divided by the zoom factor usePosZoom publishes (1 when it isn't
+        // zooming): viewport units resolve before zoom scales them, so a
+        // bare 100dvh would leave the page short of the bottom of the
+        // screen by exactly that factor.
+        height: 'calc(100dvh / var(--pos-zoom, 1))',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       <Box
         sx={{
           flex: 1,

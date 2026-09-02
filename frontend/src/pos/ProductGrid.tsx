@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import type { ProductWithStorePrice } from '../api/types';
 import { ProductCard } from './ProductCard';
+import { PRODUCT_GRID_ID } from './productGridNav';
 
 interface Props {
   products: ProductWithStorePrice[];
@@ -10,6 +11,9 @@ interface Props {
 export function ProductGrid({ products, onAdd }: Props) {
   return (
     <Box
+      // The id is how arrow-key navigation reads back the column count
+      // auto-fill actually resolved to at this width.
+      id={PRODUCT_GRID_ID}
       sx={{
         display: 'grid',
         // A middle ground between the original 144px and the 112px this

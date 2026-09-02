@@ -60,9 +60,33 @@ export function ProductCard({ product, onClick }: Props) {
       }}
     >
       <CardActionArea
+        // Marks this as an arrow-key stop — see productGridNav.ts.
+        data-pos-tile=""
         disabled={unpriced}
         onClick={onClick}
-        sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+        sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          // With arrow-key browsing, this ring is the entire interface —
+          // it's the only thing telling the cashier what Enter will add.
+          // MUI's stock focusVisible is a pale grey wash, which against
+          // these pastel tiles reads as "disabled" rather than "here", so
+          // that overlay is switched off for an accent outline instead.
+          // outlineOffset is negative so the ring is drawn inside the
+          // card's own box: the grid sits in a scroll container, which
+          // would otherwise shave the ring off at the top and bottom edges.
+          // Scoped through &.Mui-focusVisible on purpose: MUI's own rule is
+          // `.MuiCardActionArea-root.Mui-focusVisible .focusHighlight`, and
+          // a plain descendant selector loses to it on specificity.
+          '&.Mui-focusVisible .MuiCardActionArea-focusHighlight': { opacity: 0 },
+          '&.Mui-focusVisible': {
+            outline: `2px solid ${POS_ACCENT}`,
+            outlineOffset: '-2px',
+            bgcolor: `${POS_ACCENT}14`,
+          },
+        }}
       >
         {showImage ? (
           // Product photography is overwhelmingly shot on white, so a white

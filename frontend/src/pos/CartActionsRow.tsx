@@ -6,6 +6,7 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import AssignmentReturnOutlinedIcon from '@mui/icons-material/AssignmentReturnOutlined';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import type { Bagger, Customer } from '../api/types';
+import { KeyHint } from './KeyHint';
 import { POS_ACCENT } from './format';
 
 interface Props {
@@ -79,6 +80,7 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
           sx={{ ...actionSx, ...(customer ? attachedSx : null) }}
         >
           Customer
+          <KeyHint label="F3" />
         </Button>
       </Tooltip>
 
@@ -91,6 +93,7 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
           sx={{ ...actionSx, ...(bagger ? attachedSx : null) }}
         >
           Bagger
+          <KeyHint label="F4" />
         </Button>
       </Tooltip>
 
@@ -103,6 +106,7 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
           sx={actionSx}
         >
           Return
+          <KeyHint label="F8" />
         </Button>
       </Tooltip>
 
@@ -126,6 +130,7 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
             }}
           >
             Cancel Sale
+            <KeyHint label="F9" />
           </Button>
         </span>
       </Tooltip>

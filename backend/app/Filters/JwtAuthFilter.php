@@ -53,6 +53,14 @@ class JwtAuthFilter implements FilterInterface
             return $this->unauthorized('Session invalidated by a password change. Please log in again.');
         }
 
+        // Same mechanism, for roles limited to one session at a time (see
+        // UserModel::SINGLE_SESSION_ROLES): logging in elsewhere stamps
+        // session_valid_from, so this account's older sign-in falls out
+        // here on its next request.
+        if ($user->session_valid_from !== null && (int) $claims->iat < strtotime($user->session_valid_from)) {
+            return $this->unauthorized('Signed in on another device. Please log in again.');
+        }
+
         Services::authContext()->setUser(
             (int) $claims->sub,
             (int) $claims->company_id,

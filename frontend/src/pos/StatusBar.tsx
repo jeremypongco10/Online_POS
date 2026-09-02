@@ -3,19 +3,6 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 
-const SHORTCUTS: Array<[string, string]> = [
-  ['F2', 'Search Product'],
-  ['F3', 'Customer'],
-  ['F4', 'Bagger'],
-  ['F5', 'Pay'],
-  ['F6', 'Hold Sale'],
-  ['F8', 'Return'],
-  ['F9', 'Cancellation'],
-  // Handled on the search field itself rather than in
-  // useKeyboardShortcuts — see ProductSearch's handleSearchKeyDown.
-  ['Esc', 'Clear Search'],
-];
-
 interface Props {
   storeName: string | null;
   registerName: string | null;
@@ -63,41 +50,9 @@ export function StatusBar({ storeName, registerName }: Props) {
         columnGap: 2,
       }}
     >
-      {/* F-key hints are meaningless on a touchscreen with no physical
-          keyboard, so this row is dropped below md rather than left to
-          wrap awkwardly in the cramped stacked mobile layout — the status
-          items beside it stay visible at every width. */}
-      <Stack
-        direction="row"
-        spacing={1.5}
-        useFlexGap
-        sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', flexWrap: 'wrap', rowGap: 0.5, flex: 1 }}
-      >
-        {SHORTCUTS.map(([key, label]) => (
-          <Stack key={key} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              component="kbd"
-              sx={{
-                fontSize: 10,
-                fontWeight: 700,
-                px: 0.6,
-                py: 0.1,
-                borderRadius: 0.5,
-                border: '1px solid',
-                borderColor: 'divider',
-                bgcolor: 'action.hover',
-                color: 'text.secondary',
-              }}
-            >
-              {key}
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {label}
-            </Typography>
-          </Stack>
-        ))}
-      </Stack>
-
+      {/* The shortcut legend that used to fill this side is gone: every key
+          is now shown on the control it triggers (see KeyHint), so listing
+          them again down here was duplication taking up the row. */}
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexShrink: 0, ml: 'auto' }}>
         <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 600 }} noWrap>
