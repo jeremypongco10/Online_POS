@@ -393,6 +393,7 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
       // focus wandering off — leave it alone.
       if (keyboardBrowsingRef.current && active.closest(PRODUCT_TILE_SELECTOR)) return;
 
+
       const isTextEntry = active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
       const isBareBody = active === document.body || active === document.documentElement;
       const isInsideApp = isBareBody || (document.getElementById('root')?.contains(active) ?? true);

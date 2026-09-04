@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
@@ -16,10 +17,33 @@ import type { PaymentMethodOption, Receipt } from '../api/types';
 import { formatMoney, TAX_INDICATOR_LABELS } from './format';
 import { PopTransition } from '../PopTransition';
 import { METHOD_LABELS } from './PaymentPanel';
+import { KeyHint } from './KeyHint';
 
 /** Phase 18: the printable receipt — every field sourced from the sale's own frozen snapshot. */
 export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; methods: PaymentMethodOption[]; onClose: () => void }) {
   const methodLabel = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
+
+  /**
+   * F7 prints, mirroring the Print button below. Bound locally rather
+   * than through useKeyboardShortcuts because PosScreen's global handler
+   * is deliberately disabled the whole time a receipt is showing
+   * (blockingDialogOpen) — it uses this same key for a different job
+   * (opening ReprintReceiptDialog) when no receipt is on screen yet, so
+   * it could never have reached this key anyway once one is. Scoped to
+   * this component's own mount/unmount instead, which is exactly "while
+   * the receipt is open" — see that action's comment in posShortcuts.ts
+   * for the full split.
+   */
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'F7') return;
+      e.preventDefault();
+      window.print();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth slots={{ transition: PopTransition }}>
       {/* `receipt-card` retained only as the hook for pos.css's @media print rules */}
@@ -186,6 +210,7 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
         <Button onClick={onClose}>Close</Button>
         <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
           Print
+          <KeyHint label="F7" onAccent />
         </Button>
       </DialogActions>
     </Dialog>

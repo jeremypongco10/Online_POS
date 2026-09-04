@@ -24,6 +24,13 @@ interface Props {
   onQuantityChange: (key: string, quantity: number) => void;
   /** Opens the supervisor-approval dialog. The line is only dropped once that returns approved — this never removes anything by itself. */
   onRequestVoid: (line: CartLine) => void;
+  /**
+   * The line F10 has stepped the selection onto, if any (see PosScreen).
+   * Deliberately a selected *key* rather than DOM focus: the search box
+   * must keep focus at all times so a barcode scanner always has
+   * somewhere to type, which rules out moving focus onto a row.
+   */
+  selectedKey: string | null;
 }
 
 // A monospace stack, not the UI's regular sans font, is what actually reads as "receipt" —
@@ -33,7 +40,8 @@ const RECEIPT_FONT = 'ui-monospace, "SFMono-Regular", "Courier New", monospace';
 
 const CART_ROW_DOM_ID = (key: string) => `cart-row-${key}`;
 
-export function Cart({ lines, lastAddedKey, onDiscountChange, onQuantityChange, onRequestVoid }: Props) {
+
+export function Cart({ lines, lastAddedKey, selectedKey, onDiscountChange, onQuantityChange, onRequestVoid }: Props) {
   // Mirrors lastAddedKey but self-clears — the parent's key only changes on
   // the NEXT add, so without a local timeout the highlight would just stay
   // lit on whatever was last added instead of fading like a flash.
@@ -50,6 +58,15 @@ export function Cart({ lines, lastAddedKey, onDiscountChange, onQuantityChange, 
     const id = setTimeout(() => setHighlightKey(null), 1200);
     return () => clearTimeout(id);
   }, [lastAddedKey]);
+
+  // Keeps the F10 selection visible as it steps past the bottom (or top)
+  // of the visible list. 'nearest' rather than 'center': this fires on
+  // every step, so the minimum scroll that reveals the row is what keeps
+  // moving within an already-visible stretch from jerking the list.
+  useEffect(() => {
+    if (!selectedKey) return;
+    document.getElementById(CART_ROW_DOM_ID(selectedKey))?.scrollIntoView({ block: 'nearest' });
+  }, [selectedKey]);
 
   if (lines.length === 0) {
     return (
@@ -82,6 +99,7 @@ export function Cart({ lines, lastAddedKey, onDiscountChange, onQuantityChange, 
           key={line.key}
           line={line}
           highlighted={line.key === highlightKey}
+          selected={line.key === selectedKey}
           onDiscountChange={onDiscountChange}
           onQuantityChange={onQuantityChange}
           onRequestVoid={onRequestVoid}
@@ -94,12 +112,14 @@ export function Cart({ lines, lastAddedKey, onDiscountChange, onQuantityChange, 
 function CartRow({
   line,
   highlighted,
+  selected,
   onDiscountChange,
   onQuantityChange,
   onRequestVoid,
 }: {
   line: CartLine;
   highlighted: boolean;
+  selected: boolean;
   onDiscountChange: (key: string, discount: number) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
@@ -123,6 +143,11 @@ function CartRow({
   return (
     <Box
       id={CART_ROW_DOM_ID(line.key)}
+      // Marked for the selection F10 steps through, and announced as
+      // the current row to assistive tech. Deliberately NOT focusable:
+      // focus belongs to the search box at all times so a scanner
+      // always has somewhere to type (see PosScreen's cart selection).
+      aria-current={selected ? 'true' : undefined}
       sx={{
         // Dashed rather than solid — the same "torn perforation" line every
         // printed receipt uses between line items, instead of a spreadsheet
@@ -146,10 +171,17 @@ function CartRow({
         // the monospace text sitting on top of it. The rule is drawn as an
         // inset shadow so it costs no layout — a real border-left would
         // indent every row by 3px whether highlighted or not.
-        bgcolor: highlighted ? `${POS_ACCENT}0a` : 'transparent',
-        boxShadow: `inset 3px 0 0 ${highlighted ? POS_ACCENT : 'transparent'}`,
+        //
+        // The F10 selection reuses the same two devices at full
+        // strength: a thicker leading rule and a slightly stronger
+        // wash. It has to carry on its own what a focus ring normally
+        // would — the row is never focused (the search box keeps focus
+        // for the scanner), so there's no browser-drawn ring to lean
+        // on and this is the only thing marking where the cashier is.
+        bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'transparent',
+        boxShadow: `inset ${selected ? 4 : 3}px 0 0 ${selected ? POS_ACCENT : highlighted ? POS_ACCENT : 'transparent'}`,
         transition: 'background-color 0.4s ease, box-shadow 0.4s ease',
-        '&:hover': { bgcolor: highlighted ? `${POS_ACCENT}0a` : 'action.hover' },
+        '&:hover': { bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
       }}
     >

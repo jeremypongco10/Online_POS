@@ -5,6 +5,7 @@ import PersonAddAlt1OutlinedIcon from '@mui/icons-material/PersonAddAlt1Outlined
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import AssignmentReturnOutlinedIcon from '@mui/icons-material/AssignmentReturnOutlined';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import type { Bagger, Customer } from '../api/types';
 import { KeyHint } from './KeyHint';
 import { POS_ACCENT } from './format';
@@ -17,27 +18,40 @@ interface Props {
   cartHasItems: boolean;
   onCancel: () => void;
   onReturn: () => void;
+  onReprintReceipt: () => void;
 }
 
 /**
- * All four actions shown directly — Customer, Bagger, Return, and
- * Cancellation — rather than tucking any behind a "More" menu, so a
- * cashier can see and reach every action in one click. Wraps to a second
- * row on a narrow panel rather than clipping.
+ * All five actions shown directly — Customer, Bagger, Reprint Receipt,
+ * Return, and Cancellation — rather than tucking any behind a "More"
+ * menu, so a cashier can see and reach every action in one click. Wraps
+ * to a second row on a narrow panel rather than clipping.
  *
  * (Refund used to sit here too, but it pointed at the exact same
  * /admin/customers/returns screen as Return — same backend flow, no
  * distinct refund-only path exists — so it was removed as a duplicate
  * rather than kept as a second button to the same place.)
  *
- * Customer and Bagger keep stable `id`s that useKeyboardShortcuts
- * triggers via a DOM click, since their dialog state lives up in
- * ProductBrowser rather than here. Return/Cancel don't need that —
- * PosScreen already wires F8/F9 straight to the same onReturn/onCancel
- * callbacks these buttons call — but they keep `id`s too, for the same
- * reason: parity with the other two, and a stable hook for tests.
+ * Customer, Bagger and Reprint Receipt keep stable `id`s that
+ * useKeyboardShortcuts/ReceiptModal trigger via a DOM click or their own
+ * local listener, since none of their dialog state lives here — it's up
+ * in ProductBrowser (Customer/Bagger) or PosScreen (Reprint Receipt's
+ * search dialog, and the receipt it opens once a sale is found). Return/
+ * Cancel don't need that — PosScreen already wires F8/F9 straight to the
+ * same onReturn/onCancel callbacks these buttons call — but they keep
+ * `id`s too, for the same reason: parity with the rest, and a stable
+ * hook for tests.
  */
-export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger, cartHasItems, onCancel, onReturn }: Props) {
+export function CartActionsRow({
+  customer,
+  onOpenCustomer,
+  bagger,
+  onOpenBagger,
+  cartHasItems,
+  onCancel,
+  onReturn,
+  onReprintReceipt,
+}: Props) {
   const actionSx = {
     justifyContent: 'flex-start',
     minWidth: 0,
@@ -107,6 +121,19 @@ export function CartActionsRow({ customer, onOpenCustomer, bagger, onOpenBagger,
         >
           Return
           <KeyHint label="F8" />
+        </Button>
+      </Tooltip>
+
+      <Tooltip title="Shortcut: F7">
+        <Button
+          id="pos-action-reprint"
+          variant="outlined"
+          startIcon={<ReceiptLongOutlinedIcon fontSize="small" />}
+          onClick={onReprintReceipt}
+          sx={actionSx}
+        >
+          Reprint Receipt
+          <KeyHint label="F7" />
         </Button>
       </Tooltip>
 

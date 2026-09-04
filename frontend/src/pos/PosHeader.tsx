@@ -58,6 +58,17 @@ export function PosHeader({ cashSession, actions, searchSlotRef }: Props) {
         px: { xs: 2, md: 3 },
         py: 1.25,
         bgcolor: POS_HEADER_BG,
+        // Same reasoning as ReceiptPanel's own edge shadow: a flat navy
+        // bar butting straight against the white grid below it read as a
+        // hard cutoff rather than a bar sitting in front of the page.
+        // Cast only downward, onto the grid — this bar has no sibling
+        // above it to shadow onto.
+        boxShadow: '0 6px 16px -10px rgba(16, 24, 40, 0.35)',
+        // Shadows don't stack in DOM order by default, so without this the
+        // product grid content scrolling underneath would paint over the
+        // shadow instead of under it.
+        position: 'relative',
+        zIndex: 1,
       }}
     >
       {/* Always the light-on-dark logo mark — this bar doesn't switch with

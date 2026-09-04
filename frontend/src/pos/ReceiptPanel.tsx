@@ -1,14 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Paper from '@mui/material/Paper';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutlineOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type { CartTotals, CartLine } from './posTypes';
 import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
 import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
@@ -26,6 +29,8 @@ interface Props {
   lines: CartLine[];
   /** The most recently added/updated cart line — Cart uses it to scroll that row into view and briefly highlight it. */
   lastAddedKey: string | null;
+  /** The cart line F10's selection currently sits on — forwarded to Cart. See PosScreen for why this is a selection rather than DOM focus. */
+  selectedCartKey: string | null;
   onDiscountChange: (key: string, discount: number) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
@@ -68,6 +73,7 @@ export function ReceiptPanel({
   bagger,
   lines,
   lastAddedKey,
+  selectedCartKey,
   onDiscountChange,
   onQuantityChange,
   onRequestVoid,
@@ -93,6 +99,44 @@ export function ReceiptPanel({
     onPaymentDialogOpenChange?.(paymentDialogOpen);
   }, [paymentDialogOpen, onPaymentDialogOpenChange]);
 
+  // Up/down scroll controls for the item list — same reasoning as
+  // CategoryPills' left/right chevrons: a long cart (a big grocery run,
+  // easily 20+ lines) otherwise leans entirely on a thin native scrollbar
+  // with no visible affordance, which is easy to miss on a touch terminal
+  // and fiddly to grab precisely with a mouse. Mirrors that component's
+  // own show-only-when-there's-somewhere-to-go approach rather than
+  // always rendering both.
+  const cartScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  function updateCartScrollButtons() {
+    const el = cartScrollRef.current;
+    if (!el) return;
+    setCanScrollUp(el.scrollTop > 4);
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+  }
+
+  useEffect(() => {
+    updateCartScrollButtons();
+    const el = cartScrollRef.current;
+    if (!el) return;
+    // Content height changes with the cart itself (an add/remove/void) and
+    // with the panel's own height (viewport resize) — both can flip
+    // whether there's anything above/below to scroll to.
+    const resizeObserver = new ResizeObserver(updateCartScrollButtons);
+    resizeObserver.observe(el);
+    el.addEventListener('scroll', updateCartScrollButtons);
+    return () => {
+      resizeObserver.disconnect();
+      el.removeEventListener('scroll', updateCartScrollButtons);
+    };
+  }, [lines.length]);
+
+  function scrollCartBy(delta: number) {
+    cartScrollRef.current?.scrollBy({ top: delta, behavior: 'smooth' });
+  }
+
   return (
     <Paper
       variant="outlined"
@@ -109,6 +153,23 @@ export function ReceiptPanel({
         borderRadius: 0,
         overflow: 'hidden',
         minWidth: 0,
+        // The outlined variant's own border is the divider on paper, but
+        // at 1px against two white panels it read as barely there —
+        // "dry", not so much a seam between two cards as an accidental
+        // gap. A soft shadow cast leftward, over the product grid, gives
+        // this column the same lifted-off-the-page depth ProductCard's
+        // own hairline shadow gives a tile — the border stays for a crisp
+        // edge, the shadow is what actually makes it read as one surface
+        // sitting in front of another rather than two flats touching.
+        //
+        // Top/bottom deliberately don't get the same treatment: this
+        // panel runs the full height of the screen (see PosScreen), so
+        // its top and bottom edges sit flush against the browser
+        // viewport's own edges — there's no surface beyond either one to
+        // cast a shadow onto, and the layout's own overflow:hidden would
+        // clip it invisibly even if there were. See PosHeader/StatusBar
+        // instead for this column's actual top/bottom seams.
+        boxShadow: '-6px 0 16px -10px rgba(16, 24, 40, 0.22)',
         // Hard-bounded to the column's exact height, always — the header
         // and footer (Totals/Payment/Actions/Hold/Pay) must never be
         // pushed out of view. The cart item list below is the only flex
@@ -166,15 +227,64 @@ export function ReceiptPanel({
         </>
       )}
 
-      {/* The only scrollable region in this card — no floor on its height, so totals/payment/actions/Hold/Pay below can never be pushed out of view, even with a very long cart on a short screen. */}
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 2, pt: 1.5, pb: 1, ...THIN_SCROLLBAR_SX }}>
-        <Cart
-          lines={lines}
-          lastAddedKey={lastAddedKey}
-          onDiscountChange={onDiscountChange}
-          onQuantityChange={onQuantityChange}
-          onRequestVoid={onRequestVoid}
-        />
+      {/* The only scrollable region in this card — no floor on its height, so totals/payment/actions/Hold/Pay below can never be pushed out of view, even with a very long cart on a short screen.
+          position:relative so the up/down scroll buttons below can anchor to this box specifically, not the whole card. */}
+      <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <Box ref={cartScrollRef} sx={{ height: '100%', overflowY: 'auto', px: 2, pt: 1.5, pb: 1, ...THIN_SCROLLBAR_SX }}>
+          <Cart
+            lines={lines}
+            lastAddedKey={lastAddedKey}
+            selectedKey={selectedCartKey}
+            onDiscountChange={onDiscountChange}
+            onQuantityChange={onQuantityChange}
+            onRequestVoid={onRequestVoid}
+          />
+        </Box>
+
+        {/* Floating rather than reserving their own row above/below the
+            list — this panel's height is already fully spoken for (see
+            the card's own comment on why the list is the only flexible
+            region), so a fixed control row would eat directly into it.
+            Semi-opaque so a scrolled line item is still legible right
+            behind the button rather than hidden under a solid disc. */}
+        {canScrollUp && (
+          <IconButton
+            size="small"
+            onClick={() => scrollCartBy(-220)}
+            aria-label="Scroll cart up"
+            sx={{
+              position: 'absolute',
+              top: 6,
+              right: 10,
+              bgcolor: 'rgba(255,255,255,0.9)',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: '0 2px 6px rgba(16, 24, 40, 0.15)',
+              '&:hover': { bgcolor: '#fff', borderColor: POS_ACCENT, color: POS_ACCENT },
+            }}
+          >
+            <KeyboardArrowUpIcon fontSize="small" />
+          </IconButton>
+        )}
+        {canScrollDown && (
+          <IconButton
+            size="small"
+            onClick={() => scrollCartBy(220)}
+            aria-label="Scroll cart down"
+            sx={{
+              position: 'absolute',
+              bottom: 6,
+              right: 10,
+              bgcolor: 'rgba(255,255,255,0.9)',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: '0 2px 6px rgba(16, 24, 40, 0.15)',
+              '&:hover': { bgcolor: '#fff', borderColor: POS_ACCENT, color: POS_ACCENT },
+            }}
+          >
+            <KeyboardArrowDownIcon fontSize="small" />
+          </IconButton>
+        )}
       </Box>
 
       {/* A tinted band with a solid top edge, not just another dashed rule on the same white:

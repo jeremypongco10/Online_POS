@@ -26,6 +26,7 @@ import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
+import { ReprintReceiptDialog } from './ReprintReceiptDialog';
 import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
 import { calculateCart, type CartLine } from './posTypes';
 import { formatQuantity } from './format';
@@ -68,6 +69,19 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // addProduct), so the cashier can always see what just landed in the
   // cart without hunting through a long list.
   const [lastAddedKey, setLastAddedKey] = useState<string | null>(null);
+  /**
+   * The cart line F10 has stepped the selection onto, or null when the
+   * cashier isn't stepping through the cart at all.
+   *
+   * Deliberately a selection rather than real DOM focus. The search box
+   * has to hold focus at all times so a keyboard-wedge scanner always
+   * has somewhere to type — that's what handleSearchBlur enforces, and
+   * an earlier focus-based version of this fought it directly (every
+   * arrow press was a tug of war over focus). Tracking the current line
+   * in state instead means the arrows can drive the cart while focus
+   * never leaves the field: a scan mid-review still rings up normally.
+   */
+  const [selectedCartKey, setSelectedCartKey] = useState<string | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [card, setCard] = useState<LoyaltyCard | null>(null);
   const [bagger, setBagger] = useState<Bagger | null>(null);
@@ -75,6 +89,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  // The invoice-lookup dialog F7 opens when no receipt is already on
+  // screen — see posShortcuts.ts's 'reprint' entry for the full split
+  // with ReceiptModal's own local F7 (print) listener.
+  const [reprintOpen, setReprintOpen] = useState(false);
   // Bumped after every completed sale to remount PaymentPanel, clearing its
   // internal amount-tendered/method state — those aren't lifted to this
   // component, so a plain re-render wouldn't reset them on its own.
@@ -106,6 +124,60 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [searchSlot, setSearchSlot] = useState<HTMLDivElement | null>(null);
 
   const totals = useMemo(() => calculateCart(lines), [lines]);
+
+  /**
+   * Drives the cart selection with the arrow keys while it's active,
+   * and drops it on Esc. Listens on the window in the capture phase
+   * for one specific reason: focus is still in the search box (that's
+   * the whole point), and that field's own onKeyDown already claims
+   * ArrowDown to jump into the product grid. Capturing here first, and
+   * stopping propagation, keeps the arrows on the cart for as long as
+   * a line is selected without changing what they do the rest of the
+   * time. Every other key falls through untouched, so a scan (or any
+   * typing) still lands in the search box mid-review.
+   */
+  useEffect(() => {
+    if (selectedCartKey === null) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedCartKey(null);
+        return;
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+
+      const current = lines.findIndex((l) => l.key === selectedCartKey);
+      if (current === -1) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Clamps rather than wrapping, matching the product grid: Esc is
+      // the deliberate way out, not something to fall into by holding
+      // an arrow down.
+      const last = lines.length - 1;
+      const target =
+        e.key === 'ArrowDown' ? Math.min(last, current + 1)
+        : e.key === 'ArrowUp' ? Math.max(0, current - 1)
+        : e.key === 'Home' ? 0
+        : last;
+      setSelectedCartKey(lines[target].key);
+    }
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [selectedCartKey, lines]);
+
+  // A selected line that's since been voided (or a cart that's been
+  // cleared/checked out) leaves the selection pointing at nothing —
+  // drop it rather than leaving an invisible selection armed, which
+  // would keep the arrows captured away from the product grid.
+  useEffect(() => {
+    if (selectedCartKey !== null && !lines.some((l) => l.key === selectedCartKey)) {
+      setSelectedCartKey(null);
+    }
+  }, [lines, selectedCartKey]);
 
   useEffect(() => {
     if (!user) return;
@@ -379,7 +451,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // voidSubject included so F9/F5 can't fire behind the approval dialog —
   // it has a password field in it, and a stray function key clearing the
   // cart underneath would be especially confusing there.
-  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject);
+  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || reprintOpen;
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     search: () => document.getElementById('pos-product-search')?.focus(),
@@ -388,6 +460,15 @@ export function PosScreen({ onOpenAdmin }: Props) {
     pay: () => document.getElementById('pos-pay-button')?.click(),
     bagger: () => document.getElementById('pos-action-bagger')?.click(),
     help: () => document.getElementById('pos-help-button')?.click(),
+    // Only reachable while `receipt` is null — blockingDialogOpen above
+    // disables the whole global handler the moment one is on screen, at
+    // which point F7 instead reaches ReceiptModal's own local listener
+    // (which prints). See that action's entry in posShortcuts.ts.
+    reprint: () => setReprintOpen(true),
+    // Starts the cart selection on the first line, without moving focus
+    // off the search box. A no-op on an empty cart, which is the right
+    // outcome — there's nothing to step through.
+    cart: () => setSelectedCartKey(lines[0]?.key ?? null),
     // Return/Cancellation could DOM-click their own Actions row buttons
     // too, but their handlers are trivial one-liners already available
     // right here, so there's nothing to gain by indirecting through the
@@ -542,6 +623,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               cartHasItems={lines.length > 0}
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
+              onReprintReceipt={() => setReprintOpen(true)}
             />
           </Box>
 
@@ -575,6 +657,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
             bagger={bagger}
             lines={lines}
             lastAddedKey={lastAddedKey}
+            selectedCartKey={selectedCartKey}
             onDiscountChange={updateDiscount}
             onQuantityChange={updateQuantity}
             onRequestVoid={requestVoidLine}
@@ -603,6 +686,21 @@ export function PosScreen({ onOpenAdmin }: Props) {
       )}
 
       {receipt && <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} />}
+      <ReprintReceiptDialog
+        open={reprintOpen}
+        onClose={() => setReprintOpen(false)}
+        // Reuses this screen's own `receipt` state/ReceiptModal rather than
+        // rendering a second receipt view — a past sale's receipt is shown
+        // exactly the same way the one just rung up is, printed the same
+        // way (F7), closed the same way. resetSale() is deliberately NOT
+        // called here (unlike the checkout path above): reprinting a past
+        // sale must never touch whatever cart the cashier currently has in
+        // progress.
+        onFound={(r) => {
+          setReceipt(r);
+          setReprintOpen(false);
+        }}
+      />
 
       <VoidApprovalDialog
         subject={voidSubject}

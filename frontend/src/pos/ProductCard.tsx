@@ -32,6 +32,7 @@ export function ProductCard({ product, onClick }: Props) {
   // every built-in POS role has both) shouldn't see counts here either.
   const canViewStock = hasPermission('inventory.view');
   const stock = product.stock_quantity !== null ? parseFloat(product.stock_quantity) : null;
+  const outOfStock = stock !== null && stock <= 0;
 
   return (
     <Card
@@ -174,9 +175,23 @@ export function ProductCard({ product, onClick }: Props) {
             {/* A non-breaking-space placeholder rather than omitting this
                 Typography entirely when there's nothing to show — that
                 would let the price on the right jump left/right depending
-                on whether a stock figure is present on any given card. */}
-            <Typography variant="caption" noWrap sx={{ fontSize: 11, color: stock !== null && stock <= 0 ? 'error.main' : 'text.secondary' }}>
-              {canViewStock && stock !== null ? `${trimStock(stock)} on hand` : ' '}
+                on whether a stock figure is present on any given card.
+
+                "on hand" used to be spelled out inline here, but a
+                three-digit count plus that suffix didn't fit next to a
+                real price once the grid got dense enough (7+ columns) —
+                "135 on hand" truncated to "135 on h…", reading like a
+                cut-off word rather than a number. Bare, the same as
+                ProductListView's own stock column, so it stays legible at
+                any column count; the full phrase moves to a hover
+                tooltip (title) instead of disappearing outright. */}
+            <Typography
+              variant="caption"
+              noWrap
+              title={canViewStock && stock !== null ? (outOfStock ? 'Out of stock' : `${trimStock(stock)} on hand`) : undefined}
+              sx={{ fontSize: 11, fontWeight: outOfStock ? 700 : 400, color: outOfStock ? 'error.main' : 'text.secondary' }}
+            >
+              {canViewStock && stock !== null ? (outOfStock ? 'Out of stock' : trimStock(stock)) : ' '}
             </Typography>
             {/* The largest thing on the card, ahead of the tinted
                 initials block above it. The colour tile is decoration —

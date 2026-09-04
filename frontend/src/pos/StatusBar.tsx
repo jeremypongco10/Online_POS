@@ -60,6 +60,12 @@ export function StatusBar({ cashierName, storeName, registerName }: Props) {
         py: 0.75,
         bgcolor: POS_HEADER_BG,
         columnGap: 2,
+        // PosHeader's counterpart at the other end of this column — same
+        // navy-bar-against-white-grid seam, so the same treatment, just
+        // cast upward onto the grid above instead of down onto it.
+        boxShadow: '0 -6px 16px -10px rgba(16, 24, 40, 0.35)',
+        position: 'relative',
+        zIndex: 1,
       }}
     >
       {/* Pinned to the far-left edge, on its own — connectivity is the one

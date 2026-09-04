@@ -9,9 +9,13 @@ type Handlers = Record<PosShortcutAction, () => void> & {
 /**
  * Binds the shortcuts declared in posShortcuts.ts — that list is what the
  * Help dialog documents, so keys, labels and behaviour can't drift apart.
- * (F7 is intentionally unbound: it was Refund, removed as a duplicate of
- * Return, and renumbering the rest would have retrained everyone for
- * nothing. Bagger and Hold swapped to F4/F6 per a direct request.)
+ * (F7 was Refund, removed as a duplicate of Return; it's since been
+ * reused for Reprint receipt, whose 'reprint' action this hook binds —
+ * see that entry's comment in posShortcuts.ts for how it hands off to
+ * ReceiptModal's own local F7 listener once a receipt is actually on
+ * screen. Renumbering the rest for either change would have retrained
+ * everyone for nothing. Bagger and Hold swapped to F4/F6 per a direct
+ * request.)
  *
  * Search/Customer/Bagger/Pay/Help DOM-click their own control rather than
  * taking a lifted callback, since those controls' open state lives in

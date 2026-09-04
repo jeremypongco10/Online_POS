@@ -11,8 +11,10 @@ export type PosShortcutAction =
   | 'bagger'
   | 'pay'
   | 'hold'
+  | 'reprint'
   | 'return'
   | 'cancel'
+  | 'cart'
   | 'help';
 
 export interface PosShortcut {
@@ -39,8 +41,18 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   { key: 'F4', action: 'bagger', label: 'Bagger', detail: 'Assign the bagger credited for this sale.' },
   { key: 'F5', action: 'pay', label: 'Pay', detail: 'Open payment to take cash or another tender and close the sale.' },
   { key: 'F6', action: 'hold', label: 'Hold', detail: 'Park the current cart so the next customer can be served, and resume it later from the account menu.' },
+  // Does double duty, and only one half runs through the global handler
+  // below. With no receipt on screen, F7 opens the invoice lookup
+  // (ReprintReceiptDialog) via the 'reprint' action here. But the moment
+  // a receipt IS on screen — right after checkout, or after that lookup
+  // finds one — the global handler is disabled entirely (blockingDialogOpen
+  // in PosScreen), so F7 falls through to ReceiptModal's own local
+  // listener instead, which just prints what's already showing. Same key,
+  // whichever half currently applies; documented once, here, either way.
+  { key: 'F7', action: 'reprint', label: 'Reprint receipt', detail: 'Look up a past sale by invoice number and print its receipt. While a receipt is already on screen, prints that one instead.' },
   { key: 'F8', action: 'return', label: 'Return', detail: 'Open the Returns screen in the Back Office to process a past sale.' },
   { key: 'F9', action: 'cancel', label: 'Cancel Sale', detail: 'Clear the whole cart. Asks for confirmation, and may need supervisor approval.' },
+  { key: 'F10', action: 'cart', label: 'Select cart line', detail: 'Select the first item in the cart, then step through with the arrow keys. Esc clears the selection. The search box keeps focus throughout, so a scan still rings up normally.' },
 
   // Movement around the results. Bound by the search field and the results
   // container themselves rather than globally, since each only applies
