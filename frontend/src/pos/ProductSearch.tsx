@@ -21,6 +21,8 @@ import { KeyHint } from './KeyHint';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
 import { ProductListView } from './ProductListView';
+import { AddQuantityDialog } from './AddQuantityDialog';
+import { IS_TOUCH } from '../isTouch';
 import {
   PRODUCT_TILE_SELECTOR,
   focusFirstProductTile,
@@ -79,20 +81,6 @@ interface Props {
  * dedicated scan endpoint needed — the trailing icon is a visual
  * affordance for that, not a separate integration.
  */
-/**
- * A touch screen (phone/tablet) rather than a mouse. Read once at module
- * load: a device doesn't grow a mouse mid-shift, and re-evaluating per
- * render would only add churn.
- *
- * This is what separates the two very different scanning setups this
- * screen serves. With a mouse, holding focus on the search field costs
- * nothing and is what makes a keyboard-wedge scanner work hands-free.
- * On a touch device that same focus summons the on-screen keyboard over
- * half the screen and keeps re-summoning it after every add — see the
- * scanner/typing modes below.
- */
-const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
-
 export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPortalTarget }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
@@ -302,11 +290,11 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
    * scanning items back-to-back without ever touching the mouse/keyboard
    * again after the first click.
    */
-  function focusSearch() {
+  const focusSearch = useCallback(() => {
     requestAnimationFrame(() => {
       document.getElementById('pos-product-search')?.focus();
     });
-  }
+  }, []);
 
   /**
    * Touch only, and the piece that makes scanner mode actually work: every
@@ -325,7 +313,7 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
    */
   useEffect(() => {
     if (IS_TOUCH && !typingMode) focusSearch();
-  }, [typingMode]);
+  }, [typingMode, focusSearch]);
 
   /**
    * A tap on the field is the one unambiguous "I want to type" signal on
@@ -343,18 +331,55 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
     focusSearch();
   }
 
-  function handleAdd(product: ProductWithStorePrice) {
-    onAdd(product);
-    // Back to scanner mode after an add — staying in typing mode would pop
-    // the keyboard open again on the refocus, the exact behaviour that made
-    // the phone unusable. The effect above restores focus.
-    if (IS_TOUCH && typingMode) setTypingMode(false);
-    // Adding from the keyboard leaves focus on the tile, so the arrows can
-    // carry straight on to the next product. Pulling focus back to the
-    // search field here — right for a click — would end the run after one
-    // item and make arrow browsing useless for a multi-item sale.
-    else if (!keyboardBrowsingRef.current) focusSearch();
-  }
+  // useCallback, stable across renders that don't touch onAdd/typingMode,
+  // so it can pass through ProductGrid/ProductListView to ProductCard
+  // without defeating that component's own memo() — see ProductCard.tsx.
+  // `quantity` is only ever passed by the long-press quantity dialog below
+  // — a plain click still omits it and adds exactly one unit.
+  const handleAdd = useCallback(
+    (product: ProductWithStorePrice, quantity?: number) => {
+      onAdd(product, quantity);
+      // Back to scanner mode after an add — staying in typing mode would pop
+      // the keyboard open again on the refocus, the exact behaviour that made
+      // the phone unusable. The effect above restores focus.
+      if (IS_TOUCH && typingMode) setTypingMode(false);
+      // Adding from the keyboard leaves focus on the tile, so the arrows can
+      // carry straight on to the next product. Pulling focus back to the
+      // search field here — right for a click — would end the run after one
+      // item and make arrow browsing useless for a multi-item sale.
+      else if (!keyboardBrowsingRef.current) focusSearch();
+    },
+    [onAdd, typingMode, focusSearch],
+  );
+
+  // The long-press quantity dialog — holds which product it's open for
+  // (null = closed). Lives here rather than being lifted to PosScreen: it
+  // only ever needs `handleAdd`, which is already local to this component.
+  const [quantifyProduct, setQuantifyProduct] = useState<ProductWithStorePrice | null>(null);
+
+  /**
+   * What a confirmed quantity dialog is waiting to add, held between the
+   * Add tap and the dialog finishing its exit.
+   *
+   * Adding straight from the Add handler batches the cart update into the
+   * same work as the dismissal, and the dialog then can't leave the screen
+   * until all of it lands: measured on a throttled tablet at ~780ms, versus
+   * ~280ms for a Cancel that closes the identical dialog but does no cart
+   * work. Waiting for onExited hands those 500ms back to the cashier — the
+   * dialog goes as soon as it's asked to, and the cart fills in right
+   * behind it. A ref, not state, because nothing renders from it.
+   */
+  const pendingAddRef = useRef<{ product: ProductWithStorePrice; quantity: number } | null>(null);
+
+  // Stable identity for the same memo() reason as handleAdd — spread down
+  // through ProductGrid/ProductListView to every card/row.
+  const handleLongPress = useCallback((product: ProductWithStorePrice) => {
+    // Unpriced products are already unclickable (see ProductCard's
+    // `disabled`) — mirrored here since a long-press reaches the same
+    // card through its own pointer handlers, not through that click gate.
+    if (product.selling_price === null) return;
+    setQuantifyProduct(product);
+  }, []);
 
   /**
    * Reclaims focus after clicking anything else on the main screen — a
@@ -670,9 +695,9 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
                 page they extend the existing columns so nothing jumps when
                 the real rows arrive. */}
             {viewMode === 'grid' ? (
-              <ProductGrid products={orderedResults} onAdd={handleAdd} skeletonCount={gridSkeletons} />
+              <ProductGrid products={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={gridSkeletons} />
             ) : (
-              <ProductListView results={orderedResults} onAdd={handleAdd} skeletonCount={listSkeletons} />
+              <ProductListView results={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={listSkeletons} />
             )}
             {/* Invisible trigger for the next page — only mounted while
                 there's actually more to fetch, so the observer has nothing
@@ -695,6 +720,31 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
       </Box>
 
       {bottomExtra && <Box sx={{ mt: 1.25, flexShrink: 0 }}>{bottomExtra}</Box>}
+
+      <AddQuantityDialog
+        product={quantifyProduct}
+        onClose={() => setQuantifyProduct(null)}
+        onConfirm={(quantity) => {
+          // Only remember what to add — the add itself runs in onExited
+          // below, once the dialog is actually off the screen.
+          if (quantifyProduct) pendingAddRef.current = { product: quantifyProduct, quantity };
+          setQuantifyProduct(null);
+        }}
+        onExited={() => {
+          const pending = pendingAddRef.current;
+          pendingAddRef.current = null;
+          if (!pending) return;
+          // onExited still runs *before* MUI actually pulls the dialog out
+          // of the DOM, so doing the cart work here directly would block
+          // with the dialog still on screen — exactly what this is trying
+          // to avoid. rAF-then-timeout is the "after the browser has
+          // painted" idiom: the dismissal is on screen first, then the
+          // heavier cart update runs.
+          requestAnimationFrame(() => {
+            window.setTimeout(() => handleAdd(pending.product, pending.quantity), 0);
+          });
+        }}
+      />
     </Box>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { useTouchTypingMode } from './useTouchTypingMode';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -74,6 +75,14 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
   const [customerNumber, setCustomerNumber] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+
+  // Both fields stay scanner-ready but keep Android's keyboard shut until
+  // it's actually asked for — see useTouchTypingMode. The number field is
+  // the one that mattered most: this dialog focuses it on open so a
+  // scanned loyalty card lands somewhere, which on a tablet meant the
+  // keyboard covered the dialog the instant it appeared.
+  const numberTyping = useTouchTypingMode();
+  const searchTyping = useTouchTypingMode();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
@@ -275,9 +284,11 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
             placeholder="Scan or type the customer number"
             value={customerNumber}
             onChange={(e) => setCustomerNumber(e.target.value)}
+            onPointerDown={numberTyping.onPointerDown}
             fullWidth
             autoComplete="off"
             slotProps={{
+              htmlInput: { inputMode: numberTyping.inputMode },
               input: {
                 startAdornment: (
                   <InputAdornment position="start">
@@ -316,9 +327,11 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
             placeholder="Search by name, mobile, or code"
             value={searchQuery}
             onChange={(e) => searchCustomers(e.target.value)}
+            onPointerDown={searchTyping.onPointerDown}
             fullWidth
             autoComplete="off"
             slotProps={{
+              htmlInput: { inputMode: searchTyping.inputMode },
               input: {
                 startAdornment: (
                   <InputAdornment position="start">

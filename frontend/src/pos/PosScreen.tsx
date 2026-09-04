@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import { useAuth } from '../auth/AuthContext';
 import { useSnackbar } from '../Snackbar';
@@ -114,7 +114,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   // Scales the page down on a screen smaller than this layout was drawn
   // for, so more of the product grid stays visible instead of scrolling.
-  usePosZoom();
+  // Also returns the manual override PosHeader's zoom control drives.
+  const posZoom = usePosZoom();
 
   // The DOM node ProductSearch's search field portals into — see
   // PosHeader's searchSlotRef and ProductSearch's searchPortalTarget.
@@ -276,49 +277,67 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * `lastAddedKey`, which Cart uses to scroll that line into view and
    * briefly highlight it, so a cashier can always see what just landed in
    * the cart regardless of how it got there.
+   *
+   * Wrapped in useCallback with a stable identity (no `lines` dependency)
+   * so it can be handed down to ProductCard/ProductListView as a prop
+   * without defeating their own memoization — otherwise every add would
+   * hand the whole product grid a "new" callback and force every tile to
+   * re-render along with the cart, which is exactly what made clicking a
+   * product feel laggy (measured ~150-260ms per click before this, purely
+   * from re-rendering dozens of unrelated cards). Reading and updating
+   * `lines` only inside the setLines updater — never as a captured
+   * variable — is what makes that possible: `resultKey` is assigned
+   * synchronously inside the updater (React runs it immediately when
+   * setLines is called, even though the re-render it schedules is
+   * deferred) and read right after, so `existing`/the new line's key are
+   * always computed against the true latest cart, never a stale closure.
    */
-  function addProduct(product: ProductWithStorePrice, quantity?: number) {
-    const unit = units.find((u) => u.id === product.unit_id) ?? null;
-    const step = 1 / 10 ** (unit?.decimal_places ?? 0);
-    // A typed quantity is rounded to the unit's own precision — a
-    // whole-piece item can't take "5.567" — and floored at one step so a
-    // stray "0*" or rounding-to-zero doesn't silently add nothing.
-    const delta = quantity !== undefined ? Math.max(step, Math.round(quantity / step) * step) : step;
+  const addProduct = useCallback(
+    (product: ProductWithStorePrice, quantity?: number) => {
+      const unit = units.find((u) => u.id === product.unit_id) ?? null;
+      const step = 1 / 10 ** (unit?.decimal_places ?? 0);
+      // A typed quantity is rounded to the unit's own precision — a
+      // whole-piece item can't take "5.567" — and floored at one step so a
+      // stray "0*" or rounding-to-zero doesn't silently add nothing.
+      const delta = quantity !== undefined ? Math.max(step, Math.round(quantity / step) * step) : step;
 
-    // Computed from the current `lines` (not the setLines updater's `prev`)
-    // so the resulting key is known synchronously, for the focus signal
-    // below — an add might land on an existing line (the product's
-    // already in the cart) or a freshly appended one, and either way this
-    // is the same key setLines is about to use.
-    const existing = lines.find((l) => !l.isCustom && l.product.id === product.id);
-    const key = existing ? existing.key : `${product.id}-${Date.now()}`;
+      let resultKey = '';
+      setLines((prev) => {
+        const existing = prev.find((l) => !l.isCustom && l.product.id === product.id);
+        if (existing) {
+          resultKey = existing.key;
+          return prev.map((l) =>
+            l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + delta) * 1e6) / 1e6 } : l
+          );
+        }
 
-    setLines((prev) => {
-      if (existing) {
-        return prev.map((l) =>
-          l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + delta) * 1e6) / 1e6 } : l
-        );
-      }
+        resultKey = `${product.id}-${Date.now()}`;
+        const taxRate = taxRates.find((t) => t.id === product.tax_rate_id) ?? null;
+        const newLine: CartLine = {
+          key: resultKey,
+          product,
+          unit,
+          taxRate,
+          quantity: delta,
+          unitPrice: parseFloat(product.selling_price ?? '0') || 0,
+          discount: 0,
+        };
+        return [...prev, newLine];
+      });
+      setLastAddedKey(resultKey);
+      notify(delta !== step ? `Added ${formatQuantity(delta, unit?.abbreviation ?? null, unit?.decimal_places ?? 0)} × ${product.name}` : `Added ${product.name}`);
+    },
+    [units, taxRates, notify],
+  );
 
-      const taxRate = taxRates.find((t) => t.id === product.tax_rate_id) ?? null;
-      const newLine: CartLine = {
-        key,
-        product,
-        unit,
-        taxRate,
-        quantity: delta,
-        unitPrice: parseFloat(product.selling_price ?? '0') || 0,
-        discount: 0,
-      };
-      return [...prev, newLine];
-    });
-    setLastAddedKey(key);
-    notify(delta !== step ? `Added ${formatQuantity(delta, unit?.abbreviation ?? null, unit?.decimal_places ?? 0)} × ${product.name}` : `Added ${product.name}`);
-  }
-
-  function updateDiscount(key: string, discount: number) {
+  // These three are useCallback'd purely so CartRow's memo() can actually
+  // bail — a fresh function identity each render would fail its shallow
+  // prop check and re-render every line in the cart on every cart change.
+  // All three already read state only through setLines' updater, so there
+  // are no dependencies to track and the identity is genuinely permanent.
+  const updateDiscount = useCallback((key: string, discount: number) => {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, discount: Math.max(0, discount) } : l)));
-  }
+  }, []);
 
   /**
    * Cart's ± steppers. Rounded to the line's own unit precision so
@@ -326,7 +345,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * and floored at one step — reaching zero would be a removal, and
    * removals go through the supervisor-approved void path instead.
    */
-  function updateQuantity(key: string, quantity: number) {
+  const updateQuantity = useCallback((key: string, quantity: number) => {
     setLines((prev) =>
       prev.map((l) => {
         if (l.key !== key) return l;
@@ -335,7 +354,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
         return { ...l, quantity: Math.round(stepped * 1e6) / 1e6 };
       })
     );
-  }
+  }, []);
 
   function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
@@ -366,9 +385,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   /** Cart's void (⊘) control on a line. Same dialog either way — requireItemVoidApproval decides whether it asks for a supervisor's credentials on top of the reason. */
-  function requestVoidLine(line: CartLine) {
+  const requestVoidLine = useCallback((line: CartLine) => {
     setVoidSubject({ kind: 'item', line });
-  }
+  }, []);
 
   function handleHold() {
     if (!registerId || lines.length === 0) return;
@@ -570,6 +589,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               screen instead of being pushed down by a full-width bar. */}
           <PosHeader
             cashSession={cashSession}
+            zoom={posZoom}
             searchSlotRef={setSearchSlot}
             actions={
               <AccountMenu

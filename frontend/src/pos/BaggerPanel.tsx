@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useTouchTypingMode } from './useTouchTypingMode';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -73,6 +74,10 @@ export function BaggerPanel({ storeId, bagger, onSelect }: Props) {
   const [baggers, setBaggers] = useState<Bagger[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('');
+  // Same reason as the Customer dialog's fields: this one is auto-focused
+  // when its dialog opens, which on a tablet raised the keyboard over the
+  // dialog unasked. See useTouchTypingMode.
+  const filterTyping = useTouchTypingMode();
 
   useEffect(() => {
     if (!storeId) {
@@ -181,10 +186,12 @@ export function BaggerPanel({ storeId, bagger, onSelect }: Props) {
             placeholder="Filter by name or username"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            onPointerDown={filterTyping.onPointerDown}
             fullWidth
             size="small"
             autoComplete="off"
             slotProps={{
+              htmlInput: { inputMode: filterTyping.inputMode },
               input: {
                 startAdornment: (
                   <InputAdornment position="start">

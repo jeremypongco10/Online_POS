@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import Box from '@mui/material/Box';
@@ -9,10 +9,18 @@ import { assetUrl } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { formatMoney, POS_ACCENT } from './format';
 import { colorForName, initialsForName } from './productColor';
+import { useLongPress } from './useLongPress';
 
 interface Props {
   product: ProductWithStorePrice;
-  onClick: () => void;
+  /**
+   * Takes the product rather than being pre-bound to it (`() => void`) so
+   * every card in a grid can share the exact same function reference from
+   * the parent — see the memo() note below for why that's the point.
+   */
+  onAdd: (product: ProductWithStorePrice) => void;
+  /** Holding the card down opens the quantity dialog instead of adding one unit — see useLongPress. Optional so ProductCard doesn't require a caller that has nothing to open. */
+  onLongPress?: (product: ProductWithStorePrice) => void;
 }
 
 /** "20" for a whole count, "1.25" for a weighed one — trims the DB's fixed 4-decimal storage down to only the digits that matter for a compact card badge. No unit abbreviation here (ProductWithStorePrice only carries unit_id, not the unit record), unlike Cart's formatQuantity. */
@@ -20,12 +28,27 @@ function trimStock(quantity: number): string {
   return String(Math.round(quantity * 10000) / 10000);
 }
 
-export function ProductCard({ product, onClick }: Props) {
+/**
+ * Memoized: a real grid runs 25-100+ of these, and every one lived under
+ * the same PosScreen as the cart. Without memo, adding a single item
+ * re-rendered every tile on screen along with it — invisible in a small
+ * catalog, but measured at 150-260ms of pure re-render work on a normal
+ * one, which is exactly the delay reported after clicking a product. memo
+ * only pays off if `product` and `onAdd` are referentially stable across
+ * an unrelated re-render (e.g. the cart changing) — see addProduct in
+ * PosScreen and the `onAdd` prop shape above.
+ */
+export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPress }: Props) {
   const { hasPermission } = useAuth();
   const unpriced = product.selling_price === null;
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = product.image_path && !imageFailed;
   const chipColor = colorForName(product.name);
+
+  // wasLongPress kept separate from the spread below — it isn't a DOM
+  // event handler, and spreading it onto CardActionArea would land it as
+  // an unrecognized attribute on the underlying <button>.
+  const { wasLongPress, ...longPressHandlers } = useLongPress(() => onLongPress?.(product), !unpriced && Boolean(onLongPress));
 
   // Same gate ProductLookupScreen (Search Product) uses for stock — a
   // role with products.view but not inventory.view (a rare custom role;
@@ -69,7 +92,15 @@ export function ProductCard({ product, onClick }: Props) {
         // Marks this as an arrow-key stop — see productGridNav.ts.
         data-pos-tile=""
         disabled={unpriced}
-        onClick={onClick}
+        onClick={() => {
+          // A long-press ends with a real pointerup, and the browser fires
+          // a click right after it — without this check, holding the card
+          // down would open the quantity dialog *and* still add one unit
+          // from that trailing click.
+          if (wasLongPress()) return;
+          onAdd(product);
+        }}
+        {...longPressHandlers}
         sx={{
           height: '100%',
           display: 'flex',
@@ -216,4 +247,4 @@ export function ProductCard({ product, onClick }: Props) {
       </CardActionArea>
     </Card>
   );
-}
+});

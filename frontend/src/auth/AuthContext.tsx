@@ -1,12 +1,13 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { api, setTokens, getAccessToken, setUnauthorizedHandler } from '../api/client';
 import type { AuthUser } from '../api/types';
+import { exitFullscreen } from '../fullscreen';
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   sessionExpired: boolean;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   hasPermission: (slug: string) => boolean;
 }
@@ -53,6 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const me = await api.get<AuthUser>('/auth/me');
     setSessionExpired(false);
     setUser(me);
+    // Returned (not just set into state) so the caller can act on the role
+    // immediately — Login.tsx uses this to know, right after this promise
+    // resolves and while the click that submitted the form still counts as
+    // a user gesture, whether to request fullscreen. Reading `user` from
+    // context instead would race the state update.
+    return me;
   }, []);
 
   const logout = useCallback(() => {
@@ -60,6 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokens(null, null);
     setSessionExpired(false);
     setUser(null);
+    // Unlike entering fullscreen (see fullscreen.ts), exiting needs no
+    // user gesture — a deliberate "Log out" click should hand the browser
+    // chrome straight back, not leave the next person staring at a
+    // chrome-free Login screen.
+    exitFullscreen();
     // Otherwise the address bar is left showing wherever they were (e.g.
     // /admin/team) while the Login screen renders over it — and the next
     // login (same tab, possibly a different user) would inherit that

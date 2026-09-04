@@ -61,6 +61,7 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   { key: '↑ ↓ ← →', label: 'Move between products', detail: 'Step around the product list. Home and End jump to the first and last product.' },
   { key: 'Enter', label: 'Add to cart', detail: 'Adds the highlighted product. In the search box, an exact barcode or SKU match is added straight away.' },
   { key: 'Esc', label: 'Back to search', detail: 'From the product list, returns to the search box. In the search box, clears what has been typed.' },
+  { key: 'Hold', label: 'Add a quantity', detail: 'Press and hold a product (mouse or touch) to enter how many to add before it goes in the cart, instead of clicking once per unit.' },
 ];
 
 /** Everything the global handler binds — the focus-dependent keys above are left to their own controls. */

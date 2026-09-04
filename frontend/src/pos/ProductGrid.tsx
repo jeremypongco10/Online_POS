@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Box from '@mui/material/Box';
 import type { ProductWithStorePrice } from '../api/types';
 import { ProductCard } from './ProductCard';
@@ -7,6 +8,7 @@ import { PRODUCT_GRID_ID } from './productGridNav';
 interface Props {
   products: ProductWithStorePrice[];
   onAdd: (product: ProductWithStorePrice) => void;
+  onLongPress?: (product: ProductWithStorePrice) => void;
   /**
    * Placeholder tiles to trail the real ones with while a page is
    * loading — see ProductSearch's loadMore. They render *inside* this
@@ -17,7 +19,17 @@ interface Props {
   skeletonCount?: number;
 }
 
-export function ProductGrid({ products, onAdd, skeletonCount = 0 }: Props) {
+/**
+ * Memoized alongside ProductCard. Without this, every cart change still
+ * re-rendered this grid and made React walk all 40+ tiles just to have each
+ * memoized card bail out one at a time — measured as the single biggest
+ * chunk of the lag after confirming a quantity. Skipping the whole subtree
+ * on one comparison is what actually keeps a cart update off the product
+ * column. All four props hold their identity across an unrelated re-render
+ * (orderedResults is a useMemo, both callbacks are useCallbacks, and the
+ * skeleton count is a plain number), so the bail-out genuinely fires.
+ */
+export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPress, skeletonCount = 0 }: Props) {
   return (
     <Box
       // The id is how arrow-key navigation reads back the column count
@@ -47,12 +59,21 @@ export function ProductGrid({ products, onAdd, skeletonCount = 0 }: Props) {
         alignContent: 'start',
       }}
     >
+      {/*
+        onAdd passed straight through, not wrapped in `() => onAdd(p)` —
+        that per-card closure would be a "new" prop on every ProductGrid
+        render regardless of ProductCard's own memo(), since a fresh
+        function reference always fails a shallow-equal comparison. Only
+        this — the same onAdd reference reaching every card unchanged, plus
+        a stable `p` from the results array — lets memo actually skip
+        re-rendering tiles that have nothing to do with whatever changed.
+      */}
       {products.map((p) => (
-        <ProductCard key={p.id} product={p} onClick={() => onAdd(p)} />
+        <ProductCard key={p.id} product={p} onAdd={onAdd} onLongPress={onLongPress} />
       ))}
       {Array.from({ length: skeletonCount }, (_, i) => (
         <ProductCardSkeleton key={`skeleton-${i}`} />
       ))}
     </Box>
   );
-}
+});

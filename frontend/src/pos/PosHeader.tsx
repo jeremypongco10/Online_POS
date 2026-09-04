@@ -5,16 +5,21 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
+import ZoomInOutlinedIcon from '@mui/icons-material/ZoomInOutlined';
+import ZoomOutOutlinedIcon from '@mui/icons-material/ZoomOutOutlined';
 import type { CashSession } from '../api/types';
 import { OverflowMenu } from './OverflowMenu';
 import { PosHelpDialog } from './PosHelpDialog';
 import { POS_HEADER_BG } from './format';
+import type { PosZoomControl } from './usePosZoom';
 import logoDark from '../assets/logo-dark.png';
 
 interface Props {
   cashSession: CashSession | null;
   /** The account avatar/menu — composed by PosScreen, which owns the ~13 props AccountMenu needs. */
   actions?: ReactNode;
+  /** The zoom control usePosZoom returns — PosHeader only renders it, PosScreen owns the hook. */
+  zoom: PosZoomControl;
   /**
    * Where ProductSearch's search field actually mounts, via a portal —
    * this bar doesn't own the field's state (query, scanner mode, the
@@ -36,7 +41,7 @@ interface Props {
  * reasoning ReceiptPanel forces its own light scheme regardless of the
  * app-wide setting.
  */
-export function PosHeader({ cashSession, actions, searchSlotRef }: Props) {
+export function PosHeader({ cashSession, actions, searchSlotRef, zoom }: Props) {
   const [overflowAnchor, setOverflowAnchor] = useState<HTMLElement | null>(null);
   // Owned here rather than in PosScreen so the header stays self-contained;
   // F1 reaches it by DOM-clicking the button below, the same way the other
@@ -98,6 +103,57 @@ export function PosHeader({ cashSession, actions, searchSlotRef }: Props) {
       <Box ref={searchSlotRef} sx={{ flex: 1, maxWidth: 900, minWidth: 0 }} />
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        {/* Hidden below md, same as usePosZoom's own gate: below that width
+            the layout is the stacked mobile form, where zooming a desktop
+            two-column layout up or down doesn't mean anything. */}
+        <Stack
+          direction="row"
+          spacing={0.25}
+          sx={{
+            display: { xs: 'none', md: 'flex' },
+            alignItems: 'center',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            borderRadius: 5,
+            px: 0.5,
+          }}
+        >
+          <Tooltip title="Zoom out">
+            <span>
+              <IconButton size="small" onClick={zoom.zoomOut} disabled={!zoom.canZoomOut} aria-label="Zoom out" sx={iconSx}>
+                <ZoomOutOutlinedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={zoom.isManual ? 'Reset to fit screen' : 'Fits the screen automatically'}>
+            <Box
+              component="button"
+              type="button"
+              onClick={zoom.reset}
+              disabled={!zoom.isManual}
+              sx={{
+                all: 'unset',
+                cursor: zoom.isManual ? 'pointer' : 'default',
+                minWidth: 34,
+                textAlign: 'center',
+                fontSize: 12,
+                fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
+                color: 'rgba(255,255,255,0.85)',
+                '&:hover': zoom.isManual ? { color: '#fff' } : undefined,
+              }}
+            >
+              {zoom.percent}%
+            </Box>
+          </Tooltip>
+          <Tooltip title="Zoom in">
+            <span>
+              <IconButton size="small" onClick={zoom.zoomIn} disabled={!zoom.canZoomIn} aria-label="Zoom in" sx={iconSx}>
+                <ZoomInOutlinedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+
         <Tooltip title="Controls & shortcuts (F1)">
           <IconButton id="pos-help-button" size="small" onClick={() => setHelpOpen(true)} aria-label="Controls and shortcuts" sx={iconSx}>
             <HelpOutlineIcon fontSize="small" />

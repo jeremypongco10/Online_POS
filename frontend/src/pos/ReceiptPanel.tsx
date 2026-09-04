@@ -235,6 +235,7 @@ export function ReceiptPanel({
             lines={lines}
             lastAddedKey={lastAddedKey}
             selectedKey={selectedCartKey}
+            scrollContainerRef={cartScrollRef}
             onDiscountChange={onDiscountChange}
             onQuantityChange={onQuantityChange}
             onRequestVoid={onRequestVoid}

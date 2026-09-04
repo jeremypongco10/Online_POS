@@ -3,7 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      Deliberately plain — no interactive-widget directive. That was tried
+      to fix the on-screen-keyboard-covers-the-quantity-dialog bug (forces
+      the layout viewport to resize around the keyboard), but combined
+      with this app's own Fullscreen API mode (see enterFullscreen.ts) it
+      produced a worse bug: the whole screen going black when the keyboard
+      dismissed, on the Android tablet this was actually tested on. That
+      combination — interactive-widget's forced layout resize plus native
+      fullscreen's own compositor — is a known rough edge on Android
+      Chrome. AddQuantityDialog's own top-anchored positioning and dvh
+      height cap handle the original bug without touching this document-
+      wide, every-keyboard-show-or-hide setting.
+    -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Launching from the Android home screen ("Add to Home Screen") runs the
+      POS in `display: standalone` — no address bar, no browser chrome — and
+      does it WITHOUT the Fullscreen API, so none of the keyboard/black-screen
+      trouble that made fullscreen unusable on a tablet applies. That's why
+      enterFullscreen() deliberately skips touch devices and points here.
+      Note this needs the app served over HTTPS to install as a real
+      standalone app; over plain HTTP Android will only make a bookmark
+      shortcut that still opens in a browser tab.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#12163a" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

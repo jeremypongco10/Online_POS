@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
+import { useLongPress } from './useLongPress';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -15,6 +16,7 @@ import { ProductRowSkeleton } from './ProductSkeletons';
 interface Props {
   results: ProductWithStorePrice[];
   onAdd: (product: ProductWithStorePrice) => void;
+  onLongPress?: (product: ProductWithStorePrice) => void;
   /** Trailing placeholder rows while the next page loads — see ProductSearch's loadMore. */
   skeletonCount?: number;
 }
@@ -94,6 +96,118 @@ function ProductThumb({ product }: { product: ProductWithStorePrice }) {
 }
 
 /**
+ * One row, split out and memoized for the same reason ProductCard is: a
+ * long list re-renders every visible row on any unrelated PosScreen
+ * update (e.g. the cart changing) unless each row can bail out on its
+ * own. Needs `onAdd` and `product` to stay referentially stable across
+ * such an update to actually take effect — see ProductSearch's handleAdd
+ * and PosScreen's addProduct.
+ */
+const ProductListRow = memo(function ProductListRow({
+  product: p,
+  canViewStock,
+  isLast,
+  onAdd,
+  onLongPress,
+}: {
+  product: ProductWithStorePrice;
+  canViewStock: boolean;
+  isLast: boolean;
+  onAdd: (product: ProductWithStorePrice) => void;
+  onLongPress?: (product: ProductWithStorePrice) => void;
+}) {
+  const unpriced = p.selling_price === null;
+  const stock = p.stock_quantity !== null ? parseFloat(p.stock_quantity) : null;
+  const outOfStock = stock !== null && stock <= 0;
+  // wasLongPress kept out of the spread below — see ProductCard's identical note.
+  const { wasLongPress, ...longPressHandlers } = useLongPress(() => onLongPress?.(p), !unpriced && Boolean(onLongPress));
+
+  return (
+    <ListItemButton
+      data-pos-tile=""
+      divider={!isLast}
+      disabled={unpriced}
+      onClick={() => {
+        if (unpriced || wasLongPress()) return;
+        onAdd(p);
+      }}
+      {...longPressHandlers}
+      // Same accent focus ring as the grid tiles — arrow-key
+      // browsing works in this view too, so it needs the same
+      // unmistakable "you are here". The hover tint matches the
+      // cards' as well, rather than MUI's default grey wash.
+      sx={{
+        py: 1,
+        px: 1.5,
+        gap: 1.5,
+        transition: 'background-color 0.15s ease',
+        '&:hover': { bgcolor: `${POS_ACCENT}0a` },
+        '&.Mui-focusVisible': {
+          outline: `2px solid ${POS_ACCENT}`,
+          outlineOffset: '-2px',
+          bgcolor: `${POS_ACCENT}14`,
+        },
+      }}
+    >
+      <ProductThumb product={p} />
+
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+          {p.name}
+        </Typography>
+        {/* Monospaced so a column of codes lines up digit for
+            digit — SKUs are compared character by character, not
+            read as words. */}
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}
+        >
+          {p.sku}
+        </Typography>
+      </Box>
+
+      {canViewStock && (
+        <Typography
+          noWrap
+          sx={{
+            width: STOCK_COL,
+            flexShrink: 0,
+            textAlign: 'right',
+            display: { xs: 'none', sm: 'block' },
+            fontSize: 12,
+            fontVariantNumeric: 'tabular-nums',
+            fontWeight: outOfStock ? 700 : 400,
+            color: outOfStock ? 'error.main' : 'text.secondary',
+          }}
+        >
+          {stock === null ? '—' : outOfStock ? 'Out of stock' : trimStock(stock)}
+        </Typography>
+      )}
+
+      {/* tabular-nums keeps the decimal points stacked down the
+          column; without it every row's price sits a pixel or two
+          off the one above. */}
+      <Typography
+        sx={{
+          width: PRICE_COL,
+          flexShrink: 0,
+          textAlign: 'right',
+          fontWeight: 800,
+          fontSize: unpriced ? 12 : 14,
+          whiteSpace: 'nowrap',
+          fontVariantNumeric: 'tabular-nums',
+          color: unpriced ? 'error.main' : POS_ACCENT,
+        }}
+      >
+        {unpriced ? 'No price' : formatMoney(parseFloat(p.selling_price as string))}
+      </Typography>
+    </ListItemButton>
+  );
+});
+
+/**
  * The list ("table") view of the same results the grid shows — denser,
  * and the one to use when a cashier is reading names rather than spotting
  * pictures.
@@ -104,7 +218,8 @@ function ProductThumb({ product }: { product: ProductWithStorePrice }) {
  * columns are what let the eye run straight down a single value instead
  * of re-finding it on every row.
  */
-export function ProductListView({ results, onAdd, skeletonCount = 0 }: Props) {
+/** Memoized for the same reason, and on the same stable props, as ProductGrid — see its note. */
+export const ProductListView = memo(function ProductListView({ results, onAdd, onLongPress, skeletonCount = 0 }: Props) {
   const { hasPermission } = useAuth();
   // Same gate as ProductCard: a role with products.view but not
   // inventory.view shouldn't see stock counts in either view.
@@ -142,92 +257,16 @@ export function ProductListView({ results, onAdd, skeletonCount = 0 }: Props) {
       </Stack>
 
       <List disablePadding>
-        {results.map((p, i) => {
-          const unpriced = p.selling_price === null;
-          const stock = p.stock_quantity !== null ? parseFloat(p.stock_quantity) : null;
-          const outOfStock = stock !== null && stock <= 0;
-
-          return (
-            <ListItemButton
-              key={p.id}
-              data-pos-tile=""
-              divider={i < results.length - 1 || skeletonCount > 0}
-              disabled={unpriced}
-              onClick={() => !unpriced && onAdd(p)}
-              // Same accent focus ring as the grid tiles — arrow-key
-              // browsing works in this view too, so it needs the same
-              // unmistakable "you are here". The hover tint matches the
-              // cards' as well, rather than MUI's default grey wash.
-              sx={{
-                py: 1,
-                px: 1.5,
-                gap: 1.5,
-                transition: 'background-color 0.15s ease',
-                '&:hover': { bgcolor: `${POS_ACCENT}0a` },
-                '&.Mui-focusVisible': {
-                  outline: `2px solid ${POS_ACCENT}`,
-                  outlineOffset: '-2px',
-                  bgcolor: `${POS_ACCENT}14`,
-                },
-              }}
-            >
-              <ProductThumb product={p} />
-
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-                  {p.name}
-                </Typography>
-                {/* Monospaced so a column of codes lines up digit for
-                    digit — SKUs are compared character by character, not
-                    read as words. */}
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}
-                >
-                  {p.sku}
-                </Typography>
-              </Box>
-
-              {canViewStock && (
-                <Typography
-                  noWrap
-                  sx={{
-                    width: STOCK_COL,
-                    flexShrink: 0,
-                    textAlign: 'right',
-                    display: { xs: 'none', sm: 'block' },
-                    fontSize: 12,
-                    fontVariantNumeric: 'tabular-nums',
-                    fontWeight: outOfStock ? 700 : 400,
-                    color: outOfStock ? 'error.main' : 'text.secondary',
-                  }}
-                >
-                  {stock === null ? '—' : outOfStock ? 'Out of stock' : trimStock(stock)}
-                </Typography>
-              )}
-
-              {/* tabular-nums keeps the decimal points stacked down the
-                  column; without it every row's price sits a pixel or two
-                  off the one above. */}
-              <Typography
-                sx={{
-                  width: PRICE_COL,
-                  flexShrink: 0,
-                  textAlign: 'right',
-                  fontWeight: 800,
-                  fontSize: unpriced ? 12 : 14,
-                  whiteSpace: 'nowrap',
-                  fontVariantNumeric: 'tabular-nums',
-                  color: unpriced ? 'error.main' : POS_ACCENT,
-                }}
-              >
-                {unpriced ? 'No price' : formatMoney(parseFloat(p.selling_price as string))}
-              </Typography>
-            </ListItemButton>
-          );
-        })}
+        {results.map((p, i) => (
+          <ProductListRow
+            key={p.id}
+            product={p}
+            canViewStock={canViewStock}
+            onLongPress={onLongPress}
+            isLast={i === results.length - 1 && skeletonCount === 0}
+            onAdd={onAdd}
+          />
+        ))}
 
         {Array.from({ length: skeletonCount }, (_, i) => (
           <ProductRowSkeleton key={`skeleton-${i}`} />
@@ -235,4 +274,4 @@ export function ProductListView({ results, onAdd, skeletonCount = 0 }: Props) {
       </List>
     </Paper>
   );
-}
+});
