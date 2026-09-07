@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Libraries\TaxService;
 use App\Models\CompanyModel;
 use App\Models\CustomerModel;
 use App\Models\InventoryModel;
@@ -19,6 +20,7 @@ use App\Models\StoreModel;
 use App\Models\UnitModel;
 use App\Models\UserModel;
 use App\Models\UserStoreModel;
+use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
 use Config\Database;
 use Config\Services;
@@ -113,12 +115,19 @@ class SalesController extends BaseCrudController
             'bagger' => $sale->bagger_name,
             'customer' => $sale->customer_name,
             'loyalty_card_number' => $sale->loyalty_card_number,
+            // BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC
+            // line — printed once for the whole sale (see
+            // AddDiscountHolderToSales), null on any sale with no
+            // government discount applied.
+            'discount_holder_name' => $sale->discount_holder_name,
+            'discount_id_number' => $sale->discount_id_number,
             'items' => array_map(static fn ($item) => [
                 'name' => $item->product_name,
                 'sku' => $item->product_sku,
                 'quantity' => $item->quantity,
                 'unit_price' => $item->unit_price,
                 'discount' => $item->discount,
+                'discount_type' => $item->discount_type,
                 'tax_amount' => $item->tax_amount,
                 'line_total' => $item->line_total,
                 // Read off the line's own persisted tax_type, so a
@@ -264,6 +273,7 @@ class SalesController extends BaseCrudController
         $lineData = [];
         $taxResults = [];
         $requiredQtyByProduct = [];
+        $requiresDiscountHolder = false;
 
         // Fetch every distinct product referenced by the cart in one
         // query rather than one find() per line — a cart with many
@@ -294,15 +304,27 @@ class SalesController extends BaseCrudController
                     return $this->apiFail("unit_price must be greater than zero for custom item: {$name}", 422);
                 }
 
-                $discount = (float) ($item['discount'] ?? 0);
-                if (! $taxService->isValidDiscount($quantity, $unitPrice, $discount)) {
-                    return $this->apiFail("Discount must be between 0 and the line subtotal for custom item: {$name}", 422);
+                $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
+                $discountType = $item['discount_type'] ?? null;
+                $result = $this->resolveLineDiscount(
+                    $taxService,
+                    $discountType,
+                    $quantity,
+                    $unitPrice,
+                    (float) ($item['discount'] ?? 0),
+                    $taxRate,
+                    $inclusive,
+                    "custom item: {$name}",
+                    null
+                );
+                if (! is_array($result)) {
+                    return $result;
+                }
+                if ($taxService->discountRequiresHolderId($discountType)) {
+                    $requiresDiscountHolder = true;
                 }
 
-                $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
-                $result = $taxService->calculateLine($quantity, $unitPrice, $discount, $taxRate, $inclusive);
-
-                $discountTotal += $discount;
+                $discountTotal += $result['discount'];
                 $taxResults[] = $result;
                 $lineData[] = [
                     'product_id' => null,
@@ -310,11 +332,12 @@ class SalesController extends BaseCrudController
                     // name/SKU from — the typed name IS the snapshot.
                     'product_name' => $name,
                     'product_sku' => null,
-                    'tax_rate_id' => $taxRate->id ?? null,
+                    'tax_rate_id' => $result['tax_rate_id'],
                     'tax_type' => $result['tax_type'],
                     'quantity' => $quantity,
                     'unit_price' => $unitPrice,
-                    'discount' => $discount,
+                    'discount' => $result['discount'],
+                    'discount_type' => $discountType,
                     'tax_rate' => $result['rate'],
                     'tax_amount' => $result['tax_amount'],
                     'line_total' => $result['gross_amount'],
@@ -343,16 +366,27 @@ class SalesController extends BaseCrudController
             $requiredQtyByProduct[$item['product_id']] = ($requiredQtyByProduct[$item['product_id']] ?? 0) + $quantity;
 
             $unitPrice = (float) $item['unit_price'];
-            $discount = (float) ($item['discount'] ?? 0);
-
-            if (! $taxService->isValidDiscount($quantity, $unitPrice, $discount)) {
-                return $this->apiFail("Discount must be between 0 and the line subtotal for product: {$product->name}", 422);
+            $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
+            $discountType = $item['discount_type'] ?? null;
+            $result = $this->resolveLineDiscount(
+                $taxService,
+                $discountType,
+                $quantity,
+                $unitPrice,
+                (float) ($item['discount'] ?? 0),
+                $taxRate,
+                $inclusive,
+                "product: {$product->name}",
+                $product
+            );
+            if (! is_array($result)) {
+                return $result;
+            }
+            if ($taxService->discountRequiresHolderId($discountType)) {
+                $requiresDiscountHolder = true;
             }
 
-            $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
-            $result = $taxService->calculateLine($quantity, $unitPrice, $discount, $taxRate, $inclusive);
-
-            $discountTotal += $discount;
+            $discountTotal += $result['discount'];
             $taxResults[] = $result;
 
             $lineData[] = [
@@ -361,15 +395,36 @@ class SalesController extends BaseCrudController
                 // rename must not change what this receipt says was sold.
                 'product_name' => $product->name,
                 'product_sku' => $product->sku,
-                'tax_rate_id' => $taxRate->id ?? null,
+                'tax_rate_id' => $result['tax_rate_id'],
                 'tax_type' => $result['tax_type'],
                 'quantity' => $quantity,
                 'unit_price' => $unitPrice,
-                'discount' => $discount,
+                'discount' => $result['discount'],
+                'discount_type' => $discountType,
                 'tax_rate' => $result['rate'],
                 'tax_amount' => $result['tax_amount'],
                 'line_total' => $result['gross_amount'],
             ];
+        }
+
+        // --- BIR RR 7-2010 / RA 9994 / RA 10754: a Senior Citizen, PWD,
+        // or 5% Basic Necessities & Prime Commodities line requires the
+        // purchaser's name and government ID number on the sale record
+        // for the discount to be valid documentation, not just applied
+        // at the register. Checked once, after the loop, rather than
+        // per-line — one holder covers the whole transaction (see
+        // AddDiscountHolderToSales). ---
+        if (! empty($requiresDiscountHolder)) {
+            $holderName = trim((string) ($payload['discount_holder_name'] ?? ''));
+            $holderId = trim((string) ($payload['discount_id_number'] ?? ''));
+            if ($holderName === '' || $holderId === '') {
+                return $this->apiFail('discount_holder_name and discount_id_number are required when a Senior Citizen, PWD, or 5% Basic Necessities discount is applied', 422);
+            }
+            $payload['discount_holder_name'] = $holderName;
+            $payload['discount_id_number'] = $holderId;
+        } else {
+            $payload['discount_holder_name'] = null;
+            $payload['discount_id_number'] = null;
         }
 
         // --- Validate stock: every tracked product must have enough on hand
@@ -714,8 +769,8 @@ class SalesController extends BaseCrudController
             return $this->validationFail($this->validator->getErrors());
         }
 
-        $approver = $this->resolveVoidApprover($payload, 'item-void-denied', 'Cart Item', $payload['product_name']);
-        if (! is_object($approver)) {
+        $approver = $this->resolveSupervisorApprover($payload, 'sales.void', 'item-void-denied', 'Cart Item', $payload['product_name']);
+        if ($approver instanceof ResponseInterface) {
             return $approver;
         }
 
@@ -766,8 +821,8 @@ class SalesController extends BaseCrudController
 
         $label = 'Entire cart (' . $payload['item_count'] . ' item' . ((int) $payload['item_count'] === 1 ? '' : 's') . ')';
 
-        $approver = $this->resolveVoidApprover($payload, 'cart-void-denied', 'Cart', $label);
-        if (! is_object($approver)) {
+        $approver = $this->resolveSupervisorApprover($payload, 'sales.void', 'cart-void-denied', 'Cart', $label);
+        if ($approver instanceof ResponseInterface) {
             return $approver;
         }
 
@@ -786,14 +841,27 @@ class SalesController extends BaseCrudController
     }
 
     /**
-     * Shared credential/authority check behind both authorizeItemVoid()
-     * and authorizeCartVoid() — verifying a supervisor is real, active,
-     * unlocked, holds sales.void, and (if the caller is store-restricted)
-     * assigned to $payload['store_id'], logging every denial along the
-     * way under the caller-supplied $deniedAction/$entityType/$label.
+     * Shared credential/authority check behind authorizeItemVoid(),
+     * authorizeCartVoid(), and authorizeItemDiscount() — verifying a
+     * supervisor is real, active, unlocked, holds $requiredPermission,
+     * and (if the caller is store-restricted) assigned to
+     * $payload['store_id'], logging every denial along the way under the
+     * caller-supplied $deniedAction/$entityType/$label.
+     *
+     * $requiredPermission varies by caller (sales.void for the two void
+     * endpoints, sales.discount for the discount endpoint) — approving a
+     * void and approving a discount are kept as distinct authorities in
+     * this app, the same way returns.create and returns.approve are
+     * deliberately separate, so one supervisor role can be given one
+     * without the other.
      *
      * Returns the approver row on success, or a ResponseInterface to
-     * return immediately on failure — callers check with is_object().
+     * return immediately on failure — callers check with `instanceof
+     * ResponseInterface`, not is_object(): the approver row is also a
+     * plain object (UserModel's returnType), so is_object() alone can
+     * never tell the two apart. (Found live while testing Manual
+     * Discount's wrong-password path — the same bug was already latent
+     * in authorizeItemVoid/authorizeCartVoid, just never exercised.)
      * The account-safety handling here deliberately mirrors
      * AuthController::login(): this accepts a password, so it is a
      * credential endpoint and gets the same lockout, inactive-account,
@@ -801,7 +869,7 @@ class SalesController extends BaseCrudController
      * softer side door for guessing a supervisor's password than the
      * login form itself.
      */
-    private function resolveVoidApprover(array $payload, string $deniedAction, string $entityType, string $label)
+    private function resolveSupervisorApprover(array $payload, string $requiredPermission, string $deniedAction, string $entityType, string $label)
     {
         $auth = Services::authContext();
         $userModel = model(UserModel::class);
@@ -846,13 +914,13 @@ class SalesController extends BaseCrudController
             return $this->apiFail('Invalid supervisor credentials', 401);
         }
 
-        if (! in_array('sales.void', $userModel->permissionSlugs((int) $approver->id), true)) {
+        if (! in_array($requiredPermission, $userModel->permissionSlugs((int) $approver->id), true)) {
             Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
-                'reason' => 'Approver lacks sales.void',
+                'reason' => "Approver lacks {$requiredPermission}",
                 'approved_by' => $approver->name,
             ]);
 
-            return $this->forbidden('That user is not authorized to approve voids');
+            return $this->forbidden('That user is not authorized to approve this');
         }
 
         // A store-restricted approver (Cashier Supervisor and Store Admin
@@ -946,5 +1014,177 @@ class SalesController extends BaseCrudController
         ]);
 
         return $this->ok($this->model->find($id), 'Sale voided and stock restored');
+    }
+
+    /**
+     * Server-authoritative counterpart to isValidDiscount()+calculateLine()
+     * for one cart line — branches on discount_type:
+     *
+     *  - A government type (Senior Citizen/PWD/5% BNPC): the discount
+     *    amount is computed HERE from the statutory rate via TaxService::
+     *    calculateGovernmentDiscountLine(). The client-sent `discount` is
+     *    never trusted for these — see that method's docblock for why.
+     *  - Anything else (including no discount_type at all): the same
+     *    validate-and-trust behaviour this endpoint already had before
+     *    discount types existed.
+     *
+     * Returns the calculateLine()-shaped result array with `discount_type`
+     * folded in, or a ResponseInterface to return immediately on failure
+     * — callers check with is_array().
+     */
+    private function resolveLineDiscount(
+        TaxService $taxService,
+        ?string $discountType,
+        float $quantity,
+        float $unitPrice,
+        float $requestedDiscount,
+        ?object $taxRate,
+        bool $inclusive,
+        string $label,
+        ?object $product
+    ) {
+        if (! $taxService->isKnownDiscountType($discountType)) {
+            return $this->apiFail("Unknown discount_type for {$label}: {$discountType}", 422);
+        }
+
+        // Eligibility (Category/Product Discount Eligibility settings)
+        // gates every discount type uniformly, not just the three
+        // government ones — an admin who's restricted, say, Promo
+        // Discount to a specific category means it, the same way a
+        // restricted Senior Citizen discount does. $product is null for
+        // a custom item, which isProductEligibleForDiscount() always
+        // treats as eligible — see that method's docblock for why.
+        if ($discountType !== null && ! $taxService->isProductEligibleForDiscount($discountType, $product)) {
+            $discountLabel = TaxService::discountLabel($discountType);
+
+            return $this->apiFail("The {$discountLabel} discount is not available for {$label}", 422);
+        }
+
+        if ($taxService->isGovernmentDiscountType($discountType)) {
+            $result = $taxService->calculateGovernmentDiscountLine($discountType, $quantity, $unitPrice, $taxRate, $inclusive);
+        } else {
+            if (! $taxService->isValidDiscount($quantity, $unitPrice, $requestedDiscount)) {
+                return $this->apiFail("Discount must be between 0 and the line subtotal for {$label}", 422);
+            }
+            $result = $taxService->calculateLine($quantity, $unitPrice, $requestedDiscount, $taxRate, $inclusive);
+        }
+
+        $result['discount_type'] = $discountType;
+
+        return $result;
+    }
+
+    /**
+     * GET /api/v1/sales/discount-policy
+     *
+     * Sibling to voidPolicy() — the one company setting the POS needs
+     * before deciding whether picking Manual Discount opens the
+     * supervisor sign-off fields. Same gating rationale as voidPolicy():
+     * every POS role needs this boolean, and Cashier deliberately lacks
+     * companies.view, which gates the full company record.
+     */
+    public function discountPolicy()
+    {
+        $auth = Services::authContext();
+        $company = model(CompanyModel::class)->find($auth->companyId);
+
+        // Defaults to "required" when the company row can't be read at
+        // all, same fail-closed reasoning as voidPolicy().
+        return $this->ok([
+            'require_manual_discount_approval' => $company === null || (bool) $company->require_manual_discount_approval,
+            // A starting point DiscountDialog pre-fills into the percent
+            // field for the five configurable types — null/absent means
+            // "no default configured for this company", which leaves the
+            // field blank exactly as it always has. Gated on sales.create
+            // like the rest of this endpoint (see the route comment), not
+            // companies.view, so a Cashier can read these without also
+            // being able to read the full company record.
+            'discount_defaults' => [
+                'regular' => $company?->default_regular_discount_percent !== null ? (float) $company->default_regular_discount_percent : null,
+                'promo' => $company?->default_promo_discount_percent !== null ? (float) $company->default_promo_discount_percent : null,
+                'employee' => $company?->default_employee_discount_percent !== null ? (float) $company->default_employee_discount_percent : null,
+                'member' => $company?->default_member_discount_percent !== null ? (float) $company->default_member_discount_percent : null,
+                'wholesale' => $company?->default_wholesale_discount_percent !== null ? (float) $company->default_wholesale_discount_percent : null,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/v1/sales/log-item-discount
+     * body: { discount_type, product_name, amount, reason? }
+     *
+     * Records a Manual Discount the cashier applied on their own
+     * authority — only ever posted when the company has manual-discount
+     * approval switched off. Same "still reaches the audit trail, just
+     * unattributed to an approver" reasoning as logVoid().
+     */
+    public function logItemDiscount()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+
+        if (! $this->validateData($payload, [
+            'discount_type' => ['label' => 'Discount type', 'rules' => 'required|in_list[' . implode(',', TaxService::DISCOUNT_TYPES) . ']'],
+            'product_name' => ['label' => 'Item', 'rules' => 'required|max_length[150]'],
+            'amount' => ['label' => 'Discount amount', 'rules' => 'required|numeric'],
+            'reason' => ['label' => 'Reason', 'rules' => 'permit_empty|max_length[255]'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        Services::auditLogger()->log('item-discount', 'Cart Item', null, $payload['product_name'], [
+            'item' => $payload['product_name'],
+            'discount_type' => $payload['discount_type'],
+            'amount' => $payload['amount'],
+            'reason' => $payload['reason'] ?? null,
+        ]);
+
+        return $this->ok(null, 'Discount recorded');
+    }
+
+    /**
+     * POST /api/v1/sales/authorize-item-discount
+     * body: { identifier, password, discount_type, product_name, amount, reason?, store_id? }
+     *
+     * Supervisor sign-off for applying a Manual Discount to one
+     * in-progress cart line — same guarantees as authorizeItemVoid():
+     * nothing is mutated here (the cart lives only in the browser until
+     * checkout), this only proves the approver is real and holds
+     * sales.discount, and writes the decision to the audit trail. The
+     * POS applies the discount only after this returns 200.
+     */
+    public function authorizeItemDiscount()
+    {
+        $payload = $this->request->getJSON(true) ?? [];
+
+        if (! $this->validateData($payload, [
+            'identifier' => ['label' => 'Supervisor username or email', 'rules' => 'required'],
+            'password' => ['label' => 'Password', 'rules' => 'required'],
+            'discount_type' => ['label' => 'Discount type', 'rules' => 'required|in_list[' . implode(',', TaxService::DISCOUNT_TYPES) . ']'],
+            'product_name' => ['label' => 'Item', 'rules' => 'required|max_length[150]'],
+            'amount' => ['label' => 'Discount amount', 'rules' => 'required|numeric'],
+            'reason' => ['label' => 'Reason', 'rules' => 'permit_empty|max_length[255]'],
+            'store_id' => ['label' => 'Store', 'rules' => 'permit_empty|is_natural_no_zero'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        $approver = $this->resolveSupervisorApprover($payload, 'sales.discount', 'item-discount-denied', 'Cart Item', $payload['product_name']);
+        if ($approver instanceof ResponseInterface) {
+            return $approver;
+        }
+
+        Services::auditLogger()->log('item-discount', 'Cart Item', null, $payload['product_name'], [
+            'item' => $payload['product_name'],
+            'discount_type' => $payload['discount_type'],
+            'amount' => $payload['amount'],
+            'reason' => $payload['reason'] ?? null,
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ]);
+
+        return $this->ok([
+            'approved_by' => $approver->name,
+            'approved_by_id' => (int) $approver->id,
+        ], 'Discount approved');
     }
 }

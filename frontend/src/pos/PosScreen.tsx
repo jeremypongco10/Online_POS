@@ -28,6 +28,8 @@ import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
 import { ReprintReceiptDialog } from './ReprintReceiptDialog';
 import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
+import { DiscountDialog, type DiscountResult, type DiscountTarget } from './DiscountDialog';
+import { discountRequiresHolderId, discountTypeLabel, type DiscountDefaults } from './discountTypes';
 import { calculateCart, type CartLine } from './posTypes';
 import { formatQuantity } from './format';
 import {
@@ -111,6 +113,27 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // real values land.
   const [requireItemVoidApproval, setRequireItemVoidApproval] = useState(true);
   const [requireCancelApproval, setRequireCancelApproval] = useState(true);
+  // Same fail-closed reasoning as the two switches above — see
+  // SalesController::discountPolicy.
+  const [requireManualDiscountApproval, setRequireManualDiscountApproval] = useState(true);
+  // Per-company starting points for the five configurable discount types
+  // (Regular/Promo/Employee/Member/Wholesale) — see Settings' Discount
+  // defaults section. Empty until the fetch below resolves; DiscountDialog
+  // treats a missing entry the same as an explicit null (no pre-fill).
+  const [discountDefaults, setDiscountDefaults] = useState<DiscountDefaults>({});
+
+  // What DiscountDialog is currently open for — the whole sale (the
+  // normal workflow, from the Discount button in the actions row) or one
+  // line (the override, from that row's own tag). Null when closed. Held
+  // here rather than in Cart, same reasoning as voidSubject: the dialog
+  // must survive the cart re-rendering underneath it.
+  const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
+  // BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC line —
+  // one holder per cart (see AddDiscountHolderToSales), prefilled into
+  // DiscountDialog so a second qualifying line doesn't re-ask for the
+  // same name/ID, and sent once at checkout.
+  const [discountHolderName, setDiscountHolderName] = useState('');
+  const [discountIdNumber, setDiscountIdNumber] = useState('');
 
   // Scales the page down on a screen smaller than this layout was drawn
   // for, so more of the product grid stays visible instead of scrolling.
@@ -180,6 +203,18 @@ export function PosScreen({ onOpenAdmin }: Props) {
     }
   }, [lines, selectedCartKey]);
 
+  /**
+   * Clicking/tapping a cart line opens its controls; clicking the same one
+   * again closes them. The functional update is what keeps this
+   * dependency-free, so its identity never changes and CartRow's memo()
+   * still bails — reading selectedCartKey directly here would hand every
+   * row a new callback on every selection change, re-rendering the whole
+   * cart to move one highlight.
+   */
+  const toggleCartSelection = useCallback((key: string) => {
+    setSelectedCartKey((prev) => (prev === key ? null : key));
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     api.get<Store[]>(`/stores?company_id=${user.company_id}&is_active=1&per_page=50`).then((data) => {
@@ -199,6 +234,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
         setRequireItemVoidApproval(true);
         setRequireCancelApproval(true);
       });
+    api
+      .get<{ require_manual_discount_approval: boolean; discount_defaults: DiscountDefaults }>('/sales/discount-policy')
+      .then((res) => {
+        setRequireManualDiscountApproval(res.require_manual_discount_approval);
+        setDiscountDefaults(res.discount_defaults ?? {});
+      })
+      .catch(() => setRequireManualDiscountApproval(true));
   }, [user]);
 
   useEffect(() => {
@@ -252,6 +294,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setCustomer(draft.customer);
     setCard(draft.card);
     setBagger(draft.bagger);
+    setDiscountHolderName(draft.discountHolderName ?? '');
+    setDiscountIdNumber(draft.discountIdNumber ?? '');
     notify(`Recovered your in-progress sale (${draft.lines.length} item${draft.lines.length === 1 ? '' : 's'})`);
     // notify is intentionally omitted — including it would re-run this on
     // every snackbar render and re-restore the draft over the cashier's
@@ -267,8 +311,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
    */
   useEffect(() => {
     if (!registerId) return;
-    saveDraftSale(registerId, { lines, customer, card, bagger });
-  }, [registerId, lines, customer, card, bagger]);
+    saveDraftSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber });
+  }, [registerId, lines, customer, card, bagger, discountHolderName, discountIdNumber]);
 
   /**
    * `quantity` comes from ProductSearch's barcode "5*"/"5x" prefix (see
@@ -330,14 +374,22 @@ export function PosScreen({ onOpenAdmin }: Props) {
     [units, taxRates, notify],
   );
 
-  // These three are useCallback'd purely so CartRow's memo() can actually
+  // These two are useCallback'd purely so CartRow's memo() can actually
   // bail — a fresh function identity each render would fail its shallow
   // prop check and re-render every line in the cart on every cart change.
-  // All three already read state only through setLines' updater, so there
-  // are no dependencies to track and the identity is genuinely permanent.
-  const updateDiscount = useCallback((key: string, discount: number) => {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, discount: Math.max(0, discount) } : l)));
+  // Both already read state only through setLines' updater, so there are
+  // no dependencies to track and the identity is genuinely permanent.
+
+  /** A cart row's own tag button — the override path, for correcting one item after the fact. */
+  const openLineDiscount = useCallback((line: CartLine) => {
+    setDiscountTarget({ kind: 'line', line });
   }, []);
+
+  /** The Discount button in the actions row — the normal workflow: pick one discount for the sale and let the POS decide which lines qualify. */
+  function openCartDiscount() {
+    if (lines.length === 0) return;
+    setDiscountTarget({ kind: 'cart' });
+  }
 
   /**
    * Cart's ± steppers. Rounded to the line's own unit precision so
@@ -356,6 +408,49 @@ export function PosScreen({ onOpenAdmin }: Props) {
     );
   }, []);
 
+  /**
+   * DiscountDialog's confirm. `result.amounts` is keyed by cart line —
+   * one entry per line that qualified, which for the normal cart-wide
+   * flow is usually several. Lines absent from it are left exactly as
+   * they were: a line that doesn't qualify for the chosen type keeps
+   * whatever it already had rather than being quietly cleared.
+   *
+   * Not useCallback'd — only ever passed to that one dialog, never per
+   * cart row, so CartRow's memo isn't in play here the way it is for
+   * openLineDiscount/updateQuantity above.
+   */
+  function applyDiscount(result: DiscountResult) {
+    const applied = Object.keys(result.amounts).length;
+
+    setLines((prev) =>
+      prev.map((l) => {
+        const amount = result.amounts[l.key];
+        if (amount === undefined) return l;
+
+        return { ...l, discount: Math.max(0, amount), discountType: result.discountType };
+      })
+    );
+
+    // Only the three government types ever send holder info (see
+    // DiscountDialog's requiresId branch) — a Regular/Promo/etc.
+    // discount leaves whatever documentation is already on file alone.
+    if (result.holderName !== undefined) setDiscountHolderName(result.holderName);
+    if (result.holderIdNumber !== undefined) setDiscountIdNumber(result.holderIdNumber);
+
+    setDiscountTarget(null);
+    const label = discountTypeLabel(result.discountType) ?? 'Discount';
+    notify(applied === 1 ? `${label} applied to 1 item` : `${label} applied to ${applied} items`);
+  }
+
+  /** DiscountDialog's "Remove discounts" — clears every line, and the SC/PWD documentation with them, since it only ever belonged to a discount that's now gone. */
+  function removeAllDiscounts() {
+    setLines((prev) => prev.map((l) => (l.discount > 0 || l.discountType ? { ...l, discount: 0, discountType: null } : l)));
+    setDiscountHolderName('');
+    setDiscountIdNumber('');
+    setDiscountTarget(null);
+    notify('Discounts removed');
+  }
+
   function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
   }
@@ -366,6 +461,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setCard(null);
     setBagger(null);
     setCheckoutError(null);
+    setDiscountHolderName('');
+    setDiscountIdNumber('');
     setSaleCounter((n) => n + 1);
     // The autosave effect would clear this anyway once `lines` empties,
     // but saying so here means a completed sale stops depending on that
@@ -391,7 +488,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   function handleHold() {
     if (!registerId || lines.length === 0) return;
-    holdSale(registerId, { lines, customer, card, bagger });
+    holdSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber });
     setHeldSales(listHeldSales(registerId));
     resetSale();
     notify('Sale held');
@@ -402,6 +499,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setCustomer(held.customer);
     setCard(held.card);
     setBagger(held.bagger);
+    setDiscountHolderName(held.discountHolderName ?? '');
+    setDiscountIdNumber(held.discountIdNumber ?? '');
     setCheckoutError(null);
     setSaleCounter((n) => n + 1);
     if (registerId) {
@@ -436,6 +535,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
                 quantity: l.quantity,
                 unit_price: l.unitPrice,
                 discount: l.discount,
+                discount_type: l.discountType || undefined,
                 tax_rate_id: l.taxRate?.id,
               }
             : {
@@ -443,12 +543,19 @@ export function PosScreen({ onOpenAdmin }: Props) {
                 quantity: l.quantity,
                 unit_price: l.unitPrice,
                 discount: l.discount,
+                discount_type: l.discountType || undefined,
                 tax_rate_id: l.taxRate?.id,
               }
         ),
         payments,
         bagger_id: bagger?.id,
         loyalty_card_id: card?.id,
+        // Only sent when at least one line actually needs it — the server
+        // requires both whenever any line's discount_type is a
+        // government type (senior_citizen/pwd/sc_pwd_5_bnpc), and
+        // ignores them otherwise. See AddDiscountHolderToSales.
+        discount_holder_name: lines.some((l) => discountRequiresHolderId(l.discountType)) ? discountHolderName : undefined,
+        discount_id_number: lines.some((l) => discountRequiresHolderId(l.discountType)) ? discountIdNumber : undefined,
         // Catalogue prices are VAT-inclusive (Philippine shelf pricing),
         // so the server must back the 12% out of each line rather than
         // add it on top. Without this the request defaulted to exclusive
@@ -467,10 +574,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
     }
   }
 
-  // voidSubject included so F9/F5 can't fire behind the approval dialog —
-  // it has a password field in it, and a stray function key clearing the
-  // cart underneath would be especially confusing there.
-  const blockingDialogOpen = paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || reprintOpen;
+  // voidSubject/discountTarget included so F9/F5 can't fire behind an
+  // approval dialog — both can have a password field in them, and a
+  // stray function key clearing the cart underneath would be especially
+  // confusing there.
+  const blockingDialogOpen =
+    paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || Boolean(discountTarget) || reprintOpen;
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     search: () => document.getElementById('pos-product-search')?.focus(),
@@ -479,20 +588,34 @@ export function PosScreen({ onOpenAdmin }: Props) {
     pay: () => document.getElementById('pos-pay-button')?.click(),
     bagger: () => document.getElementById('pos-action-bagger')?.click(),
     help: () => document.getElementById('pos-help-button')?.click(),
-    // Only reachable while `receipt` is null — blockingDialogOpen above
-    // disables the whole global handler the moment one is on screen, at
-    // which point F7 instead reaches ReceiptModal's own local listener
-    // (which prints). See that action's entry in posShortcuts.ts.
-    reprint: () => setReprintOpen(true),
+    // Reprint and Return are DOM-clicked rather than called directly —
+    // like customer/bagger above, not just for consistency. CartActionsRow
+    // only renders these two buttons while the cart is empty (Cancel Sale
+    // takes their place otherwise; see that component), so a missing
+    // element is exactly the "cart has items" case, and the optional
+    // chain silently no-ops. That's one guard (the row's own render
+    // condition) instead of matching cartHasItems checks in two places.
+    //
+    // F7 specifically is also only reachable while `receipt` is null —
+    // blockingDialogOpen above disables the whole global handler the
+    // moment one is on screen, at which point F7 instead reaches
+    // ReceiptModal's own local listener (which prints). See that action's
+    // entry in posShortcuts.ts.
+    reprint: () => document.getElementById('pos-action-reprint')?.click(),
+    return: () => document.getElementById('pos-action-return')?.click(),
+    // Same reasoning as reprint/return above: CartActionsRow only renders
+    // this button once the cart has items, so a DOM-click silently no-ops
+    // on an empty cart instead of needing a matching cartHasItems check
+    // here too.
+    discount: () => document.getElementById('pos-action-discount')?.click(),
     // Starts the cart selection on the first line, without moving focus
     // off the search box. A no-op on an empty cart, which is the right
     // outcome — there's nothing to step through.
     cart: () => setSelectedCartKey(lines[0]?.key ?? null),
-    // Return/Cancellation could DOM-click their own Actions row buttons
-    // too, but their handlers are trivial one-liners already available
-    // right here, so there's nothing to gain by indirecting through the
-    // DOM for these two.
-    return: () => onOpenAdmin('/admin/customers/returns'),
+    // Cancel keeps calling its handler directly rather than DOM-clicking:
+    // handleCancel already guards on an empty cart itself (there's nothing
+    // to cancel), so there's no gating to gain by indirecting through a
+    // button that render-guards on the exact same condition.
     cancel: handleCancel,
   });
 
@@ -641,6 +764,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               bagger={bagger}
               onSelectBagger={setBagger}
               cartHasItems={lines.length > 0}
+              onOpenDiscount={openCartDiscount}
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
               onReprintReceipt={() => setReprintOpen(true)}
@@ -678,7 +802,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
             lines={lines}
             lastAddedKey={lastAddedKey}
             selectedCartKey={selectedCartKey}
-            onDiscountChange={updateDiscount}
+            onSelectCartLine={toggleCartSelection}
+            onOpenDiscount={openLineDiscount}
             onQuantityChange={updateQuantity}
             onRequestVoid={requestVoidLine}
             totals={totals}
@@ -740,6 +865,19 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }
           setVoidSubject(null);
         }}
+      />
+
+      <DiscountDialog
+        target={discountTarget}
+        lines={lines}
+        requireManualApproval={requireManualDiscountApproval}
+        discountDefaults={discountDefaults}
+        storeId={storeId}
+        holderName={discountHolderName}
+        holderIdNumber={discountIdNumber}
+        onClose={() => setDiscountTarget(null)}
+        onApply={applyDiscount}
+        onRemoveAll={removeAllDiscounts}
       />
     </Box>
   );

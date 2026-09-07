@@ -9,6 +9,9 @@ export interface HeldSale {
   customer: Customer | null;
   card: LoyaltyCard | null;
   bagger: Bagger | null;
+  /** BIR RR 7-2010 documentation for any Senior Citizen/PWD/5% BNPC line in `lines` — optional so a sale held before this feature existed still parses (see PosScreen's fallback to ''). */
+  discountHolderName?: string;
+  discountIdNumber?: string;
 }
 
 function storageKey(registerId: number): string {
@@ -32,7 +35,14 @@ export function listHeldSales(registerId: number): HeldSale[] {
 
 export function holdSale(
   registerId: number,
-  sale: { lines: CartLine[]; customer: Customer | null; card: LoyaltyCard | null; bagger: Bagger | null }
+  sale: {
+    lines: CartLine[];
+    customer: Customer | null;
+    card: LoyaltyCard | null;
+    bagger: Bagger | null;
+    discountHolderName?: string;
+    discountIdNumber?: string;
+  }
 ): HeldSale {
   const held: HeldSale = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -59,6 +69,8 @@ export interface DraftSale {
   customer: Customer | null;
   card: LoyaltyCard | null;
   bagger: Bagger | null;
+  discountHolderName?: string;
+  discountIdNumber?: string;
 }
 
 function draftKey(registerId: number): string {

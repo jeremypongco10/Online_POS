@@ -27,6 +27,21 @@ export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCou
           {formatMoney(totals.subtotal)}
         </Typography>
       </Stack>
+      {/* Only on a sale that actually has one. A Senior Citizen / PWD line
+          loses its VAT before the 20% is taken off what remains, so without
+          this line Subtotal − Discount visibly fails to reach TOTAL — see
+          CartTotals.vatExemptionTotal. */}
+      {totals.vatExemptionTotal > 0 && (
+        <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+          <Typography variant="body2" color="text.secondary">
+            Less VAT (exempt)
+          </Typography>
+          <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums', color: 'success.main' }}>
+            -{formatMoney(totals.vatExemptionTotal)}
+          </Typography>
+        </Stack>
+      )}
+
       <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
         <Typography variant="body2" color="text.secondary">
           Discount

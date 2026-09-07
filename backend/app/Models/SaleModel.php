@@ -22,7 +22,7 @@ class SaleModel extends Model
         'user_id', 'cashier_name', 'bagger_id', 'bagger_name',
         'loyalty_card_id', 'loyalty_card_number',
         'invoice_number', 'status', 'sale_date',
-        'subtotal', 'discount_total', 'tax_total', 'total',
+        'subtotal', 'discount_total', 'discount_holder_name', 'discount_id_number', 'tax_total', 'total',
         'amount_paid', 'change_due', 'notes',
     ];
 
@@ -38,6 +38,11 @@ class SaleModel extends Model
         'sale_date' => ['label' => 'Sale date', 'rules' => 'required'],
         'subtotal' => ['label' => 'Subtotal', 'rules' => 'permit_empty|decimal'],
         'discount_total' => ['label' => 'Discount total', 'rules' => 'permit_empty|decimal'],
+        // BIR RR 7-2010 documentation for a Senior Citizen / PWD / 5% BNPC
+        // discount — required (see SalesController::create()) only when at
+        // least one line on the sale carries one of those discount types.
+        'discount_holder_name' => ['label' => 'Discount holder name', 'rules' => 'permit_empty|max_length[150]'],
+        'discount_id_number' => ['label' => 'Discount ID number', 'rules' => 'permit_empty|max_length[60]'],
         'tax_total' => ['label' => 'Tax total', 'rules' => 'permit_empty|decimal'],
         'total' => ['label' => 'Total', 'rules' => 'permit_empty|decimal'],
         'amount_paid' => ['label' => 'Amount paid', 'rules' => 'permit_empty|decimal'],

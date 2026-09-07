@@ -59,11 +59,32 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
 }
 
+interface RequestOptions {
+  /**
+   * Skip the global onUnauthorized handler (which clears the cashier's
+   * own tokens and bounces the whole app to the Login screen) when this
+   * call comes back 401.
+   *
+   * Exists for endpoints where a 401 means something other than "my own
+   * session died" — specifically /sales/authorize-item-void,
+   * authorize-cart-void, and authorize-item-discount, which return 401
+   * for "that's not a valid SUPERVISOR password", using the cashier's
+   * own perfectly-valid session to ask the question. Without this, a
+   * cashier mistyping a supervisor's password while approving a void or
+   * a Manual Discount was silently logged out mid-sale — a real bug
+   * found live while testing this (originally the discount) dialog:
+   * the request that's supposed to fail gracefully inside the dialog
+   * instead nuked the whole session out from under it.
+   */
+  suppressUnauthorizedHandler?: boolean;
+}
+
 async function requestEnvelope<T>(
   method: string,
   path: string,
   body?: unknown,
-  retry = true
+  retry = true,
+  options?: RequestOptions
 ): Promise<ApiEnvelope<T>> {
   // FormData (file uploads) must NOT get a JSON Content-Type or be
   // stringified — the browser sets its own multipart boundary header,
@@ -86,10 +107,10 @@ async function requestEnvelope<T>(
     if (res.status === 401 && retry && refreshToken) {
       const refreshed = await tryRefresh();
       if (refreshed) {
-        return requestEnvelope<T>(method, path, body, false);
+        return requestEnvelope<T>(method, path, body, false, options);
       }
     }
-    if (res.status === 401) {
+    if (res.status === 401 && !options?.suppressUnauthorizedHandler) {
       setTokens(null, null);
       onUnauthorized?.();
     }
@@ -99,8 +120,8 @@ async function requestEnvelope<T>(
   return envelope;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const envelope = await requestEnvelope<T>(method, path, body);
+async function request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+  const envelope = await requestEnvelope<T>(method, path, body, true, options);
   return envelope.data as T;
 }
 
@@ -139,7 +160,7 @@ function tryRefresh(): Promise<boolean> {
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body, options),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   del: <T>(path: string) => request<T>('DELETE', path),
   upload: <T>(path: string, formData: FormData) => request<T>('POST', path, formData),

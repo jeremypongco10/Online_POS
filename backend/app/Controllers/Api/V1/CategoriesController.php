@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Models\CategoryDiscountEligibilityModel;
 use App\Models\CategoryModel;
 use App\Models\RoleModel;
 use Config\Services;
@@ -81,5 +82,91 @@ class CategoriesController extends BaseCrudController
         $role = model(RoleModel::class)->find($roleId);
 
         return $role !== null ? $role->name : null;
+    }
+
+    /**
+     * GET /api/v1/categories/{id}/discount-eligibility
+     *
+     * This category's own overrides only — every type not present here
+     * is eligible by default (see TaxService::isProductEligibleForDiscount).
+     * A product's OWN override, if it has one, still wins over whatever
+     * this returns; this endpoint has no way to know that, since it's
+     * scoped to one category, not one product — see ProductsController::
+     * discountEligibility for the fully resolved view a single product
+     * actually gets at checkout.
+     */
+    public function discountEligibility($id = null)
+    {
+        $category = $this->applyScope()->find($id);
+        if ($category === null) {
+            return $this->notFound();
+        }
+
+        $rows = model(CategoryDiscountEligibilityModel::class)->where('category_id', $id)->findAll();
+
+        $overrides = [];
+        foreach ($rows as $row) {
+            $overrides[$row->discount_type] = (bool) $row->eligible;
+        }
+
+        return $this->ok($overrides);
+    }
+
+    /**
+     * PUT /api/v1/categories/{id}/discount-eligibility
+     * body: { rules: { [discount_type]: boolean, ... } }
+     *
+     * Sets this category's overrides — the primary, maintainable lever
+     * for discount eligibility (a per-product override exists too, see
+     * ProductsController::updateDiscountEligibility, but configuring
+     * every product in a catalog individually isn't the intended
+     * workflow). Same sparse-table semantics as the product version:
+     * `eligible: true` deletes the row (true is already the default
+     * with none), and a type absent from `rules` is left untouched.
+     */
+    public function updateDiscountEligibility($id = null)
+    {
+        $category = $this->applyScope()->find($id);
+        if ($category === null) {
+            return $this->notFound();
+        }
+
+        $payload = $this->request->getJSON(true) ?? [];
+        $rules = $payload['rules'] ?? null;
+        if (! is_array($rules)) {
+            return $this->apiFail('rules must be an object of discount_type => boolean', 422);
+        }
+
+        $taxService = Services::taxService();
+        $model = model(CategoryDiscountEligibilityModel::class);
+
+        foreach ($rules as $type => $eligible) {
+            if (! is_string($type) || ! $taxService->isKnownDiscountType($type)) {
+                return $this->apiFail("Unknown discount_type: {$type}", 422);
+            }
+
+            $existing = $model->where('category_id', $id)->where('discount_type', $type)->first();
+
+            if ($eligible) {
+                if ($existing !== null) {
+                    $model->delete($existing->id);
+                }
+                continue;
+            }
+
+            if ($existing !== null) {
+                $model->update($existing->id, ['eligible' => 0]);
+            } else {
+                $model->insert(['category_id' => $id, 'discount_type' => $type, 'eligible' => 0]);
+            }
+        }
+
+        $rows = $model->where('category_id', $id)->findAll();
+        $overrides = [];
+        foreach ($rows as $row) {
+            $overrides[$row->discount_type] = (bool) $row->eligible;
+        }
+
+        return $this->ok($overrides, 'Discount eligibility updated');
     }
 }

@@ -13,6 +13,7 @@ import { ProductEditModal } from './ProductEditModal';
 import { ProductPricesModal } from './ProductPricesModal';
 import { DetailView, StatusChip } from './DetailView';
 import { ImageHoverPreview } from './ImageHoverPreview';
+import { DiscountEligibilityForm } from './DiscountEligibilityForm';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Avatar from '@mui/material/Avatar';
@@ -25,6 +26,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import PriceChangeIcon from '@mui/icons-material/PriceChange';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import ImageNotSupportedOutlinedIcon from '@mui/icons-material/ImageNotSupportedOutlined';
+import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 
 export function ProductsScreen() {
   const { hasPermission } = useAuth();
@@ -57,6 +59,7 @@ export function ProductsScreen() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [viewing, setViewing] = useState<Product | null>(null);
   const [pricingProduct, setPricingProduct] = useState<Product | null>(null);
+  const [eligibilityProduct, setEligibilityProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     api.get<Category[]>('/categories?per_page=200').then(setCategories);
@@ -198,6 +201,11 @@ export function ProductsScreen() {
                 </IconButton>
               </Tooltip>
             )}
+            <Tooltip title="Discount Eligibility">
+              <IconButton size="small" aria-label="Discount Eligibility" onClick={() => setEligibilityProduct(p)}>
+                <SellOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             {hasPermission('products.delete') && (
               <Tooltip title="Delete">
                 <IconButton size="small" aria-label="Delete" color="error" onClick={() => deactivate(p)}>
@@ -260,6 +268,21 @@ export function ProductsScreen() {
             Close
           </Button>
         </Stack>
+      </Modal>
+
+      <Modal
+        open={!!eligibilityProduct}
+        title={`Discount Eligibility — ${eligibilityProduct?.name ?? ''}`}
+        onClose={() => setEligibilityProduct(null)}
+        compact
+      >
+        {eligibilityProduct && (
+          <DiscountEligibilityForm
+            apiPath={`/products/${eligibilityProduct.id}/discount-eligibility`}
+            description="What this specific product can currently be discounted with — starts from its category's rule (see Categories' own Discount Eligibility), overridden here only for this one product."
+            onClose={() => setEligibilityProduct(null)}
+          />
+        )}
       </Modal>
     </div>
   );

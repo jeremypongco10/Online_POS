@@ -12,6 +12,7 @@ import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 import { DetailView, StatusChip } from './DetailView';
+import { DiscountEligibilityForm } from './DiscountEligibilityForm';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
@@ -25,6 +26,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 
 interface FormState {
   name: string;
@@ -47,6 +49,7 @@ export function CategoriesScreen() {
 
   const [editing, setEditing] = useState<Category | null>(null);
   const [viewing, setViewing] = useState<Category | null>(null);
+  const [eligibilityFor, setEligibilityFor] = useState<Category | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -190,6 +193,11 @@ export function CategoriesScreen() {
                       <EditIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
+                  <Tooltip title="Discount Eligibility">
+                    <IconButton size="small" aria-label="Discount Eligibility" onClick={() => setEligibilityFor(c)}>
+                      <SellOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title={active ? 'Deactivate' : 'Activate'}>
                     <IconButton
                       size="small"
@@ -298,6 +306,21 @@ export function CategoriesScreen() {
             Close
           </Button>
         </Stack>
+      </Modal>
+
+      <Modal
+        open={!!eligibilityFor}
+        title={`Discount Eligibility — ${eligibilityFor?.name ?? ''}`}
+        onClose={() => setEligibilityFor(null)}
+        compact
+      >
+        {eligibilityFor && (
+          <DiscountEligibilityForm
+            apiPath={`/categories/${eligibilityFor.id}/discount-eligibility`}
+            description="Every product in this category may receive these by default. Turn one off to exclude the whole category — an individual product can still be switched back on from its own Discount Eligibility section."
+            onClose={() => setEligibilityFor(null)}
+          />
+        )}
       </Modal>
     </div>
   );

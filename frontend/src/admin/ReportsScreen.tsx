@@ -3,14 +3,20 @@ import Tab from '@mui/material/Tab';
 import { SectionTabs } from './SectionTabs';
 import { SalesReportsScreen } from './reports/SalesReportsScreen';
 import { InventoryReportsScreen } from './reports/InventoryReportsScreen';
+import { DiscountReportsScreen } from './reports/DiscountReportsScreen';
 import { AuditTrailScreen } from './AuditTrailScreen';
 import { useAuth } from '../auth/AuthContext';
 import { useRouteState } from '../routing';
 
-type Tab = 'sales' | 'inventory' | 'audit';
-const TABS: Tab[] = ['sales', 'inventory', 'audit'];
-const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', inventory: 'Inventory', audit: 'Audit Trail' };
-const TAB_PERMISSIONS: Record<Tab, string> = { sales: 'reports.view', inventory: 'reports.view', audit: 'audit.view' };
+type Tab = 'sales' | 'discounts' | 'inventory' | 'audit';
+const TABS: Tab[] = ['sales', 'discounts', 'inventory', 'audit'];
+const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', discounts: 'Discounts', inventory: 'Inventory', audit: 'Audit Trail' };
+const TAB_PERMISSIONS: Record<Tab, string> = {
+  sales: 'reports.view',
+  discounts: 'reports.view',
+  inventory: 'reports.view',
+  audit: 'audit.view',
+};
 
 export function ReportsScreen() {
   const { hasPermission } = useAuth();
@@ -33,6 +39,7 @@ export function ReportsScreen() {
       </SectionTabs>
 
       {tab === 'sales' && <SalesReportsScreen />}
+      {tab === 'discounts' && <DiscountReportsScreen />}
       {tab === 'inventory' && <InventoryReportsScreen />}
       {tab === 'audit' && <AuditTrailScreen />}
     </div>

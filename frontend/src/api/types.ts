@@ -104,6 +104,14 @@ export interface Company {
   require_item_void_approval: string | number;
   /** Whether a supervisor must sign off before the whole cart is cancelled. Defaults to 1 — rare and high-signal, so the friction is worth it. */
   require_cancel_approval: string | number;
+  /** Whether a supervisor must sign off before Manual Discount can be applied. Defaults to 1 — the one discount type with no statutory rate or business policy behind it. */
+  require_manual_discount_approval: string | number;
+  /** A starting point DiscountDialog pre-fills into its percent field for this type — not an enforced ceiling, the cashier can still type a different number. Null/blank means no default is configured. */
+  default_regular_discount_percent: string | number | null;
+  default_promo_discount_percent: string | number | null;
+  default_employee_discount_percent: string | number | null;
+  default_member_discount_percent: string | number | null;
+  default_wholesale_discount_percent: string | number | null;
 }
 
 export interface Store {
@@ -214,6 +222,9 @@ export interface SaleResponse {
   invoice_number: string;
   subtotal: string;
   discount_total: string;
+  /** BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC line on this sale, if any — see AddDiscountHolderToSales. */
+  discount_holder_name: string | null;
+  discount_id_number: string | null;
   tax_total: string;
   total: string;
   amount_paid: string;
@@ -237,12 +248,17 @@ export interface Receipt {
   bagger: string | null;
   customer: string | null;
   loyalty_card_number: string | null;
+  /** BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC line on this sale — null unless at least one item below carries a government discount_type. */
+  discount_holder_name: string | null;
+  discount_id_number: string | null;
   items: Array<{
     name: string;
     sku: string;
     quantity: string;
     unit_price: string;
     discount: string;
+    /** One of discountTypes.ts's nine codes, or null for no discount / a sale predating this feature. */
+    discount_type: string | null;
     tax_amount: string;
     line_total: string;
     /** V/E/Z/N, derived from the line's own persisted tax_type — how this item was taxed at the time of sale, not how its product would be taxed today. */
@@ -453,6 +469,42 @@ export interface VatSummary {
   zero_rated_sales: number;
   non_vat_sales: number;
   total_sales: number;
+}
+
+/** One row per discount type from GET /reports/discount-summary. `discount_type` is null for a discount applied before discount types existed — see ReportsController::discountedLinesBuilder. */
+export interface DiscountTypeSummary {
+  discount_type: string | null;
+  line_count: string | number;
+  sale_count: string | number;
+  discount_total: string;
+  /** What those lines actually rang up at after the discount — add discount_total for the pre-discount figure. */
+  net_total: string;
+}
+
+export interface DiscountCashierSummary {
+  user_id: number;
+  cashier_name: string | null;
+  line_count: string | number;
+  sale_count: string | number;
+  discount_total: string;
+}
+
+/** One discounted line from GET /reports/discount-details. With the three government types selected this is the SC/PWD register — hence the holder name/ID, which come from the parent sale and are null on every other type. */
+export interface DiscountDetail {
+  sale_item_id: number;
+  sale_id: number;
+  invoice_number: string;
+  sale_date: string;
+  discount_holder_name: string | null;
+  discount_id_number: string | null;
+  cashier_name: string | null;
+  product_name: string | null;
+  quantity: string;
+  unit_price: string;
+  discount_type: string | null;
+  discount: string;
+  line_total: string;
+  tax_type: string | null;
 }
 
 export interface InventoryValuation {

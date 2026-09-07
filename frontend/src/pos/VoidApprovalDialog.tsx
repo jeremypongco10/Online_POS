@@ -115,25 +115,38 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
         return;
       }
 
+      // suppressUnauthorizedHandler: this endpoint's 401 means "that's
+      // not a valid SUPERVISOR password", asked using the cashier's own
+      // perfectly-valid session — without this, mistyping it here logged
+      // the cashier themselves out mid-sale (the global 401 handler
+      // can't tell the two apart otherwise).
       const result =
         subject.kind === 'item'
-          ? await api.post<AuthResponse>('/sales/authorize-item-void', {
-              identifier: identifier.trim(),
-              password,
-              reason: resolvedReason,
-              product_name: subject.line.product.name,
-              quantity: subject.line.quantity,
-              amount: lineTotals!.gross,
-              store_id: storeId ?? undefined,
-            })
-          : await api.post<AuthResponse>('/sales/authorize-cart-void', {
-              identifier: identifier.trim(),
-              password,
-              reason: resolvedReason,
-              item_count: subject.itemCount,
-              amount: subject.amount,
-              store_id: storeId ?? undefined,
-            });
+          ? await api.post<AuthResponse>(
+              '/sales/authorize-item-void',
+              {
+                identifier: identifier.trim(),
+                password,
+                reason: resolvedReason,
+                product_name: subject.line.product.name,
+                quantity: subject.line.quantity,
+                amount: lineTotals!.gross,
+                store_id: storeId ?? undefined,
+              },
+              { suppressUnauthorizedHandler: true }
+            )
+          : await api.post<AuthResponse>(
+              '/sales/authorize-cart-void',
+              {
+                identifier: identifier.trim(),
+                password,
+                reason: resolvedReason,
+                item_count: subject.itemCount,
+                amount: subject.amount,
+                store_id: storeId ?? undefined,
+              },
+              { suppressUnauthorizedHandler: true }
+            );
       onApproved(result.approved_by);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not complete this');

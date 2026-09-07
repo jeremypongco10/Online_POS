@@ -16,7 +16,7 @@ class SaleItemModel extends Model
 
     protected $allowedFields = [
         'sale_id', 'product_id', 'product_name', 'product_sku',
-        'tax_rate_id', 'tax_type', 'quantity', 'unit_price', 'discount',
+        'tax_rate_id', 'tax_type', 'quantity', 'unit_price', 'discount', 'discount_type',
         'tax_rate', 'tax_amount', 'line_total',
     ];
 
@@ -31,6 +31,10 @@ class SaleItemModel extends Model
         'quantity' => ['label' => 'Quantity', 'rules' => 'required|decimal'],
         'unit_price' => ['label' => 'Unit price', 'rules' => 'required|decimal'],
         'discount' => ['label' => 'Discount', 'rules' => 'permit_empty|decimal'],
+        // Mirrors TaxService::DISCOUNT_TYPES — kept as a duplicated literal
+        // list rather than a shared constant, the same tradeoff this model
+        // already made for 'tax_type' against TaxService::VALID_TYPES.
+        'discount_type' => ['label' => 'Discount type', 'rules' => 'permit_empty|in_list[senior_citizen,pwd,sc_pwd_5_bnpc,regular,promo,employee,member,wholesale,manual]'],
         'tax_rate' => ['label' => 'Tax rate percentage', 'rules' => 'permit_empty|decimal'],
         'tax_amount' => ['label' => 'Tax amount', 'rules' => 'permit_empty|decimal'],
         'line_total' => ['label' => 'Line total', 'rules' => 'required|decimal'],

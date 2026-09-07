@@ -31,7 +31,10 @@ interface Props {
   lastAddedKey: string | null;
   /** The cart line F10's selection currently sits on — forwarded to Cart. See PosScreen for why this is a selection rather than DOM focus. */
   selectedCartKey: string | null;
-  onDiscountChange: (key: string, discount: number) => void;
+  /** Clicking a line selects it (and opens its controls); clicking the selected one again closes it. */
+  onSelectCartLine: (key: string) => void;
+  /** Opens DiscountDialog for this line — forwarded straight to Cart. */
+  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
   totals: CartTotals;
@@ -74,7 +77,8 @@ export function ReceiptPanel({
   lines,
   lastAddedKey,
   selectedCartKey,
-  onDiscountChange,
+  onSelectCartLine,
+  onOpenDiscount,
   onQuantityChange,
   onRequestVoid,
   totals,
@@ -235,8 +239,9 @@ export function ReceiptPanel({
             lines={lines}
             lastAddedKey={lastAddedKey}
             selectedKey={selectedCartKey}
+            onSelectLine={onSelectCartLine}
             scrollContainerRef={cartScrollRef}
-            onDiscountChange={onDiscountChange}
+            onOpenDiscount={onOpenDiscount}
             onQuantityChange={onQuantityChange}
             onRequestVoid={onRequestVoid}
           />
@@ -356,7 +361,7 @@ export function ReceiptPanel({
             }}
           >
             Pay
-            <KeyHint label="F5" onAccent />
+            <KeyHint label="F11" onAccent />
           </Button>
         </Stack>
       </Stack>

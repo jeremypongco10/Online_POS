@@ -2,6 +2,8 @@
 
 namespace App\Libraries;
 
+use App\Models\CategoryDiscountEligibilityModel;
+use App\Models\ProductDiscountEligibilityModel;
 use App\Models\TaxRateModel;
 use InvalidArgumentException;
 
@@ -44,6 +46,120 @@ class TaxService
         self::TYPE_VAT_EXEMPT,
         self::TYPE_ZERO_RATED,
         self::TYPE_NON_VAT,
+    ];
+
+    /*
+     * -----------------------------------------------------------------
+     * Discount types (Philippine retail POS)
+     * -----------------------------------------------------------------
+     *
+     * The full set a cashier can pick, mirrored on the frontend by
+     * frontend/src/pos/discountTypes.ts — that file drives the UI and
+     * the client-side cart preview, this one is what actually decides
+     * the money on checkout. Keep the two lists in sync by hand; there
+     * is no way to share one source of truth across PHP and TypeScript
+     * here, the same situation this codebase already accepted for its
+     * tax math (see this class's own docblock vs. posTypes.ts).
+     *
+     * Three buckets, matching how differently each is allowed to be
+     * decided:
+     *
+     *  - GOVERNMENT (self::DISCOUNT_RATES keys): a fixed statutory rate
+     *    the cashier cannot change, driven by RA 9994 (Senior Citizens)
+     *    and RA 10754 (PWD) and their joint IRR with DTI/DA/DOH for the
+     *    5% Basic Necessities & Prime Commodities discount. The amount
+     *    is always computed HERE from the rate, never trusted from the
+     *    client — unlike an ordinary discount, a wrong number here is a
+     *    tax-compliance error, not just a pricing one. Requires the
+     *    purchaser's name and ID number on file (sales.discount_holder_
+     *    name/discount_id_number) — BIR RR 7-2010 requires this
+     *    documentation for the discount to be valid at all.
+     *
+     *  - CONFIGURABLE (regular/promo/employee/member/wholesale): the
+     *    cashier enters a percentage or a fixed peso amount at the
+     *    register, same trust model this app already applies to
+     *    unit_price and every discount before this feature existed —
+     *    the terminal is assumed to be attended and the amount lands in
+     *    the audit trail via the sale itself. No forced VAT treatment;
+     *    the line's own tax_rate_id still governs.
+     *
+     *  - MANUAL: same free-entry behaviour as the configurable group,
+     *    but the one type explicitly gated behind a supervisor (see
+     *    Company::require_manual_discount_approval and
+     *    SalesController::authorizeItemDiscount/logItemDiscount) —
+     *    every other type on this list has a statutory rate or a
+     *    standing business policy behind it; Manual is pure discretion,
+     *    and that's exactly what a supervisor sign-off exists to check.
+     *
+     * Deliberately NOT modeled as "stack multiple discounts on one
+     * line" — sale_items carries exactly one discount_type and one
+     * discount amount per row. A cashier switching a line from one type
+     * to another always REPLACES the old discount rather than adding to
+     * it, which is what keeps a Senior Citizen discount and a Promo
+     * discount from ever combining on the same item without any extra
+     * stacking logic needed here — there is simply nowhere for a second
+     * discount to attach.
+     */
+    public const DISCOUNT_SENIOR_CITIZEN = 'senior_citizen';
+    public const DISCOUNT_PWD = 'pwd';
+    public const DISCOUNT_SC_PWD_5_BNPC = 'sc_pwd_5_bnpc';
+    public const DISCOUNT_REGULAR = 'regular';
+    public const DISCOUNT_PROMO = 'promo';
+    public const DISCOUNT_EMPLOYEE = 'employee';
+    public const DISCOUNT_MEMBER = 'member';
+    public const DISCOUNT_WHOLESALE = 'wholesale';
+    public const DISCOUNT_MANUAL = 'manual';
+
+    public const DISCOUNT_TYPES = [
+        self::DISCOUNT_SENIOR_CITIZEN,
+        self::DISCOUNT_PWD,
+        self::DISCOUNT_SC_PWD_5_BNPC,
+        self::DISCOUNT_REGULAR,
+        self::DISCOUNT_PROMO,
+        self::DISCOUNT_EMPLOYEE,
+        self::DISCOUNT_MEMBER,
+        self::DISCOUNT_WHOLESALE,
+        self::DISCOUNT_MANUAL,
+    ];
+
+    /** Fixed statutory percentage for the three government discount types — never cashier-editable. */
+    private const DISCOUNT_RATES = [
+        self::DISCOUNT_SENIOR_CITIZEN => 20.0,
+        self::DISCOUNT_PWD => 20.0,
+        self::DISCOUNT_SC_PWD_5_BNPC => 5.0,
+    ];
+
+    /**
+     * Only the primary 20% Senior Citizen / PWD discount carries the VAT
+     * exemption. The 5% Basic Necessities & Prime Commodities discount
+     * is a *separate* statutory benefit (granted in lieu of, not on top
+     * of, the 20%+exempt one on the same purchase) and does not itself
+     * remove VAT — it is computed the same way an ordinary discount is,
+     * just at a rate the cashier can't edit.
+     */
+    private const VAT_EXEMPT_DISCOUNT_TYPES = [
+        self::DISCOUNT_SENIOR_CITIZEN,
+        self::DISCOUNT_PWD,
+    ];
+
+    /** Government types requiring the purchaser's name + ID number on the sale. All three do — 5% BNPC is also SC/PWD-only and carries the same documentation duty as the 20% discount. */
+    private const ID_REQUIRED_DISCOUNT_TYPES = [
+        self::DISCOUNT_SENIOR_CITIZEN,
+        self::DISCOUNT_PWD,
+        self::DISCOUNT_SC_PWD_5_BNPC,
+    ];
+
+    /** For error messages only (e.g. isProductEligibleForDiscount's caller) — mirrors discountTypes.ts's DISCOUNT_TYPE_BY_CODE[x].label, kept in sync by hand like everything else in this class. */
+    private const DISCOUNT_LABELS = [
+        self::DISCOUNT_SENIOR_CITIZEN => 'Senior Citizen',
+        self::DISCOUNT_PWD => 'PWD',
+        self::DISCOUNT_SC_PWD_5_BNPC => '5% Basic Necessities / Prime Commodities',
+        self::DISCOUNT_REGULAR => 'Regular Discount',
+        self::DISCOUNT_PROMO => 'Promo Discount',
+        self::DISCOUNT_EMPLOYEE => 'Employee Discount',
+        self::DISCOUNT_MEMBER => 'Member / Loyalty Discount',
+        self::DISCOUNT_WHOLESALE => 'Wholesale / Bulk Discount',
+        self::DISCOUNT_MANUAL => 'Manual Discount',
     ];
 
     /**
@@ -299,5 +415,197 @@ class TaxService
         }
 
         return model(TaxRateModel::class)->find($taxRateId);
+    }
+
+    public function isKnownDiscountType(?string $discountType): bool
+    {
+        return $discountType === null || in_array($discountType, self::DISCOUNT_TYPES, true);
+    }
+
+    public function isGovernmentDiscountType(?string $discountType): bool
+    {
+        return $discountType !== null && array_key_exists($discountType, self::DISCOUNT_RATES);
+    }
+
+    public function discountRequiresVatExemption(?string $discountType): bool
+    {
+        return $discountType !== null && in_array($discountType, self::VAT_EXEMPT_DISCOUNT_TYPES, true);
+    }
+
+    public function discountRequiresHolderId(?string $discountType): bool
+    {
+        return $discountType !== null && in_array($discountType, self::ID_REQUIRED_DISCOUNT_TYPES, true);
+    }
+
+    /**
+     * Computes a government-type discount line end-to-end, the
+     * server-authoritative counterpart to calculateLine() — callers
+     * must use this instead of calculateLine() whenever
+     * isGovernmentDiscountType() is true, and must NOT trust any
+     * discount amount the client sent for one of these lines.
+     *
+     * For the VAT-exempt pair (Senior Citizen, PWD), BIR RR 7-2010 sets
+     * the order of operations deliberately differently from an ordinary
+     * discounted+taxed line: VAT comes out FIRST (against the full,
+     * undiscounted price), and the 20% is then taken off that
+     * VAT-exclusive amount — not the other way around. Concretely, for
+     * a catalog price that already includes VAT:
+     *
+     *   netBeforeDiscount = (qty × unitPrice) / (1 + rate/100)   [VAT backed out of the full price]
+     *   discount           = netBeforeDiscount × 20%
+     *   amountDue          = netBeforeDiscount − discount        [no VAT added back — exempt]
+     *
+     * This is why it can't reuse calculateLine(), whose formula
+     * (baseAmount = qty×price − discount, THEN classify/tax that
+     * result) computes a smaller VAT-exclusive base than the correct
+     * one whenever a real discount is layered on top of tax removal in
+     * the wrong order. When `$inclusive` is false the two orders
+     * coincide (there's no VAT to back out of a price that doesn't
+     * carry it yet), so this still produces the right number either
+     * way — it's simply the one formula that's always correct instead
+     * of only conditionally so.
+     *
+     * 5% Basic Necessities & Prime Commodities does not carry VAT
+     * exemption (see VAT_EXEMPT_DISCOUNT_TYPES) — its discount is
+     * simply 5% of the plain quantity × unitPrice, run through the
+     * ordinary calculateLine() at the line's own tax rate, same as any
+     * other discount type.
+     *
+     * IMPORTANT — same caveat as this class's own docblock: this
+     * encodes a good-faith reading of RA 9994/RA 10754 and their IRRs,
+     * not a substitute for accountant/BIR review before a real
+     * deployment relies on it.
+     *
+     * @throws InvalidArgumentException if $discountType isn't one of the government types.
+     */
+    public function calculateGovernmentDiscountLine(
+        string $discountType,
+        float $quantity,
+        float $unitPrice,
+        ?object $taxRate = null,
+        bool $inclusive = false
+    ): array {
+        if (! $this->isGovernmentDiscountType($discountType)) {
+            throw new InvalidArgumentException("Not a government discount type: {$discountType}");
+        }
+
+        $ratePercent = self::DISCOUNT_RATES[$discountType];
+
+        if (! $this->discountRequiresVatExemption($discountType)) {
+            // 5% BNPC: an ordinary discount at a fixed rate, no VAT override.
+            $discount = round($quantity * $unitPrice * $ratePercent / 100, 2);
+
+            return $this->calculateLine($quantity, $unitPrice, $discount, $taxRate, $inclusive);
+        }
+
+        $grossBeforeDiscount = $quantity * $unitPrice;
+        $taxRatePercent = $taxRate ? (float) $taxRate->rate : 0.0;
+        $netBeforeDiscount = $inclusive && $taxRatePercent > 0
+            ? $grossBeforeDiscount / (1 + $taxRatePercent / 100)
+            : $grossBeforeDiscount;
+
+        $discount = round($netBeforeDiscount * $ratePercent / 100, 2);
+        $net = round($netBeforeDiscount - $discount, 2);
+
+        return [
+            'tax_type' => self::TYPE_VAT_EXEMPT,
+            'rate' => $ratePercent,
+            'inclusive' => $inclusive,
+            'net_amount' => $net,
+            'tax_amount' => 0.0,
+            'gross_amount' => $net,
+            'taxable_amount' => 0.0,
+            'exempt_amount' => $net,
+            'zero_rated_amount' => 0.0,
+            'non_vat_amount' => 0.0,
+            'tax_rate_id' => $taxRate->id ?? null,
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+            'discount' => $discount,
+        ];
+    }
+
+    public static function discountLabel(string $discountType): string
+    {
+        return self::DISCOUNT_LABELS[$discountType] ?? $discountType;
+    }
+
+    /**
+     * Whether $product may receive $discountType at all — resolved most-
+     * specific-first:
+     *
+     *   1. A product_discount_eligibility row for this exact product.
+     *   2. Failing that, a category_discount_eligibility row for the
+     *      product's category.
+     *   3. Failing both, eligible — most retail goods DO qualify for
+     *      most discount types, and the real-world exclusion lists (e.g.
+     *      RA 9994/RA 10754's carve-out for alcohol and tobacco from
+     *      SC/PWD) are short relative to a full catalog, so naming every
+     *      eligible product would be the wrong way round for this rule.
+     *      A company configures the exceptions that apply to it (see
+     *      CategoriesController::updateDiscountEligibility) rather than
+     *      this class guessing at a specific store's category names.
+     *
+     * $product === null (a custom, non-catalog line item — see
+     * SalesController::create()'s empty($item['product_id']) branch) is
+     * always eligible: there is no catalog record to look an override up
+     * against, and inventing a blanket rule for custom items wasn't
+     * asked for and isn't this method's call to make. Documented here
+     * as a real, known gap rather than a silent decision — a deployment
+     * relying on custom line items for anything an SC/PWD/other
+     * restricted discount type could apply to should treat this as
+     * unenforced until it's specifically addressed.
+     *
+     * IMPORTANT — same caveat as this class's own docblock: eligibility
+     * here is only ever what a company has explicitly configured. This
+     * class does not know, and does not guess, which categories in a
+     * particular catalog correspond to alcohol/tobacco/other statutory
+     * exclusions — that determination, and keeping it current, is the
+     * deploying business's responsibility (see the Discount Eligibility
+     * settings under Categories in the Back Office).
+     */
+    public function isProductEligibleForDiscount(string $discountType, ?object $product): bool
+    {
+        if ($product === null) {
+            return true;
+        }
+
+        $productRule = model(ProductDiscountEligibilityModel::class)
+            ->where('product_id', $product->id)
+            ->where('discount_type', $discountType)
+            ->first();
+        if ($productRule !== null) {
+            return (bool) $productRule->eligible;
+        }
+
+        return $this->isCategoryEligibleForDiscount($discountType, $product->category_id ?? null);
+    }
+
+    /**
+     * The category layer alone (category rule, else eligible by
+     * default) — what a product's eligibility would resolve to if it
+     * carried NO product-level override of its own. Factored out of
+     * isProductEligibleForDiscount() because ProductsController::
+     * updateDiscountEligibility() needs exactly this value on its own:
+     * writing a product-level "eligible: true" can only safely DELETE
+     * the row (this table is sparse by design — see the migration that
+     * creates it) when the category layer already agrees; if the
+     * category says false and the product is being set to true, that's
+     * a genuine override and needs a real eligible=1 row, or the
+     * "sparse" shortcut would silently lose the override the moment
+     * the row disappears.
+     */
+    public function isCategoryEligibleForDiscount(string $discountType, ?int $categoryId): bool
+    {
+        if ($categoryId === null) {
+            return true;
+        }
+
+        $categoryRule = model(CategoryDiscountEligibilityModel::class)
+            ->where('category_id', $categoryId)
+            ->where('discount_type', $discountType)
+            ->first();
+
+        return $categoryRule === null || (bool) $categoryRule->eligible;
     }
 }

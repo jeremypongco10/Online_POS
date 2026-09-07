@@ -15,6 +15,7 @@ export type PosShortcutAction =
   | 'return'
   | 'cancel'
   | 'cart'
+  | 'discount'
   | 'help';
 
 export interface PosShortcut {
@@ -39,7 +40,11 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   { key: 'F2', action: 'search', label: 'Search products', detail: 'Jump to the search box to type a name, barcode or SKU.' },
   { key: 'F3', action: 'customer', label: 'Customer', detail: 'Attach a customer to the sale by customer number, or search for one.' },
   { key: 'F4', action: 'bagger', label: 'Bagger', detail: 'Assign the bagger credited for this sale.' },
-  { key: 'F5', action: 'pay', label: 'Pay', detail: 'Open payment to take cash or another tender and close the sale.' },
+  // Only reachable while the cart has items — CartActionsRow doesn't
+  // render the Discount button on an empty cart (nothing to discount
+  // yet), so this DOM-clicks it the same way F7/F8 do for their own
+  // conditionally-rendered buttons; a missing element silently no-ops.
+  { key: 'F5', action: 'discount', label: 'Discount', detail: 'Open the discount picker for the whole sale — pick a type once and the POS applies it to every eligible item.' },
   { key: 'F6', action: 'hold', label: 'Hold', detail: 'Park the current cart so the next customer can be served, and resume it later from the account menu.' },
   // Does double duty, and only one half runs through the global handler
   // below. With no receipt on screen, F7 opens the invoice lookup
@@ -49,10 +54,21 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   // in PosScreen), so F7 falls through to ReceiptModal's own local
   // listener instead, which just prints what's already showing. Same key,
   // whichever half currently applies; documented once, here, either way.
-  { key: 'F7', action: 'reprint', label: 'Reprint receipt', detail: 'Look up a past sale by invoice number and print its receipt. While a receipt is already on screen, prints that one instead.' },
-  { key: 'F8', action: 'return', label: 'Return', detail: 'Open the Returns screen in the Back Office to process a past sale.' },
-  { key: 'F9', action: 'cancel', label: 'Cancel Sale', detail: 'Clear the whole cart. Asks for confirmation, and may need supervisor approval.' },
+  { key: 'F7', action: 'reprint', label: 'Reprint receipt', detail: 'While the cart is empty: look up a past sale by invoice number and print its receipt. While a receipt is already on screen, prints that one instead.' },
+  { key: 'F8', action: 'return', label: 'Return', detail: 'While the cart is empty: open the Returns screen in the Back Office to process a past sale.' },
+  { key: 'F9', action: 'cancel', label: 'Cancel Sale', detail: 'While the cart has items: clear the whole cart. Asks for confirmation, and may need supervisor approval.' },
   { key: 'F10', action: 'cart', label: 'Select cart line', detail: 'Select the first item in the cart, then step through with the arrow keys. Esc clears the selection. The search box keeps focus throughout, so a scan still rings up normally.' },
+  // F11 specifically, past F10, carries one real caveat the F1-F10 range
+  // doesn't: on a desktop browser with a physical keyboard, F11 is also
+  // the OS/browser's own fullscreen toggle. preventDefault() suppresses
+  // it in current Chrome/Edge/Firefox the same way it already does for
+  // F5's reload (see useBrowserKeyGuard), but — like that F5 caveat —
+  // this isn't guaranteed in every embedded/kiosk configuration, so it's
+  // worth an actual check on the real terminal hardware, not just
+  // assumed. IS_TOUCH devices never enable the Fullscreen API at all
+  // (see fullscreen.ts), so this only matters on a desktop-class POS
+  // terminal in the first place.
+  { key: 'F11', action: 'pay', label: 'Pay', detail: 'Open payment to take cash or another tender and close the sale.' },
 
   // Movement around the results. Bound by the search field and the results
   // container themselves rather than globally, since each only applies

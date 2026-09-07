@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { BOUND_SHORTCUTS, type PosShortcutAction } from './posShortcuts';
 
 type Handlers = Record<PosShortcutAction, () => void> & {
-  /** Disabled while any blocking dialog/popover is open, so e.g. F5 behind an open dialog doesn't also try to submit the sale underneath it. */
+  /** Disabled while any blocking dialog/popover is open, so e.g. F11 behind an open dialog doesn't also try to submit the sale underneath it. */
   enabled: boolean;
 };
 

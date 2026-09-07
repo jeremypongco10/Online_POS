@@ -17,7 +17,9 @@ class CompanyModel extends Model
     protected $allowedFields = [
         'trade_name', 'legal_name', 'tax_id', 'is_vat_registered', 'vat_registration_number',
         'email', 'phone', 'address', 'currency', 'timezone', 'is_active', 'loyalty_points_per_100',
-        'require_item_void_approval', 'require_cancel_approval',
+        'require_item_void_approval', 'require_cancel_approval', 'require_manual_discount_approval',
+        'default_regular_discount_percent', 'default_promo_discount_percent', 'default_employee_discount_percent',
+        'default_member_discount_percent', 'default_wholesale_discount_percent',
     ];
 
     protected $validationRules = [
@@ -41,5 +43,15 @@ class CompanyModel extends Model
         // split them.
         'require_item_void_approval' => ['label' => 'Require supervisor approval to void an item', 'rules' => 'permit_empty|in_list[0,1]'],
         'require_cancel_approval' => ['label' => 'Require supervisor approval to cancel a sale', 'rules' => 'permit_empty|in_list[0,1]'],
+        // Manual Discount specifically — see AddRequireManualDiscountApprovalToCompanies.
+        'require_manual_discount_approval' => ['label' => 'Require supervisor approval for a manual discount', 'rules' => 'permit_empty|in_list[0,1]'],
+        // A starting point DiscountDialog pre-fills, not an enforced
+        // ceiling — the cashier can always type a different number.
+        // Null/blank is valid and means "no default configured".
+        'default_regular_discount_percent' => ['label' => 'Default Regular Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
+        'default_promo_discount_percent' => ['label' => 'Default Promo Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
+        'default_employee_discount_percent' => ['label' => 'Default Employee Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
+        'default_member_discount_percent' => ['label' => 'Default Member/Loyalty Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
+        'default_wholesale_discount_percent' => ['label' => 'Default Wholesale Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
     ];
 }

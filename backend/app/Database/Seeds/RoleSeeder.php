@@ -55,7 +55,7 @@ class RoleSeeder extends Seeder
                 'permissions' => [
                     'products.view',
                     'inventory.view', 'inventory.adjust', 'inventory.transfer',
-                    'sales.create', 'sales.view', 'sales.void', 'sales.refund',
+                    'sales.create', 'sales.view', 'sales.void', 'sales.refund', 'sales.discount',
                     'customers.view', 'customers.create', 'customers.update',
                     'loyalty.view', 'loyalty.manage',
                     'dashboard.view', 'reports.view',
@@ -85,7 +85,7 @@ class RoleSeeder extends Seeder
                 'permissions' => [
                     'products.view',
                     'inventory.view',
-                    'sales.create', 'sales.view', 'sales.void',
+                    'sales.create', 'sales.view', 'sales.void', 'sales.discount',
                     'customers.view', 'customers.create',
                     'loyalty.view', 'loyalty.manage',
                     'categories.view', 'units.view', 'taxes.view',

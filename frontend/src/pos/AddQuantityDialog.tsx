@@ -125,7 +125,12 @@ export function AddQuantityDialog({ product, onClose, onConfirm, onExited }: Pro
         ...(IS_TOUCH && { '& .MuiDialog-container': { alignItems: 'flex-start', pt: { xs: 4, sm: 6 } } }),
       }}
       slotProps={{
-        paper: { sx: { maxHeight: '85dvh', display: 'flex', flexDirection: 'column' } },
+        // Divided by --pos-zoom for the same reason DiscountDialog is: the
+        // POS scales itself with CSS `zoom` (usePosZoom) and viewport units
+        // resolve BEFORE that scaling, so a bare 85dvh caps this at
+        // 85% × zoom of the real screen — needlessly short wherever the
+        // layout has scaled down.
+        paper: { sx: { maxHeight: 'calc(85dvh / var(--pos-zoom, 1))', display: 'flex', flexDirection: 'column' } },
         // onEntered is desktop only: it selects the default "1" so typing a
         // number overwrites it instead of appending. On touch there's
         // nothing to select into — the keypad writes the value and the

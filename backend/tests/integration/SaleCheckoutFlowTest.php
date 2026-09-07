@@ -9,9 +9,11 @@ use App\Models\PaymentModel;
 use App\Models\ProductModel;
 use App\Models\RegisterModel;
 use App\Models\RoleModel;
+use App\Models\SaleItemModel;
 use App\Models\SaleModel;
 use App\Models\StoreModel;
 use App\Models\StoreProductPriceModel;
+use App\Models\TaxRateModel;
 use App\Models\UnitModel;
 use App\Models\UserModel;
 use CodeIgniter\Test\CIUnitTestCase;
@@ -150,6 +152,7 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
 
         $db->table('inventory_transactions')->where('store_id', $this->storeId)->delete();
         $db->table('inventory')->where('store_id', $this->storeId)->delete();
+        $db->table('tax_rates')->where('company_id', $this->companyId)->delete();
         $db->table('products')->where('company_id', $this->companyId)->delete();
         $db->table('registers')->where('store_id', $this->storeId)->delete();
         $db->table('stores')->where('company_id', $this->companyId)->delete();
@@ -372,6 +375,133 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
                 ],
                 'payments' => [
                     ['method' => 'cash', 'amount' => 0],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(0, model(SaleModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    // --- Discount types (TaxService::DISCOUNT_TYPES) ---
+
+    public function testSeniorCitizenDiscountRequiresHolderNameAndId(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00, 'discount_type' => 'senior_citizen'],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
+                ],
+                // discount_holder_name / discount_id_number deliberately omitted.
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(0, model(SaleModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    public function testSeniorCitizenDiscountComputesTwentyPercentServerSideAndIgnoresClientAmount(): void
+    {
+        $vatRateId = (int) model(TaxRateModel::class)->insert([
+            'company_id' => $this->companyId,
+            'name' => 'VAT',
+            'rate' => 12.0,
+        ], true);
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    // 1 x 112.00 VAT-inclusive; client claims a 1-peso
+                    // discount, which must be ignored in favor of the
+                    // server-computed 20%-of-VAT-exclusive-base amount.
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 112.00, 'discount' => 1.00, 'discount_type' => 'senior_citizen', 'tax_rate_id' => $vatRateId],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 160.00],
+                ],
+                'discount_holder_name' => 'Juan Dela Cruz',
+                'discount_id_number' => 'SC-123456',
+                'prices_include_tax' => true,
+            ]);
+
+        $response->assertStatus(201);
+        $body = json_decode($response->getJSON(), true);
+        $saleId = (int) $body['data']['id'];
+
+        // netBeforeDiscount = 112 / 1.12 = 100; discount = 20; due = 80.
+        $this->assertEqualsWithDelta(80.00, (float) $body['data']['total'], 0.001);
+        $this->assertEqualsWithDelta(20.00, (float) $body['data']['discount_total'], 0.001);
+        $this->assertEqualsWithDelta(0.00, (float) $body['data']['tax_total'], 0.001);
+        $this->assertSame('Juan Dela Cruz', $body['data']['discount_holder_name']);
+        $this->assertSame('SC-123456', $body['data']['discount_id_number']);
+
+        $items = model(SaleItemModel::class)->where('sale_id', $saleId)->findAll();
+        $this->assertCount(1, $items);
+        $this->assertSame('senior_citizen', $items[0]->discount_type);
+        $this->assertSame('vat_exempt', $items[0]->tax_type);
+        $this->assertEqualsWithDelta(20.00, (float) $items[0]->discount, 0.001);
+        $this->assertEqualsWithDelta(0.00, (float) $items[0]->tax_amount, 0.001);
+
+        // The receipt surfaces the same holder documentation and per-line type.
+        $receiptResponse = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->get("/api/v1/sales/{$saleId}/receipt");
+        $receipt = json_decode($receiptResponse->getJSON(), true)['data'];
+        $this->assertSame('Juan Dela Cruz', $receipt['discount_holder_name']);
+        $this->assertSame('SC-123456', $receipt['discount_id_number']);
+        $this->assertSame('senior_citizen', $receipt['items'][0]['discount_type']);
+        $this->assertSame('E', $receipt['items'][0]['tax_indicator']);
+    }
+
+    public function testRegularDiscountTypeStillTrustsClientAmount(): void
+    {
+        // Non-government types keep the pre-existing trust model — the
+        // cashier-entered peso amount is what gets charged, unchanged
+        // from how discount worked before discount_type existed.
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00, 'discount' => 5.00, 'discount_type' => 'regular'],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 60.00],
+                ],
+            ]);
+
+        $response->assertStatus(201);
+        $body = json_decode($response->getJSON(), true);
+        $this->assertEqualsWithDelta(60.00, (float) $body['data']['total'], 0.001);
+
+        $items = model(SaleItemModel::class)->where('sale_id', (int) $body['data']['id'])->findAll();
+        $this->assertSame('regular', $items[0]->discount_type);
+        $this->assertEqualsWithDelta(5.00, (float) $items[0]->discount, 0.001);
+    }
+
+    public function testUnknownDiscountTypeIsRejected(): void
+    {
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00, 'discount_type' => 'bogus'],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
                 ],
             ]);
 

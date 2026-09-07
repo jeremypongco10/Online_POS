@@ -23,6 +23,10 @@ class PermissionSeeder extends Seeder
         'sales.view' => ['View Sales', 'Can view sales history'],
         'sales.void' => ['Void Sales', 'Can void a sale'],
         'sales.refund' => ['Refund Sales', 'Can process a refund'],
+        // Same authority as sales.void: a supervisor sign-off gate, this
+        // time for Manual Discount specifically — see
+        // AddSalesDiscountPermission for the existing-install backfill.
+        'sales.discount' => ['Approve Discounts', 'Can approve a manual/discretionary discount that falls outside the standard discount types'],
 
         'customers.view' => ['View Customers', 'Can view customer records'],
         'customers.create' => ['Create Customers', 'Can create new customers'],

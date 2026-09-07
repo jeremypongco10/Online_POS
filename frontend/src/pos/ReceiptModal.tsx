@@ -15,6 +15,7 @@ import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
 import type { PaymentMethodOption, Receipt } from '../api/types';
 import { formatMoney, TAX_INDICATOR_LABELS } from './format';
+import { discountTypeLabel } from './discountTypes';
 import { PopTransition } from '../PopTransition';
 import { METHOD_LABELS } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
@@ -92,6 +93,21 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
               <span>{receipt.loyalty_card_number}</span>
             </Stack>
           )}
+          {/* BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC
+              line elsewhere on this receipt — required on record for the
+              discount to be valid, not just applied at the register. */}
+          {receipt.discount_holder_name && (
+            <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+              <span>SC/PWD Name</span>
+              <span>{receipt.discount_holder_name}</span>
+            </Stack>
+          )}
+          {receipt.discount_id_number && (
+            <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+              <span>SC/PWD ID No.</span>
+              <span>{receipt.discount_id_number}</span>
+            </Stack>
+          )}
         </Stack>
 
         <Table
@@ -118,7 +134,17 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           <TableBody>
             {receipt.items.map((item, i) => (
               <TableRow key={i}>
-                <TableCell>{item.name}</TableCell>
+                <TableCell>
+                  {item.name}
+                  {/* Which of the nine discount types this line's price
+                      already reflects — printed right under the name so
+                      it's clear at a glance without a separate column. */}
+                  {parseFloat(item.discount) > 0 && discountTypeLabel(item.discount_type) && (
+                    <Box component="span" sx={{ display: 'block', fontSize: 10.5, color: 'text.secondary' }}>
+                      {discountTypeLabel(item.discount_type)} -{formatMoney(parseFloat(item.discount))}
+                    </Box>
+                  )}
+                </TableCell>
                 <TableCell>{item.quantity}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.unit_price))}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.line_total))}</TableCell>

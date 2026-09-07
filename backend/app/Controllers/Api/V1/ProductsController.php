@@ -3,7 +3,9 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Libraries\TaxService;
 use App\Models\CategoryModel;
+use App\Models\ProductDiscountEligibilityModel;
 use App\Models\ProductModel;
 use App\Models\StoreModel;
 use App\Models\StoreProductPriceModel;
@@ -554,5 +556,149 @@ class ProductsController extends BaseCrudController
         }
 
         return $this->ok($this->model->find($id), 'Image removed');
+    }
+
+    /**
+     * GET /api/v1/products/{id}/discount-eligibility
+     *
+     * Fully resolved eligibility for every discount type on ONE product
+     * — product override, then its category's, then eligible-by-default
+     * (see TaxService::isProductEligibleForDiscount). This is what the
+     * POS's Discount dialog calls before it lets a cashier pick a type
+     * for a given cart line, so a type this returns false for should
+     * never even be selectable there. Gated on products.view (not
+     * products.update) — every POS role that can ring up this product
+     * at all needs to know what it can be discounted with.
+     */
+    public function discountEligibility($id = null)
+    {
+        $product = $this->applyScope()->find($id);
+        if ($product === null) {
+            return $this->notFound();
+        }
+
+        $taxService = Services::taxService();
+        $eligibility = [];
+        foreach (TaxService::DISCOUNT_TYPES as $type) {
+            $eligibility[$type] = $taxService->isProductEligibleForDiscount($type, $product);
+        }
+
+        return $this->ok($eligibility);
+    }
+
+    /**
+     * GET /api/v1/products/discount-eligibility?product_ids=1,2,3
+     *
+     * The same resolution as the single-product endpoint above, for a
+     * whole basket at once — keyed by product id. This is what the POS
+     * calls when the cashier picks ONE discount for the sale: the answer
+     * needed is "which of these lines qualify", and asking that one
+     * product at a time would be a request per line, on the counter,
+     * with the customer waiting.
+     *
+     * Ids the caller can't see (another company's, or simply absent)
+     * are omitted from the response rather than reported — the POS
+     * treats a missing entry the same way it treats a custom line item
+     * with no product behind it, and checkout re-checks every line
+     * server-side regardless (SalesController::resolveLineDiscount), so
+     * a gap here can only ever cost a discount, never grant one.
+     */
+    public function bulkDiscountEligibility()
+    {
+        $requested = (string) ($this->request->getGet('product_ids') ?? '');
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', $requested)))));
+
+        if ($ids === []) {
+            return $this->ok([]);
+        }
+
+        // Capped for the same reason the cart itself is finite: this is a
+        // basket, not a catalog export.
+        $products = $this->applyScope()->whereIn('id', array_slice($ids, 0, 200))->findAll();
+
+        $taxService = Services::taxService();
+        $byProduct = [];
+        foreach ($products as $product) {
+            $eligibility = [];
+            foreach (TaxService::DISCOUNT_TYPES as $type) {
+                $eligibility[$type] = $taxService->isProductEligibleForDiscount($type, $product);
+            }
+            $byProduct[(string) $product->id] = $eligibility;
+        }
+
+        return $this->ok($byProduct);
+    }
+
+    /**
+     * PUT /api/v1/products/{id}/discount-eligibility
+     * body: { rules: { [discount_type]: boolean, ... } }
+     *
+     * Sets this ONE product's overrides — the most specific rule
+     * TaxService::isProductEligibleForDiscount() checks, ahead of its
+     * category's. Intentionally sparse: `eligible: true` for a type
+     * DELETES that type's row instead of storing a redundant one (true
+     * is already the default with no row at all — see the migration
+     * that creates product_discount_eligibility), so this table only
+     * ever holds real exceptions or an explicit re-enable overriding a
+     * category rule. A type simply absent from `rules` is left as-is,
+     * so a partial update (e.g. one row from the product edit form)
+     * never clobbers a rule set some other way.
+     */
+    public function updateDiscountEligibility($id = null)
+    {
+        $product = $this->applyScope()->find($id);
+        if ($product === null) {
+            return $this->notFound();
+        }
+
+        $payload = $this->request->getJSON(true) ?? [];
+        $rules = $payload['rules'] ?? null;
+        if (! is_array($rules)) {
+            return $this->apiFail('rules must be an object of discount_type => boolean', 422);
+        }
+
+        $taxService = Services::taxService();
+        $model = model(ProductDiscountEligibilityModel::class);
+
+        foreach ($rules as $type => $eligible) {
+            // Object keys from getJSON() are always strings, but
+            // isKnownDiscountType() also accepts null (see its own
+            // docblock) — cast explicitly so a bogus key can't slip
+            // through as "no restriction" instead of failing loudly.
+            if (! is_string($type) || ! $taxService->isKnownDiscountType($type)) {
+                return $this->apiFail("Unknown discount_type: {$type}", 422);
+            }
+
+            $existing = $model->where('product_id', $id)->where('discount_type', $type)->first();
+
+            // A product row can be safely deleted (falling back to the
+            // category/default resolution) ONLY when that fallback would
+            // itself resolve to the same value being requested — e.g.
+            // setting "eligible: true" when the category has restricted
+            // this type is a real override and needs its own row, or the
+            // override vanishes the moment the row does. See
+            // TaxService::isCategoryEligibleForDiscount's docblock.
+            $categoryDefault = $taxService->isCategoryEligibleForDiscount($type, $product->category_id ?? null);
+
+            if ((bool) $eligible === $categoryDefault) {
+                if ($existing !== null) {
+                    $model->delete($existing->id);
+                }
+                continue;
+            }
+
+            if ($existing !== null) {
+                $model->update($existing->id, ['eligible' => $eligible ? 1 : 0]);
+            } else {
+                $model->insert(['product_id' => $id, 'discount_type' => $type, 'eligible' => $eligible ? 1 : 0]);
+            }
+        }
+
+        $eligibility = [];
+        foreach (TaxService::DISCOUNT_TYPES as $type) {
+            $eligibility[$type] = $taxService->isProductEligibleForDiscount($type, $product);
+        }
+
+        return $this->ok($eligibility, 'Discount eligibility updated');
     }
 }

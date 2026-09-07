@@ -44,6 +44,26 @@ export const theme = createTheme({
     },
   },
   components: {
+    MuiTooltip: {
+      styleOverrides: {
+        // A tooltip is meant purely as a label, never a surface — but MUI's
+        // popper accepts pointer events by default, so whenever one has
+        // nowhere to render but overlapping the very element it describes
+        // (a control sitting close to the edge of the viewport, which the
+        // Actions row often does), a click landing on that overlap hits the
+        // tooltip's own div instead of the button underneath and silently
+        // does nothing. Reported against the Actions row's Cancel Sale
+        // button specifically, but the same MUI default applies to every
+        // tooltip in the app, so this is fixed once, here, rather than
+        // patched per instance. `pointer-events: none` only affects clicks
+        // passing through the popper to what's beneath it — MUI still
+        // shows/hides the tooltip from hover on the wrapped element itself,
+        // not the popper, so nothing about *when* a tooltip appears changes.
+        popper: {
+          pointerEvents: 'none',
+        },
+      },
+    },
     MuiButton: {
       styleOverrides: {
         root: {

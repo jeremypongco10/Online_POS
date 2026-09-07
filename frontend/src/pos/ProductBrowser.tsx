@@ -23,12 +23,14 @@ interface Props {
   bagger: Bagger | null;
   onSelectBagger: (bagger: Bagger | null) => void;
   cartHasItems: boolean;
+  /** The Discount button — one discount chosen for the whole sale, which is the normal workflow (see DiscountDialog). */
+  onOpenDiscount: () => void;
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
 }
 
-/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, cash movements, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the More menu sit in the Actions row pinned below the product list. */
+/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, cash movements, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent action sit in the Actions row pinned below the product list — see CartActionsRow. */
 export function ProductBrowser({
   companyId,
   storeId,
@@ -40,6 +42,7 @@ export function ProductBrowser({
   bagger,
   onSelectBagger,
   cartHasItems,
+  onOpenDiscount,
   onCancel,
   onReturn,
   onReprintReceipt,
@@ -65,6 +68,7 @@ export function ProductBrowser({
               bagger={bagger}
               onOpenBagger={() => setBaggerDialogOpen(true)}
               cartHasItems={cartHasItems}
+              onOpenDiscount={onOpenDiscount}
               onCancel={onCancel}
               onReturn={onReturn}
               onReprintReceipt={onReprintReceipt}

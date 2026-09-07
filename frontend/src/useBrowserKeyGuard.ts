@@ -12,8 +12,11 @@ import { useEffect } from 'react';
  * next F5 is a real refresh.
  *
  * Reloading is destructive on a till: the in-progress cart lives in React
- * state, so a refresh silently empties it mid-sale. F5 also sits next to
- * Pay in muscle memory, which is exactly why it was chosen for Pay.
+ * state, so a refresh silently empties it mid-sale. This guard suppresses
+ * F5 unconditionally rather than only while some specific action sits on
+ * it, since whichever POS shortcut is currently bound to F5 (see
+ * posShortcuts.ts) would otherwise be one accidental double-tap away from
+ * a real reload either way.
  *
  * Testing `e.key` alone (not the modifiers) also covers Ctrl+F5 / Shift+F5,
  * since those still report key === 'F5'. Ctrl+R is deliberately left alone

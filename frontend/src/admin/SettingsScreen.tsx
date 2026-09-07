@@ -37,11 +37,12 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
+import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import Switch from '@mui/material/Switch';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty' | 'security';
-const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty', 'security'];
+type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty' | 'discounts' | 'security';
+const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty', 'discounts', 'security'];
 const TAB_LABELS: Record<Tab, string> = {
   stores: 'Stores',
   registers: 'POS Terminals',
@@ -49,16 +50,18 @@ const TAB_LABELS: Record<Tab, string> = {
   taxes: 'Taxes',
   units: 'Units',
   loyalty: 'Loyalty',
+  discounts: 'Discounts',
   security: 'Security',
 };
-// Every other tab is visible on `${tab}.view` — Security edits the
-// companies table directly (like Loyalty does under the hood), and
-// that table is gated on companies.manage, not a security.view slug
-// that doesn't exist. Visibility and edit rights are the same
-// permission here on purpose: nobody should see a control they'd
-// immediately get a 403 trying to use, the way Loyalty's own
-// loyalty.manage/companies.manage split can (see LoyaltyTab).
-const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { security: 'companies.manage' };
+// Every other tab is visible on `${tab}.view` — Security and Discounts
+// both edit the companies table directly (like Loyalty does under the
+// hood), and that table is gated on companies.manage, not a
+// security.view/discounts.view slug that doesn't exist. Visibility and
+// edit rights are the same permission here on purpose: nobody should
+// see a control they'd immediately get a 403 trying to use, the way
+// Loyalty's own loyalty.manage/companies.manage split can (see
+// LoyaltyTab).
+const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { discounts: 'companies.manage', security: 'companies.manage' };
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
@@ -91,6 +94,7 @@ export function SettingsScreen() {
       {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
       {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
+      {tab === 'discounts' && hasPermission('companies.manage') && <DiscountsTab />}
       {tab === 'security' && hasPermission('companies.manage') && <SecurityTab />}
     </div>
   );
@@ -1556,6 +1560,12 @@ function LoyaltyTab() {
  * is the flag that decides whether cashiers can bypass a supervisor at
  * all, so unlike Loyalty there's no separate lighter-weight permission
  * for it.
+ *
+ * Manual Discount's own approval switch, and everything else about how
+ * discounts behave, live on the separate Discounts tab (DiscountsTab,
+ * below) — split out from here so this tab stays about voiding/
+ * cancelling a sale specifically, not a catch-all for every switch that
+ * happens to need a supervisor.
  */
 function SecurityTab() {
   const { user } = useAuth();
@@ -1638,6 +1648,188 @@ function SecurityTab() {
           disabled={saving}
           onChange={(v) => toggle('require_cancel_approval', v)}
         />
+      </Stack>
+    </Paper>
+  );
+}
+
+/**
+ * Everything about how a discount behaves at the register, gathered in
+ * one place — split out from Security (which now covers only voiding/
+ * cancelling a sale) since these are pricing/promotions decisions, not
+ * a security policy, even though the approval switch below happens to
+ * work the same way a security switch does.
+ *
+ * Discount ELIGIBILITY (which products/categories a given type even
+ * applies to) is deliberately NOT duplicated here — it's configured per
+ * category or per product, from each one's own Discount Eligibility
+ * action on the Products screen, since it doesn't have a single
+ * company-wide value the way approval and the default rates do. The
+ * note below just points there rather than re-explaining it.
+ */
+function DiscountsTab() {
+  const { user } = useAuth();
+  const notify = useSnackbar();
+  const [company, setCompany] = useState<Company | null>(null);
+  const [manualDiscount, setManualDiscount] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.company_id) return;
+    api
+      .get<Company>(`/companies/${user.company_id}`)
+      .then((c) => {
+        setCompany(c);
+        setManualDiscount(Number(c.require_manual_discount_approval) === 1);
+      })
+      .finally(() => setLoading(false));
+  }, [user?.company_id]);
+
+  async function toggleManualDiscount(next: boolean) {
+    if (!company) return;
+    setManualDiscount(next);
+    setSaving(true);
+    try {
+      const updated = await api.put<Company>(`/companies/${company.id}`, { require_manual_discount_approval: next ? 1 : 0 });
+      setCompany(updated);
+      setManualDiscount(Number(updated.require_manual_discount_approval) === 1);
+      notify('Discount settings updated');
+    } catch (err) {
+      setManualDiscount(!next);
+      notify(err instanceof ApiError ? err.message : 'Failed to save discount settings', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Stack sx={{ alignItems: 'center', py: 6 }}>
+        <CircularProgress size={22} />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack spacing={3}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <SellOutlinedIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Manual Discount approval
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Senior Citizen, PWD, and every other discount type either carries a statutory rate or a standing company
+          policy — Manual Discount is the one with none, pure cashier discretion, applied and recorded the same way a
+          void is (see Security).
+        </Typography>
+        <SecurityToggle
+          title="Applying a Manual Discount"
+          detail="A supervisor (someone with the Approve Discounts permission) must enter their own username and password before it goes through. Recommended on."
+          checked={manualDiscount}
+          disabled={saving}
+          onChange={toggleManualDiscount}
+        />
+      </Paper>
+
+      {company && <DiscountDefaultsSection company={company} onSaved={setCompany} />}
+
+      <Alert severity="info" sx={{ maxWidth: 620 }}>
+        Which products or categories a discount type applies to at all is configured per category or product — open
+        Products, then a category or item's own Discount Eligibility action.
+      </Alert>
+    </Stack>
+  );
+}
+
+const DISCOUNT_DEFAULT_FIELDS = [
+  { field: 'default_regular_discount_percent' as const, label: 'Regular Discount' },
+  { field: 'default_promo_discount_percent' as const, label: 'Promo Discount' },
+  { field: 'default_employee_discount_percent' as const, label: 'Employee Discount' },
+  { field: 'default_member_discount_percent' as const, label: 'Member / Loyalty Discount' },
+  { field: 'default_wholesale_discount_percent' as const, label: 'Wholesale / Bulk Discount' },
+];
+
+/**
+ * A starting percentage the POS's Discount dialog pre-fills for each of
+ * the five configurable discount types — Regular/Promo/Employee/Member/
+ * Wholesale (see TaxService::DISCOUNT_TYPES; Senior Citizen/PWD/5% BNPC
+ * have a statutory rate instead, and Manual is deliberately left blank
+ * every time). Never an enforced ceiling: the cashier can always type a
+ * different number over whatever this pre-fills, so leaving a field
+ * blank here just means the dialog starts empty, same as before this
+ * existed — not that the discount type is unavailable.
+ */
+function DiscountDefaultsSection({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+  const notify = useSnackbar();
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(DISCOUNT_DEFAULT_FIELDS.map(({ field }) => [field, company[field] === null ? '' : String(company[field])]))
+  );
+  const [saving, setSaving] = useState(false);
+  const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
+
+  async function submit() {
+    setSaving(true);
+    clearErrors();
+    try {
+      const payload = Object.fromEntries(
+        DISCOUNT_DEFAULT_FIELDS.map(({ field }) => [field, values[field].trim() === '' ? null : values[field].trim()])
+      );
+      const updated = await api.put<Company>(`/companies/${company.id}`, payload);
+      onSaved(updated);
+      setValues(Object.fromEntries(DISCOUNT_DEFAULT_FIELDS.map(({ field }) => [field, updated[field] === null ? '' : String(updated[field])])));
+      notify('Discount defaults updated');
+    } catch (err) {
+      reportError(err, 'Failed to save discount defaults');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <SellOutlinedIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          Discount defaults
+        </Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        A starting percentage for each discount type below — the cashier's Discount dialog opens with this already
+        filled in, but can always change it. Leave a field blank to have the dialog start empty, as it always has.
+      </Typography>
+
+      <Stack spacing={2}>
+        {DISCOUNT_DEFAULT_FIELDS.map(({ field, label }) => (
+          <TextField
+            key={field}
+            label={label}
+            type="number"
+            fullWidth
+            value={values[field]}
+            onChange={(e) => {
+              setValues((prev) => ({ ...prev, [field]: e.target.value }));
+              clearField(field);
+            }}
+            error={!!fieldErrors?.[field]}
+            helperText={fieldErrors?.[field] ?? 'Blank = no default'}
+            slotProps={{ htmlInput: { min: 0, max: 100, step: 0.01 }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+          />
+        ))}
+      </Stack>
+
+      {formError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {formError}
+        </Alert>
+      )}
+
+      <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+        <Button variant="contained" onClick={submit} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
       </Stack>
     </Paper>
   );

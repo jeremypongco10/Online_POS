@@ -4,23 +4,22 @@ import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import Popover from '@mui/material/Popover';
-import TextField from '@mui/material/TextField';
-import Button from '@mui/material/Button';
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import type { CartLine } from './posTypes';
-import { calculateLine } from './posTypes';
-import { formatMoney, formatQuantity, taxIndicatorFor, POS_ACCENT, TAX_INDICATOR_LABELS } from './format';
+import { calculateLine, lineTaxIndicator } from './posTypes';
+import { discountTypeLabel } from './discountTypes';
+import { formatMoney, formatQuantity, POS_ACCENT, TAX_INDICATOR_LABELS } from './format';
 
 interface Props {
   lines: CartLine[];
   /** The most recently added/updated line, from any add path (tile click or scan) — scrolls it into view and briefly highlights it, so a cashier can always see what just landed in the cart. */
   lastAddedKey: string | null;
-  onDiscountChange: (key: string, discount: number) => void;
+  /** Opens DiscountDialog for this line — the dialog itself owns the type picker, amount entry, and (for Manual) the approval flow; Cart never edits `discount` directly any more. */
+  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   /** Opens the supervisor-approval dialog. The line is only dropped once that returns approved — this never removes anything by itself. */
   onRequestVoid: (line: CartLine) => void;
@@ -31,6 +30,12 @@ interface Props {
    * somewhere to type, which rules out moving focus onto a row.
    */
   selectedKey: string | null;
+  /**
+   * Tapping a row selects it, which is what reveals that line's controls
+   * (discount / quantity / void — see CartRow). Tapping the selected row
+   * again clears the selection and puts them away.
+   */
+  onSelectLine: (key: string) => void;
   /** ReceiptPanel's own scrollable cart list — see scrollRowIntoView below for why this is threaded through instead of calling row.scrollIntoView() directly. */
   scrollContainerRef: RefObject<HTMLDivElement | null>;
 }
@@ -83,8 +88,29 @@ const RECEIPT_FONT = 'ui-monospace, "SFMono-Regular", "Courier New", monospace';
 
 const CART_ROW_DOM_ID = (key: string) => `cart-row-${key}`;
 
+/**
+ * The class the row's hover rule reaches for to reveal a line's controls
+ * on a mouse, and the marker for everything that's hidden until then.
+ */
+const REVEAL_CLASS = 'pos-cart-row-controls';
 
-export function Cart({ lines, lastAddedKey, selectedKey, scrollContainerRef, onDiscountChange, onQuantityChange, onRequestVoid }: Props) {
+/**
+ * Hidden with `visibility` rather than `display: none` (or by not
+ * rendering at all) so the controls keep occupying their space while
+ * put away — every row stays exactly the height it is today, and
+ * selecting one can never shove the rows under it out from beneath a
+ * finger that's about to tap one of them. `visibility: hidden` also
+ * takes them out of the tab order and the accessibility tree while
+ * they're invisible, which `opacity: 0` alone would not.
+ */
+const revealSx = (revealed: boolean) => ({
+  visibility: revealed ? ('visible' as const) : ('hidden' as const),
+  opacity: revealed ? 1 : 0,
+  transition: 'opacity 0.15s ease, visibility 0.15s ease',
+});
+
+
+export function Cart({ lines, lastAddedKey, selectedKey, onSelectLine, scrollContainerRef, onOpenDiscount, onQuantityChange, onRequestVoid }: Props) {
   // Mirrors lastAddedKey but self-clears — the parent's key only changes on
   // the NEXT add, so without a local timeout the highlight would just stay
   // lit on whatever was last added instead of fading like a flash.
@@ -147,7 +173,8 @@ export function Cart({ lines, lastAddedKey, selectedKey, scrollContainerRef, onD
           line={line}
           highlighted={line.key === highlightKey}
           selected={line.key === selectedKey}
-          onDiscountChange={onDiscountChange}
+          onSelect={onSelectLine}
+          onOpenDiscount={onOpenDiscount}
           onQuantityChange={onQuantityChange}
           onRequestVoid={onRequestVoid}
         />
@@ -172,26 +199,30 @@ const CartRow = memo(function CartRow({
   line,
   highlighted,
   selected,
-  onDiscountChange,
+  onSelect,
+  onOpenDiscount,
   onQuantityChange,
   onRequestVoid,
 }: {
   line: CartLine;
   highlighted: boolean;
   selected: boolean;
-  onDiscountChange: (key: string, discount: number) => void;
+  onSelect: (key: string) => void;
+  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
 }) {
   const totals = calculateLine(line);
-  const [discountAnchor, setDiscountAnchor] = useState<HTMLElement | null>(null);
-  const [discountText, setDiscountText] = useState(String(line.discount || ''));
+
+  // A VAT-exempt discount type (Senior Citizen/PWD) overrides the line's
+  // own tax rate to 'E' — the exemption comes from the discount, not
+  // from the product's tax_rate_id. See lineTaxIndicator's own docblock.
+  const indicator = lineTaxIndicator(line);
+  const discountLabel = discountTypeLabel(line.discountType);
 
   // One step of whatever precision this line's unit carries — 1 for a
   // whole-piece item, 0.001 for a weighed one — so "−" on 1.250 KG lands
   // on 1.249 rather than 0.250.
-  const indicator = taxIndicatorFor(line.taxRate);
-
   const step = 1 / 10 ** (line.unit?.decimal_places ?? 0);
   // Deliberately floored at one step rather than allowed to reach zero:
   // decrementing to nothing would be a removal, and removals are exactly
@@ -207,6 +238,12 @@ const CartRow = memo(function CartRow({
       // focus belongs to the search box at all times so a scanner
       // always has somewhere to type (see PosScreen's cart selection).
       aria-current={selected ? 'true' : undefined}
+      // The whole row is the target, not a dedicated handle — on a
+      // tablet the row is the only thing big enough to hit reliably,
+      // and there's nothing else a tap on a cart line could sensibly
+      // mean. Same selection F10 drives, so keyboard and touch land on
+      // one state rather than two parallel ones.
+      onClick={() => onSelect(line.key)}
       sx={{
         // Dashed rather than solid — the same "torn perforation" line every
         // printed receipt uses between line items, instead of a spreadsheet
@@ -240,8 +277,18 @@ const CartRow = memo(function CartRow({
         bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'transparent',
         boxShadow: `inset ${selected ? 4 : 3}px 0 0 ${selected ? POS_ACCENT : highlighted ? POS_ACCENT : 'transparent'}`,
         transition: 'background-color 0.4s ease, box-shadow 0.4s ease',
+        cursor: 'pointer',
         '&:hover': { bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
+        // A mouse doesn't need the extra click: hovering a row is already
+        // an unambiguous "this line", so the controls come out under the
+        // cursor exactly as they always did and nothing about desktop use
+        // changes. Guarded by `hover: hover` because a touch screen
+        // reports a *sticky* hover — the last-tapped row would keep its
+        // controls out permanently, which is the behaviour being replaced.
+        '@media (hover: hover)': {
+          [`&:hover .${REVEAL_CLASS}`]: { visibility: 'visible', opacity: 1 },
+        },
       }}
     >
       {/* Line 1, receipt-style: description on the left, extended price on the right. */}
@@ -276,11 +323,20 @@ const CartRow = memo(function CartRow({
           <Typography sx={{ fontFamily: RECEIPT_FONT, fontSize: 13, lineHeight: 1.25, color: 'text.secondary', whiteSpace: 'nowrap' }}>
             {formatQuantity(line.quantity, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0)} × {formatMoney(line.unitPrice)}
           </Typography>
-          <Tooltip title={line.discount > 0 ? `Discount: -${formatMoney(line.discount)}` : 'Add discount'}>
+          {/* The one control that isn't purely a control: once a discount
+              has actually been applied it's a figure printed on the
+              receipt, so it stays visible on every row whether that row is
+              selected or not. It's only the empty "add a discount" tag
+              that hides away with the rest. */}
+          <Tooltip title={line.discount > 0 ? `${discountLabel ?? 'Discount'}: -${formatMoney(line.discount)}` : 'Add discount'}>
             <Box
               component="button"
               type="button"
-              onClick={(e) => setDiscountAnchor(e.currentTarget)}
+              className={line.discount > 0 ? undefined : REVEAL_CLASS}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenDiscount(line);
+              }}
               sx={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -291,6 +347,7 @@ const CartRow = memo(function CartRow({
                 cursor: 'pointer',
                 color: line.discount > 0 ? 'success.main' : 'text.secondary',
                 '&:hover': { color: 'success.main' },
+                ...(line.discount > 0 ? null : revealSx(selected)),
               }}
             >
               <SellOutlinedIcon sx={{ fontSize: 13 }} />
@@ -303,7 +360,27 @@ const CartRow = memo(function CartRow({
           </Tooltip>
         </Stack>
 
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        {/* Put away until this row is the selected one. A cart is read far
+            more often than it's edited — a cashier scans, the customer
+            watches the list, and only occasionally does a line need
+            fixing — so a stepper and a void button repeated down every
+            row was permanent clutter over what is meant to read as a
+            printed receipt, and on a tablet it was four small targets per
+            line sitting close enough together to mis-tap. Revealing them
+            on the tapped row alone means the cashier commits to a line
+            first, then acts on it.
+
+            stopPropagation because these sit inside the row's own click
+            target: without it, adjusting a quantity would bubble up,
+            toggle the selection back off and take the very buttons being
+            pressed away mid-adjustment. */}
+        <Stack
+          direction="row"
+          spacing={0.75}
+          className={REVEAL_CLASS}
+          onClick={(e) => e.stopPropagation()}
+          sx={{ alignItems: 'center', flexShrink: 0, ...revealSx(selected) }}
+        >
           {/* Quantity correction is unauthorized on purpose — a mis-scan
               fixed mid-queue shouldn't need a supervisor walked over, and
               nothing here can reach zero (see atMinimum). Clearing a line
@@ -392,36 +469,6 @@ const CartRow = memo(function CartRow({
           </Tooltip>
         </Stack>
       </Stack>
-
-      <Popover
-        open={Boolean(discountAnchor)}
-        anchorEl={discountAnchor}
-        onClose={() => setDiscountAnchor(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <Stack direction="row" spacing={1} sx={{ p: 1.5, alignItems: 'center' }}>
-          <TextField
-            label="Discount"
-            type="number"
-            size="small"
-            autoFocus
-            slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
-            value={discountText}
-            onChange={(e) => setDiscountText(e.target.value)}
-            sx={{ width: 120 }}
-          />
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => {
-              onDiscountChange(line.key, parseFloat(discountText) || 0);
-              setDiscountAnchor(null);
-            }}
-          >
-            Apply
-          </Button>
-        </Stack>
-      </Popover>
     </Box>
   );
 });

@@ -92,6 +92,18 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->put('(:num)/prices', 'ProductsController::updatePrices/$1', ['filter' => 'permission:products.update']);
             $routes->post('(:num)/image', 'ProductsController::uploadImage/$1', ['filter' => 'permission:products.update']);
             $routes->delete('(:num)/image', 'ProductsController::deleteImage/$1', ['filter' => 'permission:products.update']);
+            // Resolved (product override -> category override -> eligible-
+            // by-default) eligibility for one product across every discount
+            // type — read on products.view since any POS role that can ring
+            // this product up needs to know what it can be discounted with;
+            // written on products.update, same as every other product edit.
+            // Basket-wide: one call answers "which of these lines qualify"
+            // when the cashier picks a single discount for the whole sale.
+            // Declared before the (:num) variant purely for readability —
+            // (:num) can't match this literal segment either way.
+            $routes->get('discount-eligibility', 'ProductsController::bulkDiscountEligibility', ['filter' => 'permission:products.view']);
+            $routes->get('(:num)/discount-eligibility', 'ProductsController::discountEligibility/$1', ['filter' => 'permission:products.view']);
+            $routes->put('(:num)/discount-eligibility', 'ProductsController::updateDiscountEligibility/$1', ['filter' => 'permission:products.update']);
         });
 
         $routes->group('categories', static function (RouteCollection $routes) {
@@ -101,6 +113,10 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->post('', 'CategoriesController::create', ['filter' => 'permission:categories.manage']);
             $routes->put('(:num)', 'CategoriesController::update/$1', ['filter' => 'permission:categories.manage']);
             $routes->delete('(:num)', 'CategoriesController::delete/$1', ['filter' => 'permission:categories.manage']);
+            // This category's own discount-type overrides — the primary,
+            // maintainable lever (see CategoriesController::updateDiscountEligibility).
+            $routes->get('(:num)/discount-eligibility', 'CategoriesController::discountEligibility/$1', ['filter' => 'permission:categories.view']);
+            $routes->put('(:num)/discount-eligibility', 'CategoriesController::updateDiscountEligibility/$1', ['filter' => 'permission:categories.manage']);
         });
 
         $routes->group('units', static function (RouteCollection $routes) {
@@ -220,6 +236,17 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             // still lands in the audit trail without a supervisor present.
             $routes->post('log-void', 'SalesController::logVoid', ['filter' => 'permission:sales.create']);
             $routes->post('(:num)/void', 'SalesController::void/$1', ['filter' => 'permission:sales.void']);
+
+            // Manual Discount's own sign-off trio — same three-route shape
+            // as the void group just above (policy + authorize + log),
+            // for exactly the same reasons: every POS role needs the
+            // policy flag before it can decide what to show, the
+            // authorize route accepts a supervisor's password so it gets
+            // the same rate limiting as login, and the log route is the
+            // un-gated fallback when the company has approval switched off.
+            $routes->get('discount-policy', 'SalesController::discountPolicy', ['filter' => 'permission:sales.create']);
+            $routes->post('authorize-item-discount', 'SalesController::authorizeItemDiscount', ['filter' => ['rateLimit:10,300,void-auth', 'permission:sales.create']]);
+            $routes->post('log-item-discount', 'SalesController::logItemDiscount', ['filter' => 'permission:sales.create']);
         });
 
         $routes->group('payments', static function (RouteCollection $routes) {
@@ -278,6 +305,13 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
             // Step 37 — VAT reports
             $routes->get('vat-summary', 'ReportsController::vatSummary', ['filter' => 'permission:reports.view']);
+
+            // Discount reports. discount-details with the three government
+            // types is the SC/PWD register a store must be able to produce
+            // on request — see ReportsController::discountDetails.
+            $routes->get('discount-summary', 'ReportsController::discountSummary', ['filter' => 'permission:reports.view']);
+            $routes->get('discounts-by-cashier', 'ReportsController::discountsByCashier', ['filter' => 'permission:reports.view']);
+            $routes->get('discount-details', 'ReportsController::discountDetails', ['filter' => 'permission:reports.view']);
         });
     });
 });

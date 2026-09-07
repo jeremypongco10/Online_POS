@@ -490,6 +490,118 @@ class ReportsController extends BaseApiController
     }
 
     /**
+     * Every discount report below counts sale_items rows with a discount
+     * actually applied (`discount > 0`), NOT sales.discount_total —
+     * discount_type lives on the line, so the line is the only level at
+     * which "how much went out under which type" can be answered. A sale
+     * whose lines carry two different types therefore contributes to
+     * both, which is correct and is why sale_count is a COUNT(DISTINCT)
+     * rather than a row count.
+     *
+     * Lines predating the discount-type feature (or applied before it
+     * shipped) have discount_type NULL and are deliberately included
+     * rather than filtered out — money left the till either way, and
+     * silently dropping it would make these totals disagree with
+     * sales.discount_total for no visible reason. The frontend labels
+     * that group explicitly.
+     */
+    private function discountedLinesBuilder(): BaseBuilder
+    {
+        $builder = model(SaleItemModel::class)->builder();
+        $builder->join('sales', 'sales.id = sale_items.sale_id')
+            ->where('sale_items.discount >', 0);
+
+        return $this->applyCompletedSalesFilters($builder);
+    }
+
+    /**
+     * GET /api/v1/reports/discount-summary?store_id=&from=&to=
+     * Total given away per discount type — the "how much, under what"
+     * view. net_total is the discounted amount those lines actually rang
+     * up at, so discount_total + net_total is what they would have been
+     * without the discount.
+     */
+    public function discountSummary()
+    {
+        $builder = $this->discountedLinesBuilder();
+        $builder->select(
+            'sale_items.discount_type, COUNT(*) AS line_count, COUNT(DISTINCT sale_items.sale_id) AS sale_count, '
+            . 'COALESCE(SUM(sale_items.discount),0) AS discount_total, '
+            . 'COALESCE(SUM(sale_items.line_total),0) AS net_total'
+        );
+
+        $rows = $builder->groupBy('sale_items.discount_type')
+            ->orderBy('discount_total', 'DESC')
+            ->get()->getResult();
+
+        return $this->ok($rows);
+    }
+
+    /**
+     * GET /api/v1/reports/discounts-by-cashier?store_id=&from=&to=
+     * Who is granting discounts, and how much. Grouped by user_id with
+     * the CURRENT name live-joined, same as cashierSales() — a renamed
+     * cashier stays one row rather than splitting in two.
+     */
+    public function discountsByCashier()
+    {
+        $builder = $this->discountedLinesBuilder();
+        $builder->select(
+            'sales.user_id, u.name AS cashier_name, COUNT(*) AS line_count, '
+            . 'COUNT(DISTINCT sale_items.sale_id) AS sale_count, '
+            . 'COALESCE(SUM(sale_items.discount),0) AS discount_total'
+        )->join('users u', 'u.id = sales.user_id', 'left');
+
+        $rows = $builder->groupBy('sales.user_id, u.name')
+            ->orderBy('discount_total', 'DESC')
+            ->get()->getResult();
+
+        return $this->ok($rows);
+    }
+
+    /**
+     * GET /api/v1/reports/discount-details?store_id=&from=&to=&discount_type=a,b
+     *
+     * One row per discounted line, newest first, carrying the sale's
+     * Senior Citizen/PWD holder name and ID number alongside it. With
+     * discount_type set to the three government types this IS the
+     * SC/PWD register a store has to be able to produce — BIR RR 7-2010
+     * requires the purchaser's name and ID number be on record for the
+     * discount to be valid, and this is where that record is read back
+     * out. With discount_type=manual it's the discretionary-discount
+     * review list instead; the approver behind each one is in the Audit
+     * Trail (action `item-discount`), which is deliberately not joined
+     * here — it's a separate record with its own retention, not a
+     * column of this one.
+     *
+     * Capped at 500 rows like productSales(), so a wide date range
+     * degrades to "the most recent 500" rather than to a timeout.
+     */
+    public function discountDetails()
+    {
+        $builder = $this->discountedLinesBuilder();
+        $builder->select(
+            'sale_items.id AS sale_item_id, sales.id AS sale_id, sales.invoice_number, sales.sale_date, '
+            . 'sales.discount_holder_name, sales.discount_id_number, u.name AS cashier_name, '
+            . 'sale_items.product_name, sale_items.quantity, sale_items.unit_price, '
+            . 'sale_items.discount_type, sale_items.discount, sale_items.line_total, sale_items.tax_type'
+        )->join('users u', 'u.id = sales.user_id', 'left');
+
+        $requestedTypes = (string) ($this->request->getGet('discount_type') ?? '');
+        $types = array_values(array_filter(array_map('trim', explode(',', $requestedTypes))));
+        if ($types !== []) {
+            $builder->whereIn('sale_items.discount_type', $types);
+        }
+
+        $rows = $builder->orderBy('sales.sale_date', 'DESC')
+            ->orderBy('sale_items.id', 'DESC')
+            ->limit(500)
+            ->get()->getResult();
+
+        return $this->ok($rows);
+    }
+
+    /**
      * GET /api/v1/reports/vat-summary?store_id=&from=&to=
      * BIR-style breakdown for completed sales: Vatable Sales, VAT Amount,
      * VAT-Exempt Sales, Zero-Rated Sales, Total Sales. Classification
