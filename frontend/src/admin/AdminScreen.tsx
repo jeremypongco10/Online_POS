@@ -4,12 +4,13 @@ import { CatalogScreen } from './CatalogScreen';
 import { InventoryScreen } from './InventoryScreen';
 import { PurchasingScreen } from './PurchasingScreen';
 import { CustomerRelationsScreen } from './CustomerRelationsScreen';
+import { CashDrawersScreen } from './CashDrawersScreen';
 import { TeamScreen } from './TeamScreen';
 import { ReportsScreen } from './ReportsScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { useRouteState } from '../routing';
 
-const SECTIONS: AdminSection[] = ['dashboard', 'products', 'inventory', 'purchasing', 'customers', 'team', 'reports', 'settings'];
+const SECTIONS: AdminSection[] = ['dashboard', 'products', 'inventory', 'purchasing', 'customers', 'cash', 'team', 'reports', 'settings'];
 
 interface Props {
   onBackToPos: () => void;
@@ -25,6 +26,7 @@ export function AdminScreen({ onBackToPos }: Props) {
       {section === 'inventory' && <InventoryScreen />}
       {section === 'purchasing' && <PurchasingScreen />}
       {section === 'customers' && <CustomerRelationsScreen />}
+      {section === 'cash' && <CashDrawersScreen />}
       {section === 'team' && <TeamScreen />}
       {section === 'reports' && <ReportsScreen />}
       {section === 'settings' && <SettingsScreen />}

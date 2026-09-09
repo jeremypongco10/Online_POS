@@ -25,13 +25,19 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  const selectedSx = { bgcolor: POS_ACCENT, color: '#fff', '&:hover': { bgcolor: POS_ACCENT } };
+  // MUI's default "medium" Chip (32px tall, 13px label) reads small next
+  // to everything else on this screen sized for a touch till — bumped up
+  // via sx rather than a bigger size prop (MUI Chip only has small/medium
+  // to choose from, and medium is already the larger of the two).
+  const sizeSx = { height: 38, fontSize: 14.5, px: 0.5 };
+  const selectedSx = { ...sizeSx, bgcolor: POS_ACCENT, color: '#fff', '&:hover': { bgcolor: POS_ACCENT } };
   // A crisp white-with-border rest state, not a soft grey fill — this
   // reads as a row of distinct pills sitting on the page rather than a
   // row of tinted chips blending into it. The one solid-blue "All"/
   // selected pill is then the only filled shape in the row, which is what
   // makes it read as "the current filter" at a glance.
   const unselectedSx = {
+    ...sizeSx,
     bgcolor: '#fff',
     border: '1px solid',
     borderColor: 'divider',
@@ -72,12 +78,11 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       {canScrollLeft && (
         <IconButton
-          size="small"
           onClick={() => scrollBy(-220)}
           aria-label="Show previous categories"
-          sx={{ flexShrink: 0, border: '1px solid', borderColor: 'divider' }}
+          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider' }}
         >
-          <ChevronLeftIcon fontSize="small" />
+          <ChevronLeftIcon />
         </IconButton>
       )}
       <Stack
@@ -106,12 +111,11 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
       </Stack>
       {canScrollRight && (
         <IconButton
-          size="small"
           onClick={() => scrollBy(220)}
           aria-label="Show more categories"
-          sx={{ flexShrink: 0, border: '1px solid', borderColor: 'divider' }}
+          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider' }}
         >
-          <ChevronRightIcon fontSize="small" />
+          <ChevronRightIcon />
         </IconButton>
       )}
     </Stack>

@@ -1,25 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
-import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
-import ZoomInOutlinedIcon from '@mui/icons-material/ZoomInOutlined';
-import ZoomOutOutlinedIcon from '@mui/icons-material/ZoomOutOutlined';
-import type { CashSession } from '../api/types';
-import { OverflowMenu } from './OverflowMenu';
-import { PosHelpDialog } from './PosHelpDialog';
+import Typography from '@mui/material/Typography';
 import { POS_HEADER_BG } from './format';
-import type { PosZoomControl } from './usePosZoom';
-import logoDark from '../assets/logo-dark.png';
 
 interface Props {
-  cashSession: CashSession | null;
   /** The account avatar/menu — composed by PosScreen, which owns the ~13 props AccountMenu needs. */
   actions?: ReactNode;
-  /** The zoom control usePosZoom returns — PosHeader only renders it, PosScreen owns the hook. */
-  zoom: PosZoomControl;
   /**
    * Where ProductSearch's search field actually mounts, via a portal —
    * this bar doesn't own the field's state (query, scanner mode, the
@@ -33,26 +21,74 @@ interface Props {
 }
 
 /**
- * The dark top bar — brand, the search field (mounted here via portal;
- * see searchSlotRef), and the account/cash-movement controls. Deliberately
- * a fixed dark navy rather than following the app's own light/dark theme
- * toggle, so the logo, icon colours, and the search pill's own background
- * are all forced to match it instead of to theme.palette — the same
- * reasoning ReceiptPanel forces its own light scheme regardless of the
- * app-wide setting.
+ * Connectivity, kept from the StatusBar footer this bar absorbed — the
+ * one thing in that footer that wasn't receipt content (cashier, terminal
+ * and the clock all moved to ReceiptPanel's letterhead instead), and the
+ * one thing there worth a glance from across the room.
+ *
+ * Deliberately lopsided: online is the boring, expected state, so it's a
+ * bare dot with the wording left to a tooltip; offline is the state a
+ * cashier has to act on, so it spells itself out in red. Reflects
+ * navigator.onLine only — there is no backend heartbeat, and inventing
+ * one here would claim more than the browser actually knows.
  */
-export function PosHeader({ cashSession, actions, searchSlotRef, zoom }: Props) {
-  const [overflowAnchor, setOverflowAnchor] = useState<HTMLElement | null>(null);
-  // Owned here rather than in PosScreen so the header stays self-contained;
-  // F1 reaches it by DOM-clicking the button below, the same way the other
-  // shortcuts reach controls whose state isn't lifted.
-  const [helpOpen, setHelpOpen] = useState(false);
+function ConnectionStatus() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
-  // Fixed light-on-dark rather than 'text.secondary'/'inherit' — this bar
-  // no longer follows the app's theme, so a theme-token colour would
-  // occasionally resolve to a dark grey that vanishes against navy.
-  const iconSx = { color: 'rgba(255,255,255,0.85)', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.08)' } };
+  return (
+    <Tooltip title={online ? 'Online' : 'No connection — sales cannot be completed'}>
+      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0, px: 0.5 }}>
+        <Box
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            bgcolor: online ? 'success.main' : 'error.main',
+            flexShrink: 0,
+          }}
+        />
+        {!online && (
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'error.light' }}>
+            Offline
+          </Typography>
+        )}
+      </Stack>
+    </Tooltip>
+  );
+}
 
+/**
+ * The dark top bar — the search field (mounted here via portal; see
+ * searchSlotRef), connectivity, and the account menu.
+ * Deliberately a fixed dark navy rather than following the app's own
+ * light/dark theme toggle, so the icon colours and the search pill's own
+ * background are forced to match it instead of to theme.palette — the
+ * same reasoning ReceiptPanel forces its own light scheme regardless of
+ * the app-wide setting.
+ *
+ * Display zoom used to sit here too. It moved into AccountMenu's
+ * preferences: it's set once when a terminal is installed and then
+ * essentially never touched (usePosZoom fits the screen on its own), so
+ * it had no claim on the bar a cashier looks at hundreds of times a
+ * shift.
+ *
+ * So did cash movements, which used to hang off a "more" button here.
+ * They moved to the Back Office's Cash Drawers screen — paying cash out
+ * of a drawer is the one drawer operation with no product trail behind
+ * it, so it belongs in front of whoever is watching the money rather
+ * than one tap from the person holding the drawer.
+ */
+export function PosHeader({ actions, searchSlotRef }: Props) {
   return (
     <Stack
       direction="row"
@@ -76,11 +112,6 @@ export function PosHeader({ cashSession, actions, searchSlotRef, zoom }: Props) 
         zIndex: 1,
       }}
     >
-      {/* Always the light-on-dark logo mark — this bar doesn't switch with
-          the app's own theme toggle (see the component doc above), so
-          there's no "dark mode" variant of the logo to swap to here. */}
-      <Box component="img" src={logoDark} alt="Execute IT POS System" sx={{ height: 24, width: 'auto', display: 'block', flexShrink: 0 }} />
-
       {/* Portal target for ProductSearch's search field — see searchSlotRef.
           Sized here rather than left to the portaled content's own width,
           so the header's layout (logo | search | icons) is stable even
@@ -103,74 +134,9 @@ export function PosHeader({ cashSession, actions, searchSlotRef, zoom }: Props) 
       <Box ref={searchSlotRef} sx={{ flex: 1, maxWidth: 900, minWidth: 0 }} />
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
-        {/* Hidden below md, same as usePosZoom's own gate: below that width
-            the layout is the stacked mobile form, where zooming a desktop
-            two-column layout up or down doesn't mean anything. */}
-        <Stack
-          direction="row"
-          spacing={0.25}
-          sx={{
-            display: { xs: 'none', md: 'flex' },
-            alignItems: 'center',
-            bgcolor: 'rgba(255,255,255,0.08)',
-            borderRadius: 5,
-            px: 0.5,
-          }}
-        >
-          <Tooltip title="Zoom out">
-            <span>
-              <IconButton size="small" onClick={zoom.zoomOut} disabled={!zoom.canZoomOut} aria-label="Zoom out" sx={iconSx}>
-                <ZoomOutOutlinedIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={zoom.isManual ? 'Reset to fit screen' : 'Fits the screen automatically'}>
-            <Box
-              component="button"
-              type="button"
-              onClick={zoom.reset}
-              disabled={!zoom.isManual}
-              sx={{
-                all: 'unset',
-                cursor: zoom.isManual ? 'pointer' : 'default',
-                minWidth: 34,
-                textAlign: 'center',
-                fontSize: 12,
-                fontWeight: 600,
-                fontVariantNumeric: 'tabular-nums',
-                color: 'rgba(255,255,255,0.85)',
-                '&:hover': zoom.isManual ? { color: '#fff' } : undefined,
-              }}
-            >
-              {zoom.percent}%
-            </Box>
-          </Tooltip>
-          <Tooltip title="Zoom in">
-            <span>
-              <IconButton size="small" onClick={zoom.zoomIn} disabled={!zoom.canZoomIn} aria-label="Zoom in" sx={iconSx}>
-                <ZoomInOutlinedIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Stack>
-
-        <Tooltip title="Controls & shortcuts (F1)">
-          <IconButton id="pos-help-button" size="small" onClick={() => setHelpOpen(true)} aria-label="Controls and shortcuts" sx={iconSx}>
-            <HelpOutlineIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Cash movements">
-          <IconButton size="small" onClick={(e) => setOverflowAnchor(e.currentTarget)} aria-label="Cash movements" sx={iconSx}>
-            <MoreVertIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
+        <ConnectionStatus />
         {actions}
       </Stack>
-
-      <OverflowMenu anchorEl={overflowAnchor} onClose={() => setOverflowAnchor(null)} cashSession={cashSession} />
-      <PosHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </Stack>
   );
 }

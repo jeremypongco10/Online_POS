@@ -19,8 +19,10 @@ type Handlers = Record<PosShortcutAction, () => void> & {
  *
  * Search/Customer/Bagger/Pay/Help DOM-click their own control rather than
  * taking a lifted callback, since those controls' open state lives in
- * ProductBrowser or PosHeader rather than in PosScreen; Hold/Return/Cancel
- * take a plain callback because PosScreen already owns those handlers.
+ * ProductBrowser, PosHeader or CartActionsRow (Help, which moved down
+ * there with the rest of the function keys) rather than in PosScreen;
+ * Hold/Return/Cancel take a plain callback because PosScreen already owns
+ * those handlers.
  *
  * Suppressing the browser's own F5/F1 is not this hook's job — that lives
  * in useBrowserKeyGuard at the app root, so it holds on every screen rather

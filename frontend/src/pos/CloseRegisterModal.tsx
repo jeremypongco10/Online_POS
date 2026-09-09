@@ -15,7 +15,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import CloseIcon from '@mui/icons-material/Close';
 import { api, ApiError } from '../api/client';
 import type { CashSession, CashSessionSummary } from '../api/types';
-import { formatMoney } from './format';
+import { formatMoney, posRaisedButtonSx } from './format';
 import { PopTransition } from '../PopTransition';
 
 interface Props {
@@ -171,7 +171,12 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
           <Button onClick={onCancel} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={handleClose} disabled={submitting || actualCash === ''}>
+          <Button
+            variant="contained"
+            onClick={handleClose}
+            disabled={submitting || actualCash === ''}
+            sx={(theme) => posRaisedButtonSx(theme.palette.primary.main)}
+          >
             {submitting ? 'Closing…' : 'Close POS Terminal'}
           </Button>
         </DialogActions>

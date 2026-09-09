@@ -150,12 +150,12 @@ final class DiscountEligibilityTest extends CIUnitTestCase
 
     // --- TaxService::isProductEligibleForDiscount() resolution order ---
 
-    public function testEligibleByDefaultWithNoRulesConfigured(): void
+    public function testNotEligibleByDefaultWithNoRulesConfigured(): void
     {
         $product = model(ProductModel::class)->find($this->productId);
         $tax = new TaxService();
 
-        $this->assertTrue($tax->isProductEligibleForDiscount('senior_citizen', $product));
+        $this->assertFalse($tax->isProductEligibleForDiscount('senior_citizen', $product));
     }
 
     public function testCategoryRuleAppliesWhenNoProductRuleExists(): void
@@ -163,15 +163,16 @@ final class DiscountEligibilityTest extends CIUnitTestCase
         model(CategoryDiscountEligibilityModel::class)->insert([
             'category_id' => $this->categoryId,
             'discount_type' => 'senior_citizen',
-            'eligible' => 0,
+            'eligible' => 1,
         ]);
 
         $product = model(ProductModel::class)->find($this->productId);
         $tax = new TaxService();
 
-        $this->assertFalse($tax->isProductEligibleForDiscount('senior_citizen', $product));
-        // A different, unconfigured type on the same product is untouched.
-        $this->assertTrue($tax->isProductEligibleForDiscount('pwd', $product));
+        $this->assertTrue($tax->isProductEligibleForDiscount('senior_citizen', $product));
+        // A different, unconfigured type on the same product is untouched
+        // — and stays at the not-eligible default.
+        $this->assertFalse($tax->isProductEligibleForDiscount('pwd', $product));
     }
 
     public function testProductRuleOverridesCategoryRule(): void
@@ -238,8 +239,14 @@ final class DiscountEligibilityTest extends CIUnitTestCase
             'discount_type' => 'senior_citizen',
             'eligible' => 0,
         ]);
+        // pwd is explicitly turned on for this category — every type
+        // defaults to off, so this is what "unrestricted" means now.
+        model(CategoryDiscountEligibilityModel::class)->insert([
+            'category_id' => $this->categoryId,
+            'discount_type' => 'pwd',
+            'eligible' => 1,
+        ]);
 
-        // pwd was never restricted — only senior_citizen was.
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
             ->post('/api/v1/sales', [
@@ -266,7 +273,7 @@ final class DiscountEligibilityTest extends CIUnitTestCase
         model(CategoryDiscountEligibilityModel::class)->insert([
             'category_id' => $this->categoryId,
             'discount_type' => 'senior_citizen',
-            'eligible' => 0,
+            'eligible' => 1,
         ]);
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
@@ -274,9 +281,11 @@ final class DiscountEligibilityTest extends CIUnitTestCase
 
         $response->assertStatus(200);
         $body = json_decode($response->getJSON(), true);
-        $this->assertFalse($body['data']['senior_citizen']);
-        $this->assertTrue($body['data']['pwd']);
-        $this->assertTrue($body['data']['regular']);
+        $this->assertTrue($body['data']['senior_citizen']);
+        // Neither was ever turned on for this category/product — both
+        // stay at the not-eligible default.
+        $this->assertFalse($body['data']['pwd']);
+        $this->assertFalse($body['data']['regular']);
     }
 
     public function testUpdateCategoryDiscountEligibilityWritesASparseRow(): void
@@ -284,7 +293,7 @@ final class DiscountEligibilityTest extends CIUnitTestCase
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
             ->put("/api/v1/categories/{$this->categoryId}/discount-eligibility", [
-                'rules' => ['senior_citizen' => false, 'pwd' => false],
+                'rules' => ['senior_citizen' => true, 'pwd' => true],
             ]);
 
         $response->assertStatus(200);
@@ -292,12 +301,12 @@ final class DiscountEligibilityTest extends CIUnitTestCase
         $rows = model(CategoryDiscountEligibilityModel::class)->where('category_id', $this->categoryId)->findAll();
         $this->assertCount(2, $rows);
 
-        // Setting one back to true (the default) deletes the row rather
-        // than storing a redundant "eligible: true" one.
+        // Setting one back to false (the default) deletes the row rather
+        // than storing a redundant "eligible: false" one.
         $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
             ->put("/api/v1/categories/{$this->categoryId}/discount-eligibility", [
-                'rules' => ['senior_citizen' => true],
+                'rules' => ['senior_citizen' => false],
             ]);
 
         $rows = model(CategoryDiscountEligibilityModel::class)->where('category_id', $this->categoryId)->findAll();
@@ -326,20 +335,21 @@ final class DiscountEligibilityTest extends CIUnitTestCase
 
     public function testBulkDiscountEligibilityAnswersForAWholeBasket(): void
     {
-        model(CategoryDiscountEligibilityModel::class)->insert([
-            'category_id' => $this->categoryId,
-            'discount_type' => 'senior_citizen',
-            'eligible' => 0,
-        ]);
-
-        // A second product, in no category at all — the eligible-by-default
-        // case, so the response has to distinguish the two.
+        // Stays at the not-eligible default for this product/type.
+        // A second product, explicitly turned on directly (no category
+        // at all, so only a product-level override could do it) — the
+        // response has to distinguish the two.
         $otherProductId = (int) model(ProductModel::class)->insert([
             'company_id' => $this->companyId,
             'sku' => 'ETEST-SKU-2',
             'name' => 'Eligibility Test Rice',
             'track_inventory' => 0,
         ], true);
+        model(ProductDiscountEligibilityModel::class)->insert([
+            'product_id' => $otherProductId,
+            'discount_type' => 'senior_citizen',
+            'eligible' => 1,
+        ]);
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->get("/api/v1/products/discount-eligibility?product_ids={$this->productId},{$otherProductId},999999");
@@ -352,6 +362,7 @@ final class DiscountEligibilityTest extends CIUnitTestCase
         // An id the caller can't see is simply absent, never guessed at.
         $this->assertArrayNotHasKey('999999', $data);
 
+        \Config\Database::connect()->table('product_discount_eligibility')->where('product_id', $otherProductId)->delete();
         \Config\Database::connect()->table('products')->where('id', $otherProductId)->delete();
     }
 

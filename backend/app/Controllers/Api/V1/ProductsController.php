@@ -562,8 +562,8 @@ class ProductsController extends BaseCrudController
      * GET /api/v1/products/{id}/discount-eligibility
      *
      * Fully resolved eligibility for every discount type on ONE product
-     * — product override, then its category's, then eligible-by-default
-     * (see TaxService::isProductEligibleForDiscount). This is what the
+     * — product override, then its category's, then NOT eligible by
+     * default (see TaxService::isProductEligibleForDiscount). This is what the
      * POS's Discount dialog calls before it lets a cashier pick a type
      * for a given cart line, so a type this returns false for should
      * never even be selectable there. Gated on products.view (not
@@ -598,10 +598,10 @@ class ProductsController extends BaseCrudController
      *
      * Ids the caller can't see (another company's, or simply absent)
      * are omitted from the response rather than reported — the POS
-     * treats a missing entry the same way it treats a custom line item
-     * with no product behind it, and checkout re-checks every line
+     * treats a missing entry as not eligible, same as any other
+     * unconfigured product, and checkout re-checks every line
      * server-side regardless (SalesController::resolveLineDiscount), so
-     * a gap here can only ever cost a discount, never grant one.
+     * a gap here can never incorrectly grant a discount either way.
      */
     public function bulkDiscountEligibility()
     {
@@ -635,14 +635,16 @@ class ProductsController extends BaseCrudController
      *
      * Sets this ONE product's overrides — the most specific rule
      * TaxService::isProductEligibleForDiscount() checks, ahead of its
-     * category's. Intentionally sparse: `eligible: true` for a type
-     * DELETES that type's row instead of storing a redundant one (true
-     * is already the default with no row at all — see the migration
-     * that creates product_discount_eligibility), so this table only
-     * ever holds real exceptions or an explicit re-enable overriding a
-     * category rule. A type simply absent from `rules` is left as-is,
-     * so a partial update (e.g. one row from the product edit form)
-     * never clobbers a rule set some other way.
+     * category's. Intentionally sparse: a requested value that already
+     * matches what the category layer alone would resolve to DELETES
+     * that type's row instead of storing a redundant one, so this
+     * table only ever holds real exceptions — most often "turn this on
+     * for this one product" now that the category (and the ultimate
+     * fallback) both default to not eligible, but still "turn this off
+     * for this one product" whenever the category itself was turned
+     * on. A type simply absent from `rules` is left as-is, so a
+     * partial update (e.g. one row from the product edit form) never
+     * clobbers a rule set some other way.
      */
     public function updateDiscountEligibility($id = null)
     {

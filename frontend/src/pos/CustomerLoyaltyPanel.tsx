@@ -23,7 +23,7 @@ import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
 import { api, ApiError } from '../api/client';
 import type { Customer, LoyaltyCard } from '../api/types';
-import { POS_ACCENT } from './format';
+import { POS_ACCENT, posRaisedButtonSx } from './format';
 import { initialsForName } from './productColor';
 
 interface Props {
@@ -303,7 +303,7 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
             variant="contained"
             disableElevation
             disabled={scanning || customerNumber.trim() === ''}
-            sx={{ whiteSpace: 'nowrap', px: 2.5, bgcolor: POS_ACCENT, '&:hover': { bgcolor: '#1d4ed8' } }}
+            sx={{ whiteSpace: 'nowrap', px: 2.5, ...posRaisedButtonSx(POS_ACCENT) }}
           >
             {scanning ? <CircularProgress size={20} color="inherit" /> : 'Look up'}
           </Button>

@@ -8,8 +8,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { SearchField } from '../SearchField';
 
 interface Props {
-  search: string;
-  onSearchChange: (value: string) => void;
+  /** Omit both of these on a list whose endpoint has no searchable fields — Cash Drawers, say — so the row doesn't carry a box that silently does nothing. */
+  search?: string;
+  onSearchChange?: (value: string) => void;
   onAdd?: () => void;
   addLabel?: string;
   /** Re-fetches the current page from the server — lets the table be refreshed without reloading the whole app. */
@@ -59,11 +60,13 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
           </Tooltip>
         )}
         {/* Full-bleed on phones — the 260px default would otherwise overflow a narrow viewport. */}
-        <SearchField
-          value={search}
-          onChange={onSearchChange}
-          sx={{ minWidth: { xs: 0, sm: 260 }, maxWidth: { sm: 420 }, width: { xs: '100%', sm: '100%' }, flex: 1 }}
-        />
+        {onSearchChange && (
+          <SearchField
+            value={search ?? ''}
+            onChange={onSearchChange}
+            sx={{ minWidth: { xs: 0, sm: 260 }, maxWidth: { sm: 420 }, width: { xs: '100%', sm: '100%' }, flex: 1 }}
+          />
+        )}
       </Stack>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
         {actions}

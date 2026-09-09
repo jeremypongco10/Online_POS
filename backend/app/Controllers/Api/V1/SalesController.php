@@ -1049,11 +1049,12 @@ class SalesController extends BaseCrudController
 
         // Eligibility (Category/Product Discount Eligibility settings)
         // gates every discount type uniformly, not just the three
-        // government ones — an admin who's restricted, say, Promo
-        // Discount to a specific category means it, the same way a
-        // restricted Senior Citizen discount does. $product is null for
-        // a custom item, which isProductEligibleForDiscount() always
-        // treats as eligible — see that method's docblock for why.
+        // government ones — every type defaults to NOT eligible until a
+        // company explicitly turns it on for a product or category (see
+        // TaxService::isProductEligibleForDiscount), Senior Citizen/PWD/
+        // 5% BNPC included. $product is null for a custom item, which
+        // isProductEligibleForDiscount() always treats as eligible
+        // regardless — see that method's docblock for why.
         if ($discountType !== null && ! $taxService->isProductEligibleForDiscount($discountType, $product)) {
             $discountLabel = TaxService::discountLabel($discountType);
 

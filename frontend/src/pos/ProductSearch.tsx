@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
@@ -54,8 +54,6 @@ interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
-  /** The Actions row — pinned below the results, outside the scrollable area. */
-  bottomExtra?: ReactNode;
   /**
    * PosHeader's search-slot DOM node — when set, the search field portals
    * there instead of rendering inline here. All of this component's own
@@ -81,7 +79,7 @@ interface Props {
  * dedicated scan endpoint needed — the trailing icon is a visual
  * affordance for that, not a separate integration.
  */
-export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPortalTarget }: Props) {
+export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -718,8 +716,6 @@ export function ProductSearch({ companyId, storeId, onAdd, bottomExtra, searchPo
           </>
         )}
       </Box>
-
-      {bottomExtra && <Box sx={{ mt: 1.25, flexShrink: 0 }}>{bottomExtra}</Box>}
 
       <AddQuantityDialog
         product={quantifyProduct}

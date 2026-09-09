@@ -413,6 +413,14 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
             'rate' => 12.0,
         ], true);
 
+        // Every discount type defaults to not-eligible — grant it here,
+        // same as a real store's admin would via Discount Eligibility.
+        model(\App\Models\ProductDiscountEligibilityModel::class)->insert([
+            'product_id' => $this->productId,
+            'discount_type' => 'senior_citizen',
+            'eligible' => 1,
+        ]);
+
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
             ->post('/api/v1/sales', [
@@ -466,6 +474,15 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
         // Non-government types keep the pre-existing trust model — the
         // cashier-entered peso amount is what gets charged, unchanged
         // from how discount worked before discount_type existed.
+
+        // Every discount type defaults to not-eligible — grant it here,
+        // same as a real store's admin would via Discount Eligibility.
+        model(\App\Models\ProductDiscountEligibilityModel::class)->insert([
+            'product_id' => $this->productId,
+            'discount_type' => 'regular',
+            'eligible' => 1,
+        ]);
+
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
             ->post('/api/v1/sales', [

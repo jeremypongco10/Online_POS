@@ -4,6 +4,7 @@ use App\Libraries\JwtService;
 use App\Models\CompanyModel;
 use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
+use App\Models\ProductDiscountEligibilityModel;
 use App\Models\ProductModel;
 use App\Models\RegisterModel;
 use App\Models\RoleModel;
@@ -96,6 +97,18 @@ final class DiscountReportsTest extends CIUnitTestCase
             'selling_price' => 112.00,
         ]);
 
+        // Every discount type defaults to not-eligible now — this fixture
+        // rings up senior_citizen/regular/manual lines below, so all three
+        // need an explicit grant first, same as a real store's admin would
+        // do via the Discount Eligibility screen.
+        foreach (['senior_citizen', 'regular', 'manual'] as $type) {
+            model(ProductDiscountEligibilityModel::class)->insert([
+                'product_id' => $this->productId,
+                'discount_type' => $type,
+                'eligible' => 1,
+            ]);
+        }
+
         $userId = (int) model(UserModel::class)->insert([
             'company_id' => $this->companyId,
             'role_id' => $role,
@@ -166,6 +179,7 @@ final class DiscountReportsTest extends CIUnitTestCase
             $db->table('sales')->whereIn('id', $saleIds)->delete();
         }
 
+        $db->table('product_discount_eligibility')->where('product_id', $this->productId)->delete();
         $db->table('store_product_prices')->where('product_id', $this->productId)->delete();
         $db->table('products')->where('company_id', $this->companyId)->delete();
         $db->table('tax_rates')->where('company_id', $this->companyId)->delete();

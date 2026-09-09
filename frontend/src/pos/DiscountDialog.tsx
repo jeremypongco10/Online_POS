@@ -34,7 +34,6 @@ import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { api, ApiError } from '../api/client';
 import type { CartLine } from './posTypes';
-import { previewGovernmentDiscount } from './posTypes';
 import {
   DISCOUNT_TYPES,
   type ConfigurableDiscountTypeCode,
@@ -42,33 +41,39 @@ import {
   type DiscountDefaults,
   type DiscountTypeCode,
 } from './discountTypes';
-import { formatMoney, formatQuantity, POS_ACCENT } from './format';
+import { computeDiscountAmounts, lineSubtotal, round2 } from './discountCalc';
+import { formatMoney, POS_ACCENT, posRaisedButtonSx } from './format';
+import { currencySymbol } from '../regional';
+import { useAuth } from '../auth/AuthContext';
 import { IS_TOUCH } from '../isTouch';
 
 /**
- * Which lines the discount is being chosen for.
- *
- *  - 'cart' is the normal workflow: the cashier picks ONE discount for
- *    the sale and the POS decides which lines qualify. It deliberately
- *    doesn't carry the lines with it — they're passed live, so a cart
- *    edited while this is open can't be applied against a stale snapshot.
- *  - 'line' is the exception path, from a single cart row, for
- *    correcting one item after the fact.
+ * What DiscountDialog hands back once the cashier confirms. `amounts` is
+ * keyed by CartLine.key — one entry per line that qualified, for the
+ * immediate stamp onto the cart. `mode`/`value` are the raw inputs behind
+ * that (ignored for a government type, which has no cashier-entered
+ * amount) — PosScreen keeps these as the sale's `ActiveDiscount` so it can
+ * replay the exact same math on whatever gets added to the cart
+ * afterward. Never meaningful for Manual, which PosScreen deliberately
+ * does not track as an active discount — see ActiveDiscount's docblock.
  */
-export type DiscountTarget = { kind: 'cart' } | { kind: 'line'; line: CartLine };
-
-/** What DiscountDialog hands back once the cashier confirms. `amounts` is keyed by CartLine.key — one entry per line that qualified. */
 export interface DiscountResult {
   discountType: DiscountTypeCode;
   amounts: Record<string, number>;
+  mode: 'percent' | 'fixed';
+  value: number;
   holderName?: string;
   holderIdNumber?: string;
 }
 
 interface Props {
-  /** null = closed. */
-  target: DiscountTarget | null;
-  /** The live cart. A 'cart' target discounts every eligible line of this; a 'line' target ignores it. */
+  open: boolean;
+  /**
+   * The live cart. One discount is chosen for the whole sale and the POS
+   * decides which lines qualify (see TaxService::isProductEligibleForDiscount)
+   * — passed live, not a snapshot, so a cart edited while this is open can't
+   * be applied against stale lines.
+   */
   lines: CartLine[];
   /** Whether picking Manual Discount asks for a supervisor — Company::require_manual_discount_approval, see PosScreen. */
   requireManualApproval: boolean;
@@ -129,10 +134,6 @@ const KEYPAD_ROWS: string[][] = [
 /** One tap instead of two for the rates a store actually reaches for. Percent mode only. */
 const QUICK_PERCENTS = [5, 10, 15, 20];
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-const lineSubtotal = (line: CartLine) => line.quantity * line.unitPrice;
-
 /**
  * What the confirm step spells out about the chosen type, derived from
  * the type's own flags rather than written out per type — so the rules
@@ -146,27 +147,6 @@ function typeNotes(def: (typeof DISCOUNT_TYPES)[number]): string[] {
   if (def.requiresId) notes.push('Please ensure the customer presents a valid ID.');
   if (def.alwaysRequiresApproval) notes.push('Requires supervisor approval.');
   return notes;
-}
-
-/**
- * Splits one cart-wide peso amount across the qualifying lines in
- * proportion to what each contributes, with the last line absorbing
- * whatever the roundings left over so the parts always add back up to
- * exactly the amount entered.
- */
-function distributeFixedAmount(amount: number, lines: CartLine[]): Record<string, number> {
-  const total = lines.reduce((sum, l) => sum + lineSubtotal(l), 0);
-  if (total <= 0 || lines.length === 0) return {};
-
-  const out: Record<string, number> = {};
-  let allocated = 0;
-  lines.forEach((line, i) => {
-    const share = i === lines.length - 1 ? round2(amount - allocated) : round2((amount * lineSubtotal(line)) / total);
-    out[line.key] = share;
-    allocated = round2(allocated + share);
-  });
-
-  return out;
 }
 
 /**
@@ -186,7 +166,7 @@ function distributeFixedAmount(amount: number, lines: CartLine[]): Record<string
  * picking a type on every row.
  */
 export function DiscountDialog({
-  target,
+  open,
   lines,
   requireManualApproval,
   discountDefaults,
@@ -197,6 +177,7 @@ export function DiscountDialog({
   onApply,
   onRemoveAll,
 }: Props) {
+  const { user } = useAuth();
   const [step, setStep] = useState<'select' | 'details'>('select');
   const [selected, setSelected] = useState<DiscountTypeCode>('regular');
   const [mode, setMode] = useState<'percent' | 'fixed'>('percent');
@@ -212,10 +193,7 @@ export function DiscountDialog({
   /** Resolved eligibility per product id for everything in scope — one request for the whole basket (ProductsController::bulkDiscountEligibility). null leaves everything eligible; checkout re-checks server-side regardless. */
   const [eligibility, setEligibility] = useState<Record<string, Partial<Record<DiscountTypeCode, boolean>>> | null>(null);
 
-  const targetLines = useMemo(() => {
-    if (!target) return [];
-    return target.kind === 'cart' ? lines : [target.line];
-  }, [target, lines]);
+  const targetLines = useMemo(() => (open ? lines : []), [open, lines]);
 
   /** Stable across renders that don't change WHICH products are in scope, so the fetch below doesn't re-run on every quantity tweak. */
   const productIdsKey = useMemo(
@@ -225,8 +203,6 @@ export function DiscountDialog({
         .join(','),
     [targetLines]
   );
-
-  const open = target !== null;
 
   useEffect(() => {
     if (!open || productIdsKey === '') {
@@ -262,28 +238,18 @@ export function DiscountDialog({
     return value === null || value === undefined ? undefined : value;
   }
 
-  /** Resets on each OPEN (and on switching which single line is targeted), not on every cart edit while open. */
-  const resetKey = target?.kind === 'line' ? target.line.key : target ? 'cart' : null;
-
   useEffect(() => {
-    if (!target) return;
-    const initialType = (target.kind === 'line' ? (target.line.discountType as DiscountTypeCode) : null) || 'regular';
+    if (!open) return;
     // Always back to the picker on open — the cashier's first decision is
-    // which discount this is, even when re-opening a line that already
-    // has one.
+    // which discount this is.
+    const initialType: DiscountTypeCode = 'regular';
     setStep('select');
     setSelected(initialType);
     setMode('percent');
 
-    const existing = target.kind === 'line' ? target.line.discount : 0;
-    if (existing > 0) {
-      setValueText(String(existing));
-      autoFilledRef.current = false;
-    } else {
-      const defaultPercent = defaultPercentFor(initialType);
-      setValueText(defaultPercent !== undefined ? String(defaultPercent) : '');
-      autoFilledRef.current = defaultPercent !== undefined;
-    }
+    const defaultPercent = defaultPercentFor(initialType);
+    setValueText(defaultPercent !== undefined ? String(defaultPercent) : '');
+    autoFilledRef.current = defaultPercent !== undefined;
 
     setName(holderName);
     setIdNumber(holderIdNumber);
@@ -293,7 +259,7 @@ export function DiscountDialog({
     setPassword('');
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey]);
+  }, [open]);
 
   /** Offers the company default when a type is picked, but only into an empty field or over a suggestion this dialog put there — never over a number the cashier entered. */
   useEffect(() => {
@@ -307,10 +273,17 @@ export function DiscountDialog({
 
   const def = useMemo(() => DISCOUNT_TYPES.find((d) => d.code === selected)!, [selected]);
 
-  /** A custom (non-catalog) line has no product to look a rule up against — the backend treats it as eligible, and so does this. */
+  /**
+   * A custom (non-catalog) line has no product to look a rule up
+   * against — the backend treats it as eligible, and so does this.
+   * Every real product defaults to NOT eligible until a product/
+   * category override explicitly turns a type on (opt-in, not
+   * opt-out — see TaxService::isProductEligibleForDiscount), so a
+   * missing/still-loading entry here is treated as ineligible too.
+   */
   function isEligible(line: CartLine, type: DiscountTypeCode): boolean {
     if (line.isCustom) return true;
-    return eligibility?.[String(line.product.id)]?.[type] !== false;
+    return eligibility?.[String(line.product.id)]?.[type] === true;
   }
 
   const eligibleLines = targetLines.filter((l) => isEligible(l, def.code));
@@ -318,20 +291,11 @@ export function DiscountDialog({
   const eligibleSubtotal = round2(eligibleLines.reduce((sum, l) => sum + lineSubtotal(l), 0));
 
   /** What each qualifying line would receive, keyed by CartLine.key. */
-  const amounts = useMemo(() => {
-    if (def.fixedRatePercent !== null) {
-      return Object.fromEntries(
-        eligibleLines.map((l) => [l.key, previewGovernmentDiscount(l.quantity, l.unitPrice, l.taxRate, def.code)])
-      );
-    }
-
-    const value = parseFloat(valueText) || 0;
-    if (mode === 'percent') {
-      return Object.fromEntries(eligibleLines.map((l) => [l.key, round2((lineSubtotal(l) * value) / 100)]));
-    }
-    return distributeFixedAmount(value, eligibleLines);
+  const amounts = useMemo(
+    () => computeDiscountAmounts(def.code, mode, parseFloat(valueText) || 0, eligibleLines),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, mode, valueText, eligibleLines.map((l) => `${l.key}:${l.quantity}:${l.unitPrice}`).join('|')]);
+    [def, mode, valueText, eligibleLines.map((l) => `${l.key}:${l.quantity}:${l.unitPrice}`).join('|')]
+  );
 
   const totalDiscount = round2(Object.values(amounts).reduce((sum, n) => sum + n, 0));
 
@@ -350,9 +314,8 @@ export function DiscountDialog({
     setValueText(base + key);
   }
 
-  if (!target) return null;
+  if (!open) return null;
 
-  const isCartTarget = target.kind === 'cart';
   const resolvedReason = reason === 'Other' ? otherReason.trim() : reason;
   const needsSupervisor = def.alwaysRequiresApproval && requireManualApproval;
   const amountValid = totalDiscount >= 0 && totalDiscount <= eligibleSubtotal + 0.001;
@@ -367,11 +330,13 @@ export function DiscountDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!target || !canSubmit) return;
+    if (!open || !canSubmit) return;
 
     const applied: DiscountResult = {
       discountType: def.code,
       amounts,
+      mode,
+      value: parseFloat(valueText) || 0,
       ...(def.requiresId ? { holderName: name.trim(), holderIdNumber: idNumber.trim() } : null),
     };
 
@@ -385,7 +350,7 @@ export function DiscountDialog({
       return;
     }
 
-    const subject = isCartTarget ? `Entire sale (${eligibleLines.length} item${eligibleLines.length === 1 ? '' : 's'})` : target.line.product.name;
+    const subject = `Entire sale (${eligibleLines.length} item${eligibleLines.length === 1 ? '' : 's'})`;
 
     setSubmitting(true);
     setError(null);
@@ -427,15 +392,9 @@ export function DiscountDialog({
     }
   }
 
-  const scopeLabel = isCartTarget
-    ? `${targetLines.length} item${targetLines.length === 1 ? '' : 's'} · ${formatMoney(
-        round2(targetLines.reduce((sum, l) => sum + lineSubtotal(l), 0))
-      )}`
-    : `${target.line.product.name} · ${formatQuantity(
-        target.line.quantity,
-        target.line.unit?.abbreviation ?? null,
-        target.line.unit?.decimal_places ?? 0
-      )} × ${formatMoney(target.line.unitPrice)}`;
+  const scopeLabel = `${targetLines.length} item${targetLines.length === 1 ? '' : 's'} · ${formatMoney(
+    round2(targetLines.reduce((sum, l) => sum + lineSubtotal(l), 0))
+  )}`;
 
   const notes = typeNotes(def);
 
@@ -559,7 +518,7 @@ export function DiscountDialog({
           </DialogContent>
 
           <DialogActions sx={{ px: 2, py: 1.5, justifyContent: 'space-between' }}>
-            {isCartTarget && cartHasDiscount ? (
+            {cartHasDiscount ? (
               <Button onClick={onRemoveAll} color="inherit" sx={{ minHeight: 44 }}>
                 Remove discounts
               </Button>
@@ -661,8 +620,8 @@ export function DiscountDialog({
                       <ToggleButton value="percent" aria-label="Discount by percentage">
                         %
                       </ToggleButton>
-                      <ToggleButton value="fixed" aria-label="Discount by peso amount">
-                        ₱
+                      <ToggleButton value="fixed" aria-label="Discount by fixed amount">
+                        {currencySymbol(user?.currency)}
                       </ToggleButton>
                     </ToggleButtonGroup>
 
@@ -706,7 +665,7 @@ export function DiscountDialog({
                     />
                   </Stack>
 
-                  {mode === 'fixed' && isCartTarget && eligibleLines.length > 1 && (
+                  {mode === 'fixed' && eligibleLines.length > 1 && (
                     <Typography variant="caption" color="text.secondary">
                       Split across the {eligibleLines.length} qualifying items in proportion to each one's amount.
                     </Typography>
@@ -886,7 +845,7 @@ export function DiscountDialog({
                 variant="contained"
                 disableElevation
                 disabled={submitting || !canSubmit}
-                sx={{ minHeight: 44, px: 3, bgcolor: POS_ACCENT, '&:hover': { bgcolor: POS_ACCENT } }}
+                sx={{ minHeight: 44, px: 3, ...posRaisedButtonSx(POS_ACCENT) }}
               >
                 {submitting ? <CircularProgress size={20} color="inherit" /> : 'Apply Discount'}
               </Button>

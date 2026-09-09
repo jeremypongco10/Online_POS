@@ -16,17 +16,26 @@ use CodeIgniter\Database\Migration;
  * Two sparse override tables, not one flag-per-discount-type column on
  * `products`/`categories` — nine discount types would mean nine columns
  * on each table for a feature most rows never touch, and the resolution
- * order below (product row -> category row -> eligible-by-default) is
- * exactly a "most specific override wins" lookup, which a handful of
+ * order below (product row -> category row -> not-eligible-by-default)
+ * is exactly a "most specific override wins" lookup, which a handful of
  * override rows expresses far more directly than eighteen nullable
  * columns would. Both tables are sparse ON PURPOSE: a row only ever
- * needs to exist to record an EXCEPTION (eligible=0) or to explicitly
- * re-enable something a category rule turned off (eligible=1) — see
- * TaxService::isProductEligibleForDiscount for the resolution itself,
- * and its docblock for why the default is "eligible" rather than "not"
- * (most retail goods DO qualify; naming every eligible product would be
- * the wrong way round for a mostly-permissive rule with a short
- * exclusion list).
+ * needs to exist to record an EXCEPTION — see
+ * TaxService::isProductEligibleForDiscount for the resolution itself.
+ *
+ * The `eligible` column's own SQL default of 1 below is a historical
+ * artifact of this table's first design, where the ultimate fallback
+ * (no row at all) was "eligible" — that fallback has since been flipped
+ * to "not eligible" (a later, deliberate decision to make every
+ * discount type opt-in per product/category rather than opt-out).
+ * Left as 1 rather than corrected at the schema level: every INSERT in
+ * this codebase's own controllers already sets `eligible` explicitly
+ * (so the stale default is inert in practice for anything the app
+ * itself writes), and CI4's SQLite Forge drops this table's own FK
+ * CASCADE clause when modifyColumn() rebuilds it to change a column
+ * default — a worse problem than the cosmetic mismatch it would fix.
+ * If this table is ever written to from outside this codebase's own
+ * controllers, set `eligible` explicitly there too.
  *
  * discount_type is a plain VARCHAR against TaxService::DISCOUNT_TYPES,
  * not a foreign key to a lookup table — the same choice already made for

@@ -537,32 +537,28 @@ class TaxService
      *   1. A product_discount_eligibility row for this exact product.
      *   2. Failing that, a category_discount_eligibility row for the
      *      product's category.
-     *   3. Failing both, eligible — most retail goods DO qualify for
-     *      most discount types, and the real-world exclusion lists (e.g.
-     *      RA 9994/RA 10754's carve-out for alcohol and tobacco from
-     *      SC/PWD) are short relative to a full catalog, so naming every
-     *      eligible product would be the wrong way round for this rule.
-     *      A company configures the exceptions that apply to it (see
-     *      CategoriesController::updateDiscountEligibility) rather than
-     *      this class guessing at a specific store's category names.
+     *   3. Failing both, NOT eligible. Deliberately opt-in rather than
+     *      opt-out, per a direct decision to flip the original design:
+     *      every product/category starts with every discount type off,
+     *      and a company (or store admin) turns individual ones on —
+     *      see CategoriesController::updateDiscountEligibility and
+     *      ProductsController::updateDiscountEligibility. Nothing here
+     *      guesses which products should qualify for which discount;
+     *      that's entirely the deploying business's call to make and
+     *      keep current, government-mandated types (Senior Citizen/
+     *      PWD/5% BNPC) included.
      *
      * $product === null (a custom, non-catalog line item — see
      * SalesController::create()'s empty($item['product_id']) branch) is
-     * always eligible: there is no catalog record to look an override up
-     * against, and inventing a blanket rule for custom items wasn't
-     * asked for and isn't this method's call to make. Documented here
-     * as a real, known gap rather than a silent decision — a deployment
-     * relying on custom line items for anything an SC/PWD/other
-     * restricted discount type could apply to should treat this as
-     * unenforced until it's specifically addressed.
-     *
-     * IMPORTANT — same caveat as this class's own docblock: eligibility
-     * here is only ever what a company has explicitly configured. This
-     * class does not know, and does not guess, which categories in a
-     * particular catalog correspond to alcohol/tobacco/other statutory
-     * exclusions — that determination, and keeping it current, is the
-     * deploying business's responsibility (see the Discount Eligibility
-     * settings under Categories in the Back Office).
+     * the one built-in exception, and stays eligible regardless of the
+     * off-by-default rule above: there is no catalog record to look an
+     * override up against, and inventing a blanket rule for custom
+     * items wasn't asked for and isn't this method's call to make.
+     * Documented here as a real, known gap rather than a silent
+     * decision — a deployment relying on custom line items for
+     * anything an SC/PWD/other restricted discount type could apply to
+     * should treat this as unenforced until it's specifically
+     * addressed.
      */
     public function isProductEligibleForDiscount(string $discountType, ?object $product): bool
     {
@@ -582,23 +578,25 @@ class TaxService
     }
 
     /**
-     * The category layer alone (category rule, else eligible by
+     * The category layer alone (category rule, else NOT eligible by
      * default) — what a product's eligibility would resolve to if it
      * carried NO product-level override of its own. Factored out of
      * isProductEligibleForDiscount() because ProductsController::
      * updateDiscountEligibility() needs exactly this value on its own:
      * writing a product-level "eligible: true" can only safely DELETE
      * the row (this table is sparse by design — see the migration that
-     * creates it) when the category layer already agrees; if the
-     * category says false and the product is being set to true, that's
-     * a genuine override and needs a real eligible=1 row, or the
-     * "sparse" shortcut would silently lose the override the moment
-     * the row disappears.
+     * creates it) when the category layer already agrees — which, now
+     * that the category layer itself defaults to false, means most
+     * product-level "turn this on" requests genuinely are overrides and
+     * need a real eligible=1 row; only a product being explicitly
+     * turned OFF where the category is already off (or was itself
+     * turned on) collapses back to no row. See that controller's
+     * docblock for the full delete-vs-write reasoning.
      */
     public function isCategoryEligibleForDiscount(string $discountType, ?int $categoryId): bool
     {
         if ($categoryId === null) {
-            return true;
+            return false;
         }
 
         $categoryRule = model(CategoryDiscountEligibilityModel::class)
@@ -606,6 +604,6 @@ class TaxService
             ->where('discount_type', $discountType)
             ->first();
 
-        return $categoryRule === null || (bool) $categoryRule->eligible;
+        return $categoryRule !== null && (bool) $categoryRule->eligible;
     }
 }

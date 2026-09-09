@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\BaseApiController;
+use App\Models\CompanyModel;
 use App\Models\RevokedTokenModel;
 use App\Models\RoleModel;
 use App\Models\UserModel;
@@ -217,6 +218,7 @@ class AuthController extends BaseApiController
         unset($user->password_hash);
         $user->permissions = $auth->permissions;
         $this->attachRoleName($user);
+        $this->attachCompanyProfile($user);
 
         return $this->ok($user);
     }
@@ -233,6 +235,31 @@ class AuthController extends BaseApiController
         $user->role_name = $role !== null ? $role->name : null;
     }
 
+    /**
+     * Currency and tax-system wording, carried on the auth payload
+     * rather than behind an endpoint of their own.
+     *
+     * Both are needed by every signed-in user the moment the app paints
+     * — the peso sign on a discount field, whether a receipt says VAT or
+     * GST — and permissions are exactly what makes a dedicated endpoint
+     * awkward. The full company record sits behind companies.view, which
+     * a Cashier deliberately lacks; the POS-facing /sales/*-policy routes
+     * sit behind sales.create, which a reports-only back-office role
+     * equally lacks. These two scalars belong to nobody's permission in
+     * particular, so they ride along with the identity every role
+     * already fetches.
+     *
+     * Defaults rather than nulls: a company row with no currency set
+     * predates this being configurable, and PHP/vat is what the system
+     * behaved as before it was.
+     */
+    private function attachCompanyProfile(object $user): void
+    {
+        $company = $user->company_id !== null ? model(CompanyModel::class)->find((int) $user->company_id) : null;
+        $user->currency = $company->currency ?? 'PHP';
+        $user->tax_system = $company->tax_system ?? 'vat';
+    }
+
     private function tokenResponse(object $user)
     {
         $permissions = model(UserModel::class)->permissionSlugs($user->id);
@@ -243,6 +270,7 @@ class AuthController extends BaseApiController
 
         unset($user->password_hash);
         $this->attachRoleName($user);
+        $this->attachCompanyProfile($user);
 
         return $this->ok([
             'access_token' => $accessToken,

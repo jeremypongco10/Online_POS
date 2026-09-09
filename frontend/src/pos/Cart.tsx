@@ -5,7 +5,6 @@ import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
-import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
@@ -18,8 +17,6 @@ interface Props {
   lines: CartLine[];
   /** The most recently added/updated line, from any add path (tile click or scan) — scrolls it into view and briefly highlights it, so a cashier can always see what just landed in the cart. */
   lastAddedKey: string | null;
-  /** Opens DiscountDialog for this line — the dialog itself owns the type picker, amount entry, and (for Manual) the approval flow; Cart never edits `discount` directly any more. */
-  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   /** Opens the supervisor-approval dialog. The line is only dropped once that returns approved — this never removes anything by itself. */
   onRequestVoid: (line: CartLine) => void;
@@ -110,7 +107,7 @@ const revealSx = (revealed: boolean) => ({
 });
 
 
-export function Cart({ lines, lastAddedKey, selectedKey, onSelectLine, scrollContainerRef, onOpenDiscount, onQuantityChange, onRequestVoid }: Props) {
+export function Cart({ lines, lastAddedKey, selectedKey, onSelectLine, scrollContainerRef, onQuantityChange, onRequestVoid }: Props) {
   // Mirrors lastAddedKey but self-clears — the parent's key only changes on
   // the NEXT add, so without a local timeout the highlight would just stay
   // lit on whatever was last added instead of fading like a flash.
@@ -174,7 +171,6 @@ export function Cart({ lines, lastAddedKey, selectedKey, onSelectLine, scrollCon
           highlighted={line.key === highlightKey}
           selected={line.key === selectedKey}
           onSelect={onSelectLine}
-          onOpenDiscount={onOpenDiscount}
           onQuantityChange={onQuantityChange}
           onRequestVoid={onRequestVoid}
         />
@@ -200,7 +196,6 @@ const CartRow = memo(function CartRow({
   highlighted,
   selected,
   onSelect,
-  onOpenDiscount,
   onQuantityChange,
   onRequestVoid,
 }: {
@@ -208,7 +203,6 @@ const CartRow = memo(function CartRow({
   highlighted: boolean;
   selected: boolean;
   onSelect: (key: string) => void;
-  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
 }) {
@@ -323,41 +317,18 @@ const CartRow = memo(function CartRow({
           <Typography sx={{ fontFamily: RECEIPT_FONT, fontSize: 13, lineHeight: 1.25, color: 'text.secondary', whiteSpace: 'nowrap' }}>
             {formatQuantity(line.quantity, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0)} × {formatMoney(line.unitPrice)}
           </Typography>
-          {/* The one control that isn't purely a control: once a discount
-              has actually been applied it's a figure printed on the
-              receipt, so it stays visible on every row whether that row is
-              selected or not. It's only the empty "add a discount" tag
-              that hides away with the rest. */}
-          <Tooltip title={line.discount > 0 ? `${discountLabel ?? 'Discount'}: -${formatMoney(line.discount)}` : 'Add discount'}>
-            <Box
-              component="button"
-              type="button"
-              className={line.discount > 0 ? undefined : REVEAL_CLASS}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenDiscount(line);
-              }}
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 0.25,
-                border: 'none',
-                background: 'none',
-                p: 0,
-                cursor: 'pointer',
-                color: line.discount > 0 ? 'success.main' : 'text.secondary',
-                '&:hover': { color: 'success.main' },
-                ...(line.discount > 0 ? null : revealSx(selected)),
-              }}
-            >
-              <SellOutlinedIcon sx={{ fontSize: 13 }} />
-              {line.discount > 0 && (
-                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 13 }}>
-                  -{formatMoney(line.discount)}
-                </Typography>
-              )}
-            </Box>
-          </Tooltip>
+          {/* A figure printed on the receipt once a discount has actually
+              landed on this line — informational only. Discounts are
+              chosen once for the whole sale via the Discount control
+              (F5, see CartActionsRow), not per row any more, so there's
+              nothing here to click. */}
+          {line.discount > 0 && (
+            <Tooltip title={`${discountLabel ?? 'Discount'}: -${formatMoney(line.discount)}`}>
+              <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 13, color: 'success.main' }}>
+                -{formatMoney(line.discount)}
+              </Typography>
+            </Tooltip>
+          )}
         </Stack>
 
         {/* Put away until this row is the selected one. A cart is read far

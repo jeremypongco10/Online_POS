@@ -10,6 +10,9 @@ import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
 import { DetailView, StatusChip } from './DetailView';
+import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
+import { CURRENCIES, currencySymbol, DEFAULT_CURRENCY, showsBirDetail, taxSystemOf, type TaxSystem } from '../regional';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
@@ -41,12 +44,13 @@ import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import Switch from '@mui/material/Switch';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'payment-methods' | 'taxes' | 'units' | 'loyalty' | 'discounts' | 'security';
-const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'taxes', 'units', 'loyalty', 'discounts', 'security'];
+type Tab = 'stores' | 'registers' | 'payment-methods' | 'regional' | 'taxes' | 'units' | 'loyalty' | 'discounts' | 'security';
+const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'regional', 'taxes', 'units', 'loyalty', 'discounts', 'security'];
 const TAB_LABELS: Record<Tab, string> = {
   stores: 'Stores',
   registers: 'POS Terminals',
   'payment-methods': 'Payment Methods',
+  regional: 'Currency & Tax',
   taxes: 'Taxes',
   units: 'Units',
   loyalty: 'Loyalty',
@@ -61,7 +65,7 @@ const TAB_LABELS: Record<Tab, string> = {
 // see a control they'd immediately get a 403 trying to use, the way
 // Loyalty's own loyalty.manage/companies.manage split can (see
 // LoyaltyTab).
-const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { discounts: 'companies.manage', security: 'companies.manage' };
+const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { regional: 'companies.manage', discounts: 'companies.manage', security: 'companies.manage' };
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
@@ -91,6 +95,7 @@ export function SettingsScreen() {
       {tab === 'stores' && hasPermission('stores.view') && <StoresTab />}
       {tab === 'registers' && hasPermission('registers.view') && <RegistersTab />}
       {tab === 'payment-methods' && hasPermission('payment-methods.view') && <PaymentMethodsTab />}
+      {tab === 'regional' && hasPermission('companies.manage') && <RegionalTab />}
       {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
       {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
@@ -816,7 +821,11 @@ function TaxIndicatorChip({ indicator }: { indicator: string }) {
 }
 
 function TaxesTab() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  // Under GST the Flag column is dropped rather than relabelled: V/E/Z/N
+  // are BIR classifications with no GST counterpart, so a "GST-Exempt"
+  // chip would be inventing one. See src/regional.ts.
+  const showFlags = showsBirDetail(user?.tax_system);
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [statusFilter, setStatusFilter] = useState('');
@@ -868,14 +877,18 @@ function TaxesTab() {
   }
 
   const columns: Column<TaxRate>[] = [
-    {
-      key: 'indicator',
-      label: 'Flag',
-      width: 72,
-      // Not sortable: it's derived server-side per row (TaxService::
-      // indicator), so there's no column behind it for the API to ORDER BY.
-      render: (t) => (t.indicator ? <TaxIndicatorChip indicator={t.indicator} /> : '—'),
-    },
+    ...(showFlags
+      ? [
+          {
+            key: 'indicator',
+            label: 'Flag',
+            width: 72,
+            // Not sortable: it's derived server-side per row (TaxService::
+            // indicator), so there's no column behind it for the API to ORDER BY.
+            render: (t: TaxRate) => (t.indicator ? <TaxIndicatorChip indicator={t.indicator} /> : '—'),
+          } as Column<TaxRate>,
+        ]
+      : []),
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'rate', label: 'Rate', align: 'right', sortKey: 'rate', width: 100, render: (t) => `${t.rate}%` },
     { key: 'is_default', label: 'Default', width: 100, render: (t) => (Number(t.is_default) === 1 ? 'Yes' : '—') },
@@ -1462,6 +1475,7 @@ function UnitsTab() {
  */
 function LoyaltyTab() {
   const { user, hasPermission } = useAuth();
+  const symbol = currencySymbol(user?.currency);
   const notify = useSnackbar();
   const canManage = hasPermission('loyalty.manage');
   const [company, setCompany] = useState<Company | null>(null);
@@ -1514,13 +1528,13 @@ function LoyaltyTab() {
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Every completed sale with a customer attached automatically earns them this many points per ₱100 of the sale
+        Every completed sale with a customer attached automatically earns them this many points per {symbol}100 of the sale
         total — set to 0 to turn off automatic earning (points can still be adjusted manually from a customer's Points
         History).
       </Typography>
 
       <TextField
-        label="Points per ₱100"
+        label={`Points per ${symbol}100`}
         type="number"
         fullWidth
         disabled={!canManage}
@@ -1861,6 +1875,147 @@ function SecurityToggle({
         </Typography>
       </Box>
       <Switch checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} />
+    </Stack>
+  );
+}
+
+/**
+ * Currency and tax regime — the two company-wide settings that decide how
+ * money is written and what the tax on a receipt is called.
+ *
+ * Both live on the companies table and both ride out to the rest of the
+ * app on the auth payload rather than behind an endpoint of their own
+ * (see AuthController::attachCompanyProfile), which is why saving here
+ * calls refreshUser: without it the POS would keep printing the old
+ * currency symbol until the cashier next signed in.
+ */
+function RegionalTab() {
+  const { user, refreshUser } = useAuth();
+  const notify = useSnackbar();
+  const [company, setCompany] = useState<Company | null>(null);
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
+  const [system, setSystem] = useState<TaxSystem>('vat');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { fieldErrors, formError, clearErrors, reportError } = useFormErrors();
+
+  useEffect(() => {
+    if (!user?.company_id) return;
+    api
+      .get<Company>(`/companies/${user.company_id}`)
+      .then((c) => {
+        setCompany(c);
+        setCurrency(c.currency || DEFAULT_CURRENCY);
+        setSystem(taxSystemOf(c.tax_system));
+      })
+      .finally(() => setLoading(false));
+  }, [user?.company_id]);
+
+  const dirty = company !== null && (currency !== (company.currency || DEFAULT_CURRENCY) || system !== taxSystemOf(company.tax_system));
+
+  async function submit() {
+    if (!company) return;
+    setSaving(true);
+    clearErrors();
+    try {
+      const updated = await api.put<Company>(`/companies/${company.id}`, { currency, tax_system: system });
+      setCompany(updated);
+      setCurrency(updated.currency || DEFAULT_CURRENCY);
+      setSystem(taxSystemOf(updated.tax_system));
+      await refreshUser();
+      notify('Regional settings updated');
+    } catch (err) {
+      reportError(err, 'Failed to save regional settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <Typography color="text.secondary">Loading…</Typography>;
+  if (!company) return <Alert severity="error">Could not load company settings.</Alert>;
+
+  const sample = `${currencySymbol(currency)}1,234.50`;
+
+  return (
+    <Stack spacing={2.5} sx={{ maxWidth: 620 }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <PaymentsOutlinedIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Currency
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          The symbol shown beside amounts across the POS and the Back Office. This changes how money is written,
+          never what it is worth — no amount already recorded is converted, so switch it only if the till has
+          genuinely been taking a different currency all along.
+        </Typography>
+        <SearchableSelect
+          label="Currency"
+          value={currency}
+          onChange={setCurrency}
+          fullWidth
+          options={CURRENCIES.map((c) => ({ value: c.code, label: `${c.code} — ${c.name} (${c.symbol})` }))}
+        />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+          Amounts will read as <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{sample}</Box>
+        </Typography>
+        {fieldErrors?.currency && (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+            {fieldErrors.currency}
+          </Typography>
+        )}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <ReceiptLongOutlinedIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Tax system
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          What the tax on a sale is called, and which parts of a receipt are printed. Tax rates themselves are set
+          on the Taxes tab — this only decides the wording around them.
+        </Typography>
+        <SearchableSelect
+          label="Tax system"
+          value={system}
+          onChange={(v) => setSystem(taxSystemOf(v))}
+          fullWidth
+          options={[
+            { value: 'vat', label: 'Philippine VAT' },
+            { value: 'gst', label: 'GST' },
+          ]}
+        />
+        {/* Said plainly and up front, because the alternative is someone
+            switching to GST and assuming the system has become compliant
+            somewhere it hasn't. The arithmetic genuinely is identical;
+            the Philippine statutory apparatus around it is not. */}
+        <Alert severity="info" sx={{ mt: 2.5, borderRadius: 2 }}>
+          {system === 'gst' ? (
+            <>
+              Tax is calculated exactly as before — a percentage, inclusive or exclusive — and is labelled{' '}
+              <strong>GST</strong>. The Philippine BIR line indicators (V / E / Z / N) and the Vatable, VAT-Exempt and
+              Zero-Rated receipt breakdown are hidden, because they have no GST equivalent. Senior Citizen, PWD and 5%
+              BNPC discounts stay Philippine-specific and are unaffected by this setting.
+            </>
+          ) : (
+            <>
+              Tax is labelled <strong>VAT</strong>, and receipts print the BIR line indicators (V / E / Z / N) and the
+              Vatable, VAT-Exempt and Zero-Rated breakdown where a store has BIR details switched on.
+            </>
+          )}
+        </Alert>
+      </Paper>
+
+      {formError && <Alert severity="error">{formError}</Alert>}
+
+      <Box>
+        <Button variant="contained" onClick={submit} disabled={saving || !dirty}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </Button>
+      </Box>
     </Stack>
   );
 }

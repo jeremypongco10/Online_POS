@@ -122,7 +122,16 @@ export interface CartTotals {
    */
   vatExemptionTotal: number;
   discountTotal: number;
-  /** VAT still contained within `total`, not added to it. Informational only — adding it would double-charge the tax. */
+  /**
+   * VAT still contained within `total`, not added to it. Informational
+   * only — adding it would double-charge the tax.
+   *
+   * Not shown in the POS UI (see TotalsPanel): the tax breakdown belongs
+   * on the receipt, which gets its own figures from the server at
+   * checkout rather than from here. Kept because it's the one line of
+   * the breakdown this cart-side maths already had before that decision,
+   * and it costs a single addition per line to keep it available.
+   */
   taxTotal: number;
   /** subtotal − vatExemptionTotal − discountTotal, and equal to the sum of the line totals shown in the cart. Matches the server's `gross_amount` (SalesController::create). */
   total: number;

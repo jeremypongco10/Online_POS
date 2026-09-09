@@ -15,9 +15,9 @@ import Box from '@mui/material/Box';
  * button, and inconsistent from one button to the next since every
  * button here carries a different colour.
  *
- * Hidden below md for the same reason StatusBar's strip was: a touchscreen
- * has no F-keys, so on a phone or tablet these badges are dead pixels on
- * buttons that are already tight for room.
+ * Hidden below md: a touchscreen has no F-keys, so on a phone or tablet
+ * these badges are dead pixels on buttons that are already tight for
+ * room.
  */
 export function KeyHint({ label, onAccent = false }: { label: string; onAccent?: boolean }) {
   return (

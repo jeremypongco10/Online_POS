@@ -14,7 +14,9 @@ import TableCell from '@mui/material/TableCell';
 import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
 import type { PaymentMethodOption, Receipt } from '../api/types';
-import { formatMoney, TAX_INDICATOR_LABELS } from './format';
+import { formatMoney, posRaisedButtonSx, TAX_INDICATOR_LABELS } from './format';
+import { currencySymbol, showsBirDetail, taxLabel } from '../regional';
+import { useAuth } from '../auth/AuthContext';
 import { discountTypeLabel } from './discountTypes';
 import { PopTransition } from '../PopTransition';
 import { METHOD_LABELS } from './PaymentPanel';
@@ -22,6 +24,15 @@ import { KeyHint } from './KeyHint';
 
 /** Phase 18: the printable receipt — every field sourced from the sale's own frozen snapshot. */
 export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; methods: PaymentMethodOption[]; onClose: () => void }) {
+  const { user } = useAuth();
+  // Read from the signed-in user rather than frozen onto the sale like
+  // show_bir_details is. That's the honest split: show_bir_details is a
+  // legal property of the receipt that was issued, while this is only
+  // what the company calls its tax today — a reprint should say GST if
+  // the company is on GST now.
+  const tax = taxLabel(user?.tax_system);
+  const showBir = showsBirDetail(user?.tax_system);
+  const symbol = currencySymbol(user?.currency);
   const methodLabel = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
 
   /**
@@ -127,8 +138,10 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
               {/* The BIR tax flag, last: on a printed receipt it sits
                   hard against the amount it classifies. Header left blank
                   — "V/E/Z/N" as a column title reads as noise, and the
-                  legend under the table explains the letters properly. */}
-              <TableCell sx={{ fontWeight: 600, width: 16 }} />
+                  legend under the table explains the letters properly.
+                  Dropped entirely under GST, along with its cells and the
+                  legend, since the classification itself is Philippine. */}
+              {showBir && <TableCell sx={{ fontWeight: 600, width: 16 }} />}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -148,7 +161,7 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
                 <TableCell>{item.quantity}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.unit_price))}</TableCell>
                 <TableCell>{formatMoney(parseFloat(item.line_total))}</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>{item.tax_indicator}</TableCell>
+                {showBir && <TableCell sx={{ fontWeight: 700 }}>{item.tax_indicator}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -157,11 +170,13 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
         {/* Only the classifications actually present on this sale — a
             fixed four-letter legend under a receipt whose every line is
             VATable is just wasted paper. */}
-        <Box sx={{ fontSize: 10.5, color: 'text.secondary', textAlign: 'center', mb: 1 }}>
-          {[...new Set(receipt.items.map((i) => i.tax_indicator))]
-            .map((flag) => `${flag} = ${TAX_INDICATOR_LABELS[flag] ?? flag}`)
-            .join('   ')}
-        </Box>
+        {showBir && (
+          <Box sx={{ fontSize: 10.5, color: 'text.secondary', textAlign: 'center', mb: 1 }}>
+            {[...new Set(receipt.items.map((i) => i.tax_indicator))]
+              .map((flag) => `${flag} = ${TAX_INDICATOR_LABELS[flag] ?? flag}`)
+              .join('   ')}
+          </Box>
+        )}
 
         <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
           <span>Subtotal</span>
@@ -181,17 +196,17 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           <>
             {receipt.vat_amount > 0 && (
               <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
-                <span>VAT</span>
+                <span>{tax}</span>
                 <span>{formatMoney(receipt.vat_amount)}</span>
               </Stack>
             )}
-            {receipt.vat_exempt_amount > 0 && (
+            {showBir && receipt.vat_exempt_amount > 0 && (
               <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
                 <span>VAT Exempt</span>
                 <span>{formatMoney(receipt.vat_exempt_amount)}</span>
               </Stack>
             )}
-            {receipt.zero_rated_amount > 0 && (
+            {showBir && receipt.zero_rated_amount > 0 && (
               <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
                 <span>Zero Rated</span>
                 <span>{formatMoney(receipt.zero_rated_amount)}</span>
@@ -202,7 +217,10 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
         <Divider sx={{ my: 1 }} />
         <Stack direction="row" sx={{ justifyContent: 'space-between', fontWeight: 700, fontSize: 14 }}>
           <span>TOTAL</span>
-          <span>{formatMoney(parseFloat(receipt.total))}</span>
+          <span>
+            {symbol}
+            {formatMoney(parseFloat(receipt.total))}
+          </span>
         </Stack>
 
         <Stack spacing={0.25} sx={{ mt: 1, pt: 1, borderTop: '1px dashed', borderColor: 'divider' }}>
@@ -234,7 +252,12 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
 
       <DialogActions className="modal-actions" sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
+        <Button
+          variant="contained"
+          startIcon={<PrintIcon />}
+          onClick={() => window.print()}
+          sx={(theme) => posRaisedButtonSx(theme.palette.primary.main)}
+        >
           Print
           <KeyHint label="F7" onAccent />
         </Button>

@@ -19,7 +19,6 @@ import type {
 } from '../api/types';
 import { ProductBrowser } from './ProductBrowser';
 import { ReceiptPanel } from './ReceiptPanel';
-import { StatusBar } from './StatusBar';
 import { PosHeader } from './PosHeader';
 import { AccountMenu } from './AccountMenu';
 import type { Payment } from './PaymentPanel';
@@ -28,8 +27,9 @@ import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
 import { ReprintReceiptDialog } from './ReprintReceiptDialog';
 import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
-import { DiscountDialog, type DiscountResult, type DiscountTarget } from './DiscountDialog';
-import { discountRequiresHolderId, discountTypeLabel, type DiscountDefaults } from './discountTypes';
+import { DiscountDialog, type DiscountResult } from './DiscountDialog';
+import { discountRequiresHolderId, discountTypeLabel, type DiscountDefaults, type DiscountTypeCode } from './discountTypes';
+import { computeDiscountAmounts, type ActiveDiscount } from './discountCalc';
 import { calculateCart, type CartLine } from './posTypes';
 import { formatQuantity } from './format';
 import {
@@ -43,6 +43,7 @@ import {
 } from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { usePosZoom } from './usePosZoom';
+import { keepFullscreen } from '../fullscreen';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
 interface Props {
@@ -122,23 +123,48 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // treats a missing entry the same as an explicit null (no pre-fill).
   const [discountDefaults, setDiscountDefaults] = useState<DiscountDefaults>({});
 
-  // What DiscountDialog is currently open for — the whole sale (the
-  // normal workflow, from the Discount button in the actions row) or one
-  // line (the override, from that row's own tag). Null when closed. Held
-  // here rather than in Cart, same reasoning as voidSubject: the dialog
-  // must survive the cart re-rendering underneath it.
-  const [discountTarget, setDiscountTarget] = useState<DiscountTarget | null>(null);
+  // Whether DiscountDialog is open — the whole sale is always the scope
+  // (the Discount button in the actions row; the POS decides which lines
+  // qualify). Held here rather than in Cart, same reasoning as voidSubject:
+  // the dialog must survive the cart re-rendering underneath it.
+  const [discountOpen, setDiscountOpen] = useState(false);
   // BIR RR 7-2010 documentation for a Senior Citizen/PWD/5% BNPC line —
   // one holder per cart (see AddDiscountHolderToSales), prefilled into
   // DiscountDialog so a second qualifying line doesn't re-ask for the
   // same name/ID, and sent once at checkout.
   const [discountHolderName, setDiscountHolderName] = useState('');
   const [discountIdNumber, setDiscountIdNumber] = useState('');
+  // The discount currently governing the sale, or null once nothing's
+  // applied. Set whenever a non-Manual discount is applied (see
+  // applyDiscount) and replayed by the recompute effect below onto
+  // whatever gets added to the cart afterward, so a cashier who applies
+  // Senior Citizen and then keeps scanning doesn't have to remember to
+  // reopen Discount for every later item. See ActiveDiscount's own
+  // docblock for why Manual is deliberately excluded.
+  const [activeDiscount, setActiveDiscount] = useState<ActiveDiscount | null>(null);
+  // Per-product eligibility for activeDiscount.discountType, fetched
+  // whenever the set of products in the cart changes — the same bulk
+  // endpoint DiscountDialog itself calls while open. `key` records which
+  // product-id set the data answers for, so the recompute effect can tell
+  // "no active discount" apart from "haven't heard back yet" and avoid
+  // briefly discounting a line that turns out not to qualify.
+  const [discountEligibility, setDiscountEligibility] = useState<{
+    key: string;
+    data: Record<string, Partial<Record<DiscountTypeCode, boolean>>> | null;
+  } | null>(null);
 
   // Scales the page down on a screen smaller than this layout was drawn
   // for, so more of the product grid stays visible instead of scrolling.
   // Also returns the manual override PosHeader's zoom control drives.
   const posZoom = usePosZoom();
+
+  // Kiosk fullscreen, for as long as the register is on screen. Login
+  // already requests it, but a reloaded session never goes through the
+  // login form and Esc drops out of it — this re-enters on the cashier's
+  // next gesture in either case. Scoped here rather than app-wide on
+  // purpose: this component only mounts for a POS role (see App's Gate),
+  // so the Back Office keeps its browser chrome. See keepFullscreen.
+  useEffect(() => keepFullscreen(), []);
 
   // The DOM node ProductSearch's search field portals into — see
   // PosHeader's searchSlotRef and ProductSearch's searchPortalTarget.
@@ -296,6 +322,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setBagger(draft.bagger);
     setDiscountHolderName(draft.discountHolderName ?? '');
     setDiscountIdNumber(draft.discountIdNumber ?? '');
+    setActiveDiscount(draft.activeDiscount ?? null);
     notify(`Recovered your in-progress sale (${draft.lines.length} item${draft.lines.length === 1 ? '' : 's'})`);
     // notify is intentionally omitted — including it would re-run this on
     // every snackbar render and re-restore the draft over the cashier's
@@ -311,8 +338,103 @@ export function PosScreen({ onOpenAdmin }: Props) {
    */
   useEffect(() => {
     if (!registerId) return;
-    saveDraftSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber });
-  }, [registerId, lines, customer, card, bagger, discountHolderName, discountIdNumber]);
+    saveDraftSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount });
+  }, [registerId, lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount]);
+
+  /** Stable across renders that don't change WHICH products are in the cart, so the eligibility fetch below doesn't re-run on every quantity tweak. */
+  const cartProductIdsKey = useMemo(
+    () =>
+      Array.from(new Set(lines.filter((l) => !l.isCustom).map((l) => l.product.id)))
+        .sort((a, b) => a - b)
+        .join(','),
+    [lines]
+  );
+
+  /**
+   * Eligibility for activeDiscount's type, refetched whenever the set of
+   * products in the cart changes — the same bulk endpoint DiscountDialog
+   * itself calls while open. Only runs while a discount is actually
+   * active; there's nothing to check otherwise.
+   */
+  useEffect(() => {
+    if (!activeDiscount || cartProductIdsKey === '') {
+      setDiscountEligibility({ key: cartProductIdsKey, data: null });
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<Record<string, Partial<Record<DiscountTypeCode, boolean>>>>(`/products/discount-eligibility?product_ids=${cartProductIdsKey}`)
+      .then((res) => {
+        if (!cancelled) setDiscountEligibility({ key: cartProductIdsKey, data: res });
+      })
+      .catch(() => {
+        if (!cancelled) setDiscountEligibility({ key: cartProductIdsKey, data: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed on activeDiscount?.discountType rather than the
+    // whole object: eligibility only ever depends on WHICH type is active
+    // and what's in the cart, never on the cashier's chosen mode/value —
+    // keying on the object would refetch on every keystroke in the amount
+    // field for no reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDiscount?.discountType, cartProductIdsKey]);
+
+  /**
+   * Folds activeDiscount onto whatever the cart currently looks like —
+   * this is what makes a new item added after Senior Citizen (or any
+   * non-Manual type) was applied come in already discounted instead of
+   * sitting there plain until the cashier reopens F5, and what keeps a
+   * fixed peso amount split correctly as lines are added, resized, or
+   * removed. applyDiscount below already stamps the cart the instant the
+   * cashier confirms (using DiscountDialog's own already-fetched
+   * eligibility, for zero-delay feedback); this effect is what keeps that
+   * stamp current afterward.
+   *
+   * Waits for discountEligibility to actually answer for the CURRENT
+   * product set (`.key === cartProductIdsKey`) before touching `lines` —
+   * every real product defaults to NOT eligible until its own data says
+   * otherwise (opt-in, not opt-out — see TaxService::
+   * isProductEligibleForDiscount), so this isn't needed to avoid
+   * wrongly granting a discount; it's to avoid a double recompute (and,
+   * under a fixed peso split, a visible two-step reshuffle of every
+   * other line's amount) the moment a new product's id briefly has no
+   * entry yet.
+   */
+  useEffect(() => {
+    if (!activeDiscount) return;
+    if (cartProductIdsKey !== '' && discountEligibility?.key !== cartProductIdsKey) return;
+
+    const eligibility = discountEligibility?.data ?? null;
+    const isEligible = (l: CartLine) => l.isCustom || eligibility?.[String(l.product.id)]?.[activeDiscount.discountType] === true;
+
+    setLines((prev) => {
+      const eligibleLines = prev.filter(isEligible);
+      const amounts = computeDiscountAmounts(activeDiscount.discountType, activeDiscount.mode, activeDiscount.value, eligibleLines);
+
+      let changed = false;
+      const next = prev.map((l) => {
+        if (!isEligible(l)) {
+          // Not eligible for the active type — leave an untouched line
+          // alone, but drop a stamp this same active discount put there
+          // before the line's eligibility was known (or before it fell
+          // out of scope, e.g. eligibility rules changed mid-sale).
+          if (l.discountType === activeDiscount.discountType && l.discount > 0) {
+            changed = true;
+            return { ...l, discount: 0, discountType: null };
+          }
+          return l;
+        }
+        const amount = Math.max(0, amounts[l.key] ?? 0);
+        if (l.discount === amount && l.discountType === activeDiscount.discountType) return l;
+        changed = true;
+        return { ...l, discount: amount, discountType: activeDiscount.discountType };
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDiscount, discountEligibility, cartProductIdsKey, lines.map((l) => `${l.key}:${l.quantity}:${l.unitPrice}`).join('|')]);
 
   /**
    * `quantity` comes from ProductSearch's barcode "5*"/"5x" prefix (see
@@ -374,28 +496,23 @@ export function PosScreen({ onOpenAdmin }: Props) {
     [units, taxRates, notify],
   );
 
-  // These two are useCallback'd purely so CartRow's memo() can actually
-  // bail — a fresh function identity each render would fail its shallow
-  // prop check and re-render every line in the cart on every cart change.
-  // Both already read state only through setLines' updater, so there are
-  // no dependencies to track and the identity is genuinely permanent.
-
-  /** A cart row's own tag button — the override path, for correcting one item after the fact. */
-  const openLineDiscount = useCallback((line: CartLine) => {
-    setDiscountTarget({ kind: 'line', line });
-  }, []);
-
   /** The Discount button in the actions row — the normal workflow: pick one discount for the sale and let the POS decide which lines qualify. */
   function openCartDiscount() {
     if (lines.length === 0) return;
-    setDiscountTarget({ kind: 'cart' });
+    setDiscountOpen(true);
   }
 
   /**
-   * Cart's ± steppers. Rounded to the line's own unit precision so
-   * repeated float steps can't drift a whole-piece item to 2.9999999,
-   * and floored at one step — reaching zero would be a removal, and
-   * removals go through the supervisor-approved void path instead.
+   * Cart's ± steppers. useCallback'd so CartRow's memo() can actually bail
+   * — a fresh function identity each render would fail its shallow prop
+   * check and re-render every line in the cart on every cart change. Reads
+   * state only through setLines' updater, so there are no dependencies to
+   * track and the identity is genuinely permanent.
+   *
+   * Rounded to the line's own unit precision so repeated float steps can't
+   * drift a whole-piece item to 2.9999999, and floored at one step —
+   * reaching zero would be a removal, and removals go through the
+   * supervisor-approved void path instead.
    */
   const updateQuantity = useCallback((key: string, quantity: number) => {
     setLines((prev) =>
@@ -415,9 +532,17 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * they were: a line that doesn't qualify for the chosen type keeps
    * whatever it already had rather than being quietly cleared.
    *
+   * Also sets activeDiscount for every type except Manual, so the
+   * recompute effect above folds in whatever gets added to the cart
+   * next — see that effect and ActiveDiscount's docblock for why Manual
+   * is excluded. This stamp still happens immediately either way, using
+   * DiscountDialog's own already-fetched eligibility, so applying a
+   * discount never waits on PosScreen's separate eligibility fetch to
+   * show something on screen.
+   *
    * Not useCallback'd — only ever passed to that one dialog, never per
    * cart row, so CartRow's memo isn't in play here the way it is for
-   * openLineDiscount/updateQuantity above.
+   * updateQuantity above.
    */
   function applyDiscount(result: DiscountResult) {
     const applied = Object.keys(result.amounts).length;
@@ -431,23 +556,26 @@ export function PosScreen({ onOpenAdmin }: Props) {
       })
     );
 
+    setActiveDiscount(result.discountType === 'manual' ? null : { discountType: result.discountType, mode: result.mode, value: result.value });
+
     // Only the three government types ever send holder info (see
     // DiscountDialog's requiresId branch) — a Regular/Promo/etc.
     // discount leaves whatever documentation is already on file alone.
     if (result.holderName !== undefined) setDiscountHolderName(result.holderName);
     if (result.holderIdNumber !== undefined) setDiscountIdNumber(result.holderIdNumber);
 
-    setDiscountTarget(null);
+    setDiscountOpen(false);
     const label = discountTypeLabel(result.discountType) ?? 'Discount';
     notify(applied === 1 ? `${label} applied to 1 item` : `${label} applied to ${applied} items`);
   }
 
-  /** DiscountDialog's "Remove discounts" — clears every line, and the SC/PWD documentation with them, since it only ever belonged to a discount that's now gone. */
+  /** DiscountDialog's "Remove discounts" — clears every line, the sale's active discount (so nothing added afterward gets swept back in), and the SC/PWD documentation, since it only ever belonged to a discount that's now gone. */
   function removeAllDiscounts() {
     setLines((prev) => prev.map((l) => (l.discount > 0 || l.discountType ? { ...l, discount: 0, discountType: null } : l)));
+    setActiveDiscount(null);
     setDiscountHolderName('');
     setDiscountIdNumber('');
-    setDiscountTarget(null);
+    setDiscountOpen(false);
     notify('Discounts removed');
   }
 
@@ -461,6 +589,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setCard(null);
     setBagger(null);
     setCheckoutError(null);
+    setActiveDiscount(null);
     setDiscountHolderName('');
     setDiscountIdNumber('');
     setSaleCounter((n) => n + 1);
@@ -488,7 +617,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   function handleHold() {
     if (!registerId || lines.length === 0) return;
-    holdSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber });
+    holdSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount });
     setHeldSales(listHeldSales(registerId));
     resetSale();
     notify('Sale held');
@@ -501,6 +630,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setBagger(held.bagger);
     setDiscountHolderName(held.discountHolderName ?? '');
     setDiscountIdNumber(held.discountIdNumber ?? '');
+    setActiveDiscount(held.activeDiscount ?? null);
     setCheckoutError(null);
     setSaleCounter((n) => n + 1);
     if (registerId) {
@@ -574,16 +704,20 @@ export function PosScreen({ onOpenAdmin }: Props) {
     }
   }
 
-  // voidSubject/discountTarget included so F9/F5 can't fire behind an
+  // voidSubject/discountOpen included so F9/F5 can't fire behind an
   // approval dialog — both can have a password field in them, and a
   // stray function key clearing the cart underneath would be especially
   // confusing there.
   const blockingDialogOpen =
-    paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || Boolean(discountTarget) || reprintOpen;
+    paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || discountOpen || reprintOpen;
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     search: () => document.getElementById('pos-product-search')?.focus(),
     customer: () => document.getElementById('pos-action-add-customer')?.click(),
+    // Called directly rather than DOM-clicking CartActionsRow's Hold
+    // button (unlike reprint/return/discount below): handleHold already
+    // no-ops on its own when the cart is empty, so there's no missing-
+    // element guard to lean on here the way those rely on.
     hold: handleHold,
     pay: () => document.getElementById('pos-pay-button')?.click(),
     bagger: () => document.getElementById('pos-action-bagger')?.click(),
@@ -626,12 +760,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // but a real number once AccountMenu's picker sets them (it does
   // Number(v)). A strict compare therefore silently stops matching the
   // moment someone switches store or terminal — which blanked the
-  // StatusBar labels and, worse, skipped the open-register gate below.
+  // receipt letterhead's store/terminal line and, worse, skipped the
+  // open-register gate below.
   const selectedStore = stores.find((s) => Number(s.id) === Number(storeId));
   const selectedRegister = registers.find((r) => Number(r.id) === Number(registerId));
 
-  // StatusBar shows the store this user is *assigned* to rather than
-  // whichever the picker happens to be on. GET /stores is already scoped
+  // The receipt letterhead names the store this user is *assigned* to
+  // rather than whichever the picker happens to be on. GET /stores is already scoped
   // server-side to the caller's own user_stores rows, so for a
   // store-restricted user that list IS their assignment — and since
   // Cashier/Bagger/Store Admin/Cashier Supervisor are all enforced to
@@ -711,8 +846,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
               receipt column lets the cart start at the very top of the
               screen instead of being pushed down by a full-width bar. */}
           <PosHeader
-            cashSession={cashSession}
-            zoom={posZoom}
             searchSlotRef={setSearchSlot}
             actions={
               <AccountMenu
@@ -731,6 +864,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
                 canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
                 onOpenAdmin={() => onOpenAdmin()}
                 onLogout={logout}
+                zoom={posZoom}
               />
             }
           />
@@ -765,23 +899,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
               onSelectBagger={setBagger}
               cartHasItems={lines.length > 0}
               onOpenDiscount={openCartDiscount}
+              onHold={handleHold}
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
               onReprintReceipt={() => setReprintOpen(true)}
             />
           </Box>
-
-          {/* Scoped to this column, same as PosHeader above — moved here
-              from a full-width sibling below the whole two-column row, so
-              it no longer cuts across the cart column too. The cart now
-              runs the full height of the screen; this bar bookends only
-              the product side, which is the side it actually describes
-              (store/terminal/cashier context for what's being rung up). */}
-          <StatusBar
-            cashierName={user.name}
-            storeName={(assignedStore ?? selectedStore)?.name ?? null}
-            registerName={selectedRegister?.name ?? null}
-          />
         </Box>
 
         <Box
@@ -796,14 +919,15 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }}
         >
           <ReceiptPanel
-            storeName={(assignedStore ?? selectedStore)?.name ?? null}
+            store={assignedStore ?? selectedStore ?? null}
+            cashierName={user.name}
+            registerName={selectedRegister?.name ?? null}
             customer={customer}
             bagger={bagger}
             lines={lines}
             lastAddedKey={lastAddedKey}
             selectedCartKey={selectedCartKey}
             onSelectCartLine={toggleCartSelection}
-            onOpenDiscount={openLineDiscount}
             onQuantityChange={updateQuantity}
             onRequestVoid={requestVoidLine}
             totals={totals}
@@ -813,7 +937,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
             paymentDisabled={lines.length === 0 || !registerId || !cashSession}
             onCheckout={checkout}
             saleCounter={saleCounter}
-            onHold={handleHold}
             onPaymentDialogOpenChange={setPaymentDialogOpen}
           />
         </Box>
@@ -868,14 +991,14 @@ export function PosScreen({ onOpenAdmin }: Props) {
       />
 
       <DiscountDialog
-        target={discountTarget}
+        open={discountOpen}
         lines={lines}
         requireManualApproval={requireManualDiscountApproval}
         discountDefaults={discountDefaults}
         storeId={storeId}
         holderName={discountHolderName}
         holderIdNumber={discountIdNumber}
-        onClose={() => setDiscountTarget(null)}
+        onClose={() => setDiscountOpen(false)}
         onApply={applyDiscount}
         onRemoveAll={removeAllDiscounts}
       />

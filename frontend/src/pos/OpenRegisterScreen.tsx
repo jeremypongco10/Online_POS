@@ -9,6 +9,7 @@ import Alert from '@mui/material/Alert';
 import { api } from '../api/client';
 import type { CashSession } from '../api/types';
 import { useFormErrors } from '../admin/useFormErrors';
+import { posRaisedButtonSx } from './format';
 
 interface Props {
   registerId: number;
@@ -88,7 +89,14 @@ export function OpenRegisterScreen({ registerId, registerName, onOpened }: Props
             fullWidth
           />
           {formError && <Alert severity="error">{formError}</Alert>}
-          <Button type="submit" variant="contained" size="large" disabled={submitting} fullWidth>
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            disabled={submitting}
+            fullWidth
+            sx={(theme) => posRaisedButtonSx(theme.palette.primary.main)}
+          >
             {submitting ? 'Opening…' : 'Open POS Terminal'}
           </Button>
         </Stack>

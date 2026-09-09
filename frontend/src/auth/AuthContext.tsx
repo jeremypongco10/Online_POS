@@ -10,6 +10,8 @@ interface AuthContextValue {
   login: (identifier: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   hasPermission: (slug: string) => boolean;
+  /** Re-reads /auth/me into context. The auth payload carries the company's currency and tax system (see AuthController::attachCompanyProfile), so changing either in Settings has to refresh this or the rest of the app keeps rendering the old one until the next login. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -62,6 +64,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return me;
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!getAccessToken()) return;
+    // Deliberately swallows a failure rather than logging the user out:
+    // this runs after a settings save that already succeeded, and the
+    // only cost of a missed refresh is stale wording until the next
+    // navigation. setUnauthorizedHandler above still handles a genuinely
+    // dead session.
+    try {
+      setUser(await api.get<AuthUser>('/auth/me'));
+    } catch {
+      /* keep the existing user */
+    }
+  }, []);
+
   const logout = useCallback(() => {
     api.post('/auth/logout').catch(() => {});
     setTokens(null, null);
@@ -85,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, loading, sessionExpired, login, logout, hasPermission }}>
+    <AuthContext.Provider value={{ user, loading, sessionExpired, login, logout, hasPermission, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

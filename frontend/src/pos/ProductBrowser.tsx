@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Stack from '@mui/material/Stack';
+import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -25,12 +26,13 @@ interface Props {
   cartHasItems: boolean;
   /** The Discount button — one discount chosen for the whole sale, which is the normal workflow (see DiscountDialog). */
   onOpenDiscount: () => void;
+  onHold: () => void;
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
 }
 
-/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, cash movements, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent action sit in the Actions row pinned below the product list — see CartActionsRow. */
+/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent actions sit in the Actions row pinned below the product list — see CartActionsRow. */
 export function ProductBrowser({
   companyId,
   storeId,
@@ -43,6 +45,7 @@ export function ProductBrowser({
   onSelectBagger,
   cartHasItems,
   onOpenDiscount,
+  onHold,
   onCancel,
   onReturn,
   onReprintReceipt,
@@ -52,30 +55,36 @@ export function ProductBrowser({
 
   return (
     <>
-      <ProductSearch
-        companyId={companyId}
-        storeId={storeId}
-        onAdd={onAdd}
-        searchPortalTarget={searchPortalTarget}
-        bottomExtra={
-          // A rule instead of an "ACTIONS" caption — three self-describing
-          // buttons don't need a header, and dropping it buys back a row
-          // of vertical space for the product grid.
-          <Stack spacing={1.5} sx={{ pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-            <CartActionsRow
-              customer={customer}
-              onOpenCustomer={() => setCustomerDialogOpen(true)}
-              bagger={bagger}
-              onOpenBagger={() => setBaggerDialogOpen(true)}
-              cartHasItems={cartHasItems}
-              onOpenDiscount={onOpenDiscount}
-              onCancel={onCancel}
-              onReturn={onReturn}
-              onReprintReceipt={onReprintReceipt}
-            />
-          </Stack>
-        }
-      />
+      {/* Actions pinned under the grid rather than in a rail beside it.
+          A rail was tried and reverted: it cost the product grid two of
+          its columns permanently — the grid being the panel a cashier
+          actually works in — while a bottom strip only costs height on
+          something that already scrolls. It also rotated the empty-space
+          problem rather than solving it, leaving a tall gap down the
+          middle of the column instead of a wide one across the row. */}
+      <Stack sx={{ height: '100%', minHeight: 0 }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          <ProductSearch companyId={companyId} storeId={storeId} onAdd={onAdd} searchPortalTarget={searchPortalTarget} />
+        </Box>
+
+        {/* A rule instead of an "ACTIONS" caption — self-describing
+            buttons don't need a header, and dropping it buys back a row
+            of vertical space for the product grid. */}
+        <Box sx={{ flexShrink: 0, mt: 1.25, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+          <CartActionsRow
+            customer={customer}
+            onOpenCustomer={() => setCustomerDialogOpen(true)}
+            bagger={bagger}
+            onOpenBagger={() => setBaggerDialogOpen(true)}
+            cartHasItems={cartHasItems}
+            onOpenDiscount={onOpenDiscount}
+            onHold={onHold}
+            onCancel={onCancel}
+            onReturn={onReturn}
+            onReprintReceipt={onReprintReceipt}
+          />
+        </Box>
+      </Stack>
 
       <Dialog
         open={customerDialogOpen}

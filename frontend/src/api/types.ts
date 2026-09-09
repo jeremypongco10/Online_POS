@@ -15,6 +15,10 @@ export interface AuthUser {
   email: string;
   username: string;
   permissions: string[];
+  /** The company's ISO 4217 code, carried on the auth payload because every role needs it to render money and none of them share a permission that would gate it. See AuthController::attachCompanyProfile. */
+  currency: string;
+  /** 'vat' (Philippine VAT) or 'gst' — presentation only, see src/regional.ts. */
+  tax_system: string;
 }
 
 export interface Unit {
@@ -96,6 +100,8 @@ export interface Company {
   phone: string | null;
   address: string | null;
   currency: string;
+  /** Which tax regime this company's wording and receipts follow. Presentation only — the arithmetic is identical either way. See src/regional.ts. */
+  tax_system: string;
   timezone: string;
   is_active: string | number;
   /** Points earned per ₱100 of a sale's total, applied automatically at checkout when a customer is attached. 0 = disabled. */
@@ -159,6 +165,17 @@ export interface CashSession {
   difference: string | null;
   status: 'open' | 'closed';
   notes: string | null;
+}
+
+/** A paid-in/paid-out against an open drawer that isn't a sale — petty cash, a change-fund top-up. Recorded from the Back Office's Cash Drawers screen; feeds Expected Cash at close time. */
+export interface CashMovement {
+  id: number;
+  cash_session_id: number;
+  type: 'cash_in' | 'cash_out';
+  amount: string;
+  reason: string | null;
+  user_id: number | null;
+  created_at: string;
 }
 
 export interface CashSessionSummary {

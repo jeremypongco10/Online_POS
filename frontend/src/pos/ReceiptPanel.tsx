@@ -6,24 +6,26 @@ import Divider from '@mui/material/Divider';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
-import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutlineOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type { CartTotals, CartLine } from './posTypes';
-import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
-import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
+import type { Bagger, Customer, PaymentMethodOption, Store } from '../api/types';
+import { POS_ACCENT, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
 import { PaymentPanel, type Payment } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
 
 interface Props {
-  /** The store this terminal is ringing up on — same name the printed receipt carries at the top. Unlike Customer/Bagger below, this is always present (every sale happens at some store), so it isn't wrapped in a presence check the way they are. */
-  storeName: string | null;
-  /** Shown here only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. Cashier identity itself lives in StatusBar, not here. */
+  /** The store this terminal is ringing up on. The whole record rather than just its name, because the letterhead prints the same block the receipt does — address, and the BIR identifiers behind its own show_bir_details switch. */
+  store: Store | null;
+  /** Who's ringing up, and on which terminal — the same two facts printed under a receipt's store letterhead, shown here for the same reason. */
+  cashierName: string;
+  registerName: string | null;
+  /** Shown here only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. */
   customer: Customer | null;
   bagger: Bagger | null;
   lines: CartLine[];
@@ -33,8 +35,6 @@ interface Props {
   selectedCartKey: string | null;
   /** Clicking a line selects it (and opens its controls); clicking the selected one again closes it. */
   onSelectCartLine: (key: string) => void;
-  /** Opens DiscountDialog for this line — forwarded straight to Cart. */
-  onOpenDiscount: (line: CartLine) => void;
   onQuantityChange: (key: string, quantity: number) => void;
   onRequestVoid: (line: CartLine) => void;
   totals: CartTotals;
@@ -44,7 +44,6 @@ interface Props {
   paymentDisabled: boolean;
   onCheckout: (payments: Payment[]) => void;
   saleCounter: number;
-  onHold: () => void;
   /** So PosScreen's keyboard shortcuts know to stay disabled while this dialog is up — its open state lives here, not in PosScreen. */
   onPaymentDialogOpenChange?: (open: boolean) => void;
 }
@@ -69,16 +68,39 @@ function InlineFact({ icon, value, trailing }: { icon: ReactNode; value: string;
   );
 }
 
-/** Right panel: one continuous card styled like a printed receipt — customer/bagger (when attached), item list, totals, payment, and Hold/Pay, all inside a single border. Store/terminal/cashier context lives in PosHeader/StatusBar instead; Return/Cancellation live in the product panel's Actions row. */
+/**
+ * Its own component purely so the clock's per-second tick re-renders one
+ * text node instead of the whole ReceiptPanel — the cart, totals and
+ * payment panel all sit under that, and none of them have any reason to
+ * re-render on a tick.
+ */
+function SessionClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    // tabular-nums keeps every digit the same width, so the line doesn't
+    // shift sideways each second as the digits change.
+    <Typography variant="caption" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+      {now.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' })}
+    </Typography>
+  );
+}
+
+/** Right panel: one continuous card styled like a printed receipt — store letterhead, cashier/terminal/time, customer/bagger (when attached), item list, totals, payment, and Pay, all inside a single border. Hold/Return/Cancellation live in the product panel's Actions row instead — see CartActionsRow. */
 export function ReceiptPanel({
-  storeName,
+  store,
+  cashierName,
+  registerName,
   customer,
   bagger,
   lines,
   lastAddedKey,
   selectedCartKey,
   onSelectCartLine,
-  onOpenDiscount,
   onQuantityChange,
   onRequestVoid,
   totals,
@@ -88,7 +110,6 @@ export function ReceiptPanel({
   paymentDisabled,
   onCheckout,
   saleCounter,
-  onHold,
   onPaymentDialogOpenChange,
 }: Props) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -171,12 +192,12 @@ export function ReceiptPanel({
         // its top and bottom edges sit flush against the browser
         // viewport's own edges — there's no surface beyond either one to
         // cast a shadow onto, and the layout's own overflow:hidden would
-        // clip it invisibly even if there were. See PosHeader/StatusBar
-        // instead for this column's actual top/bottom seams.
+        // clip it invisibly even if there were. See PosHeader instead for
+        // the product column's own top seam.
         boxShadow: '-6px 0 16px -10px rgba(16, 24, 40, 0.22)',
         // Hard-bounded to the column's exact height, always — the header
-        // and footer (Totals/Payment/Actions/Hold/Pay) must never be
-        // pushed out of view. The cart item list below is the only flex
+        // and footer (Totals/Payment/Pay) must never be pushed out of
+        // view. The cart item list below is the only flex
         // item without a floor, so it's the only thing that ever shrinks
         // or scrolls to make room; it absorbs all of the size pressure.
         height: '100%',
@@ -188,21 +209,60 @@ export function ReceiptPanel({
           not a caption like Customer/Bagger below it, and always shown
           rather than gated on a presence check: every sale happens at
           some store, so there's no "nothing to show" state for this the
-          way there is for an unattached customer. */}
-      {storeName && (
-        <>
-          <Typography sx={{ fontWeight: 700, fontSize: 15, textAlign: 'center', px: 2.5, pt: 1.5, pb: 1 }}>
-            {storeName}
-          </Typography>
-          <SectionDivider />
-        </>
-      )}
+          way there is for an unattached customer.
 
-      {/* Customer/Bagger only — Cashier moved down to StatusBar (the app's
-          actual footer, at the bottom of the whole screen) rather than to
-          the bottom of this panel, which is what "footer" turned out to
-          mean. Still hidden entirely on a walk-in sale with no bagger, so
-          this doesn't reappear as a header with nothing in it. */}
+          Cashier, terminal and the clock sit directly under it, exactly
+          where a printed receipt prints them — they used to live in a
+          full-width StatusBar footer along the bottom of the screen,
+          which cost a whole bar of vertical space to say what this
+          letterhead was already half-saying. Connectivity was the one
+          thing in that footer that isn't receipt content, so it moved to
+          PosHeader instead.
+
+          The address comes along too, but deliberately NOT the TIN/MIN/
+          S/N block the printed receipt carries under it: those are static
+          store registration details a cashier never acts on, and at this
+          column's width they wrapped to a second line of fine print for
+          no one's benefit. They remain legally required on the receipt
+          itself, so ReceiptModal still prints all three — this is a
+          display decision about the live panel, not about the document. */}
+      <Stack sx={{ px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
+        {store?.name && (
+          <Typography sx={{ fontWeight: 700, fontSize: 15, textAlign: 'center' }} noWrap title={store.name}>
+            {store.name}
+          </Typography>
+        )}
+        {store?.address && (
+          <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', lineHeight: 1.35 }}>
+            {store.address}
+          </Typography>
+        )}
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{ alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', mt: 0.5 }}
+        >
+          <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }} noWrap title={cashierName}>
+            {cashierName}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            ·
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }} noWrap>
+            {registerName ?? '—'}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            ·
+          </Typography>
+          <SessionClock />
+        </Stack>
+      </Stack>
+      <SectionDivider />
+
+      {/* Customer/Bagger only — the cashier is named in the letterhead
+          above instead, since that's where a receipt carries it. Still
+          hidden entirely on a walk-in sale with no bagger, so this
+          doesn't reappear as a header with nothing in it. */}
       {(customer || bagger) && (
         <>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap', px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
@@ -231,7 +291,7 @@ export function ReceiptPanel({
         </>
       )}
 
-      {/* The only scrollable region in this card — no floor on its height, so totals/payment/actions/Hold/Pay below can never be pushed out of view, even with a very long cart on a short screen.
+      {/* The only scrollable region in this card — no floor on its height, so totals/payment/Pay below can never be pushed out of view, even with a very long cart on a short screen.
           position:relative so the up/down scroll buttons below can anchor to this box specifically, not the whole card. */}
       <Box sx={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <Box ref={cartScrollRef} sx={{ height: '100%', overflowY: 'auto', px: 2, pt: 1.5, pb: 1, ...THIN_SCROLLBAR_SX }}>
@@ -241,7 +301,6 @@ export function ReceiptPanel({
             selectedKey={selectedCartKey}
             onSelectLine={onSelectCartLine}
             scrollContainerRef={cartScrollRef}
-            onOpenDiscount={onOpenDiscount}
             onQuantityChange={onQuantityChange}
             onRequestVoid={onRequestVoid}
           />
@@ -317,53 +376,39 @@ export function ReceiptPanel({
       >
         <TotalsPanel totals={totals} itemCount={lines.length} />
 
-        {/* Pay is the primary action and carries the accent alone; Hold
-            Sale is deliberately neutral. Two equally-accented buttons
-            side by side made the cashier read both before acting. */}
-        <Stack direction="row" spacing={1.25}>
-          <Button
-            variant="outlined"
-            size="large"
-            startIcon={<PauseCircleOutlineIcon />}
-            disabled={lines.length === 0}
-            onClick={onHold}
-            sx={{
-              flex: '0 0 auto',
-              px: 2.5,
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 600,
-              color: 'text.secondary',
-              borderColor: 'divider',
-              '&:hover': { borderColor: 'text.secondary', bgcolor: 'action.hover' },
-            }}
-          >
-            Hold
-            <KeyHint label="F6" />
-          </Button>
-          <Button
-            id="pos-pay-button"
-            variant="contained"
-            size="large"
-            disableElevation
-            startIcon={<CreditCardOutlinedIcon />}
-            disabled={paymentDisabled || lines.length === 0}
-            onClick={() => setPaymentDialogOpen(true)}
-            sx={{
-              flex: 1,
-              py: 1.35,
-              bgcolor: POS_ACCENT,
-              '&:hover': { bgcolor: '#1d4ed8' },
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 700,
-              fontSize: 16,
-            }}
-          >
-            Pay
-            <KeyHint label="F11" onAccent />
-          </Button>
-        </Stack>
+        {/* Hold Sale moved to the product panel's Actions row (see
+            CartActionsRow) alongside the other sale-property controls —
+            Pay is the one action that belongs down here beside the
+            payment flow it actually opens, so it now runs the full
+            width alone rather than sharing this row with a button that
+            no longer needs to be next to it. */}
+        <Button
+          id="pos-pay-button"
+          variant="contained"
+          size="large"
+          disableElevation
+          startIcon={<CreditCardOutlinedIcon />}
+          disabled={paymentDisabled || lines.length === 0}
+          onClick={() => setPaymentDialogOpen(true)}
+          sx={{
+            width: '100%',
+            py: 1.35,
+            borderRadius: 2.5,
+            textTransform: 'none',
+            fontWeight: 700,
+            fontSize: 16,
+            letterSpacing: '0.01em',
+            // The raised surface, brand-tinted glow and press behaviour
+            // all come from posRaisedButtonSx now — this button is where
+            // that treatment started, but it lives in format.ts so the
+            // other primary buttons across the POS share it rather than
+            // each carrying a near-miss copy.
+            ...posRaisedButtonSx(POS_ACCENT),
+          }}
+        >
+          Pay
+          <KeyHint label="F11" onAccent />
+        </Button>
       </Stack>
 
       <PaymentPanel

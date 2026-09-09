@@ -18,8 +18,10 @@ import Divider from '@mui/material/Divider';
  * state per discount type, PUT `{ rules }` sets it — so this one form
  * drives either, told apart only by `apiPath`.
  *
+ * Every discount type is opt-in: not eligible for anything until this
+ * form (or a checkout that hits the same resolution) says otherwise.
  * For a category, GET returns only that category's own override rows
- * (missing = eligible, the true default). For a product, GET returns
+ * (missing = not eligible, the default). For a product, GET returns
  * the FULLY RESOLVED value instead (product row, else category row,
  * else default) — every switch here therefore starts at "what this
  * product/category can actually be discounted with right now", not at
@@ -40,7 +42,7 @@ export function DiscountEligibilityForm({
 }) {
   const notify = useSnackbar();
   const [rules, setRules] = useState<Record<DiscountTypeCode, boolean>>(
-    () => Object.fromEntries(DISCOUNT_TYPES.map((d) => [d.code, true])) as Record<DiscountTypeCode, boolean>
+    () => Object.fromEntries(DISCOUNT_TYPES.map((d) => [d.code, false])) as Record<DiscountTypeCode, boolean>
   );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

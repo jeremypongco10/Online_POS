@@ -19,7 +19,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { api, ApiError } from '../api/client';
 import type { CartLine } from './posTypes';
 import { calculateLine } from './posTypes';
-import { formatMoney, formatQuantity } from './format';
+import { formatMoney, formatQuantity, posRaisedButtonSx } from './format';
 
 /** Which action is awaiting sign-off — one cart line, or the whole cart via Cancel Sale. Each hits its own backend endpoint (see submit()) so the audit trail records them as distinct event kinds. */
 export type VoidSubject = { kind: 'item'; line: CartLine } | { kind: 'cart'; itemCount: number; amount: number };
@@ -305,6 +305,7 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
                 color="error"
                 disableElevation
                 disabled={submitting || resolvedReason === '' || (requireApproval && (identifier.trim() === '' || password === ''))}
+                sx={(theme) => posRaisedButtonSx(theme.palette.error.main)}
               >
                 {submitting ? <CircularProgress size={20} color="inherit" /> : submitLabel}
               </Button>

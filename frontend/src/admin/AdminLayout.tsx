@@ -32,9 +32,9 @@ import { useAuth } from '../auth/AuthContext';
 import { canAccessPos } from '../auth/posAccess';
 import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordModal } from '../ChangePasswordModal';
-import { IconBox, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconShoppingBag, IconTruck, IconUsers } from './icons';
+import { IconBox, IconCash, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconShoppingBag, IconTruck, IconUsers } from './icons';
 
-export type AdminSection = 'dashboard' | 'products' | 'inventory' | 'purchasing' | 'customers' | 'team' | 'reports' | 'settings';
+export type AdminSection = 'dashboard' | 'products' | 'inventory' | 'purchasing' | 'customers' | 'cash' | 'team' | 'reports' | 'settings';
 
 interface NavItem {
   section: AdminSection;
@@ -56,6 +56,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   'suppliers.view',
   'purchases.view',
   'returns.view',
+  'cash-sessions.view',
   'users.view',
   'roles.view',
   'stores.view',
@@ -101,6 +102,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: IconUsers,
   },
   {
+    section: 'cash',
+    label: 'Cash Drawers',
+    description: 'Review register sessions and record cash paid in or out of an open drawer.',
+    permissions: ['cash-sessions.view'],
+    icon: IconCash,
+  },
+  {
     section: 'team',
     label: 'Team',
     description: 'Manage users, roles, and permissions for your company.',
@@ -134,7 +142,7 @@ const NAV_ITEMS: NavItem[] = [
 const NAV_GROUPS: { label: string; sections: AdminSection[] }[] = [
   { label: 'Overview', sections: ['dashboard'] },
   { label: 'Reports', sections: ['reports'] },
-  { label: 'Operations', sections: ['products', 'inventory', 'purchasing', 'customers'] },
+  { label: 'Operations', sections: ['products', 'inventory', 'purchasing', 'customers', 'cash'] },
   { label: 'Administration', sections: ['team', 'settings'] },
 ];
 

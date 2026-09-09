@@ -65,8 +65,8 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
         // flat hard-bordered rectangle — twenty of these sit side by side,
         // so the difference between "outlined boxes" and "cards" is most
         // of what makes the grid read as modern rather than tabular.
-        borderRadius: 2.5,
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+        borderRadius: 3,
+        boxShadow: '0 1px 3px rgba(16, 24, 40, 0.06)',
         height: '100%',
         overflow: 'hidden',
         transition: 'background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
@@ -80,10 +80,16 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               // clip edge sits over the middle of the content. Colour and
               // a shallow shadow stay entirely inside the card's box, so
               // the hover reads the same in every scroll position.
+              // Border and shadow only — no background tint. The card's
+              // own background sits *behind* the photo plate, and that
+              // plate is a translucent wash of the product's hue, so an
+              // accent-blue card background bled up through it and turned
+              // a red or amber tile a muddy purple-brown on hover. The
+              // accent border reads clearly enough on its own, and the
+              // shadow now carries the accent instead.
               '&:hover': {
                 borderColor: POS_ACCENT,
-                bgcolor: `${POS_ACCENT}0a`,
-                boxShadow: '0 4px 12px -6px rgba(16, 24, 40, 0.22)',
+                boxShadow: `0 6px 16px -8px ${POS_ACCENT}, 0 1px 3px rgba(16, 24, 40, 0.1)`,
               },
             }),
       }}
@@ -117,6 +123,13 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
           // Scoped through &.Mui-focusVisible on purpose: MUI's own rule is
           // `.MuiCardActionArea-root.Mui-focusVisible .focusHighlight`, and
           // a plain descendant selector loses to it on specificity.
+          // CardActionArea paints a black focusHighlight overlay on hover
+          // as well as on focus. At 4% over a tinted photo plate that
+          // isn't a highlight, it's a smear — it turned the red and amber
+          // tiles a muddy grey-brown under the cursor. The Card above
+          // already answers a hover with an accent border and shadow, so
+          // this overlay is switched off in both states.
+          '&:hover .MuiCardActionArea-focusHighlight': { opacity: 0 },
           '&.Mui-focusVisible .MuiCardActionArea-focusHighlight': { opacity: 0 },
           '&.Mui-focusVisible': {
             outline: `2px solid ${POS_ACCENT}`,
@@ -126,11 +139,14 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
         }}
       >
         {showImage ? (
-          // Product photography is overwhelmingly shot on white, so a white
-          // plate is what keeps a `contain`-fitted image from sitting in an
-          // odd colored letterbox — the calm-down here comes from removing
-          // the saturated blocks below, not from tinting real photos.
-          <Box sx={{ width: '100%', flex: 1, minHeight: 44, bgcolor: '#fff', p: 1.25 }}>
+          // A near-white plate rather than pure white. Product photography
+          // is overwhelmingly shot on white, so this still keeps a
+          // `contain`-fitted image out of an odd coloured letterbox — but
+          // once the photo-less tiles below gained a soft tint, a
+          // pure-white plate made the handful of tiles that DO have a photo
+          // read as holes punched in the grid. Light enough not to tint the
+          // photo, dark enough to sit in the same family as its neighbours.
+          <Box sx={{ width: '100%', flex: 1, minHeight: 44, bgcolor: '#f7f9fc', p: 1.25 }}>
             <Box
               component="img"
               src={assetUrl(product.image_path as string)}
@@ -140,31 +156,40 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
             />
           </Box>
         ) : (
-          // White plate, same as a real photo above — but plain white with
-          // only coloured *text* on it turned out too flat to scan: every
-          // card read the same at a glance, with nothing to catch the eye
-          // and tell products apart. A small solid chip is the middle
-          // ground — same avatar-badge pattern BaggerPanel/
-          // CustomerLoyaltyPanel already use — so the tile stays clean and
-          // white while each product still gets a distinct, spottable
-          // colour.
-          <Box sx={{ width: '100%', flex: 1, minHeight: 40, bgcolor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          // A soft plate in the product's own hue, initials set in that
+          // same hue on top of it — not the 34px solid dot this replaced.
+          // Two problems with the dot, both visible the moment a full
+          // grid is on screen: a saturated circle floating in the middle
+          // of a white plate left the top half of every tile visibly
+          // empty, and forty of them at once read as scattered confetti
+          // rather than as a way to tell products apart.
+          //
+          // This is not the full-tile wash that was tried (and rejected
+          // for fighting the price and the cart for attention) — the tint
+          // stops at the photo plate and never reaches the text block, so
+          // the name and price below still sit on plain paper.
+          <Box
+            sx={{
+              width: '100%',
+              flex: 1,
+              minHeight: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: `linear-gradient(135deg, ${chipColor}24 0%, ${chipColor}0d 100%)`,
+            }}
+          >
             <Box
+              component="span"
               sx={{
-                // A step smaller than it was: this is a placeholder for a
-                // missing photo, and the space it gave back went to the
-                // product name below, which was truncating on most cards.
-                width: 34,
-                height: 34,
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                bgcolor: chipColor,
-                color: '#fff',
-                fontSize: 13,
-                fontWeight: 700,
-                letterSpacing: '0.02em',
+                fontSize: 19,
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                // Full-strength hue on a ~10% wash of itself. These are
+                // decoration, not content — the product's actual name is
+                // spelled out directly below — so this trades a little
+                // contrast for a tile that doesn't shout.
+                color: chipColor,
               }}
             >
               {initialsForName(product.name)}
@@ -194,10 +219,17 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              minHeight: 33,
-              fontWeight: 400,
-              fontSize: 12.5,
+              minHeight: 34,
+              // Was 12.5/400. The name is the thing a cashier is actually
+              // reading once the colour has got their eye to the right
+              // tile, and at regular weight in grey-black it was the
+              // faintest text on a card whose loudest element was a
+              // decorative dot. Medium weight and full-strength text
+              // colour put the emphasis back on the words.
+              fontWeight: 500,
+              fontSize: 13,
               lineHeight: 1.3,
+              color: 'text.primary',
             }}
           >
             {product.name}
@@ -216,14 +248,38 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
                 ProductListView's own stock column, so it stays legible at
                 any column count; the full phrase moves to a hover
                 tooltip (title) instead of disappearing outright. */}
-            <Typography
-              variant="caption"
-              noWrap
-              title={canViewStock && stock !== null ? (outOfStock ? 'Out of stock' : `${trimStock(stock)} on hand`) : undefined}
-              sx={{ fontSize: 11, fontWeight: outOfStock ? 700 : 400, color: outOfStock ? 'error.main' : 'text.secondary' }}
-            >
-              {canViewStock && stock !== null ? (outOfStock ? 'Out of stock' : trimStock(stock)) : ' '}
-            </Typography>
+            {canViewStock && stock !== null ? (
+              // A badge rather than bare grey text. Stripped of its "on
+              // hand" suffix (which didn't fit beside a price once the
+              // grid got dense), a lone "135" sitting next to "175.00"
+              // read as an ID or a second price — a tinted pill says
+              // "this is a count" without spending any width on the word.
+              <Box
+                component="span"
+                title={outOfStock ? 'Out of stock' : `${trimStock(stock)} on hand`}
+                sx={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                  px: 0.625,
+                  borderRadius: 0.75,
+                  minWidth: 0,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  color: outOfStock ? 'error.main' : 'text.secondary',
+                  bgcolor: outOfStock ? 'rgba(220, 38, 38, 0.1)' : 'action.hover',
+                }}
+              >
+                {outOfStock ? 'Out of stock' : trimStock(stock)}
+              </Box>
+            ) : (
+              // An empty flex child, not nothing: this row is
+              // space-between, so with the price as its only child the
+              // price would sit hard left on exactly the cards that have
+              // no stock figure to show.
+              <Box />
+            )}
             {/* The largest thing on the card, ahead of the tinted
                 initials block above it. The colour tile is decoration —
                 the price is what a cashier actually scans this grid
@@ -235,7 +291,8 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
                 // "No price" is a label, not a figure to scan at a
                 // glance, so it doesn't get the same size as a real one
                 // — and at 16px it crowded the narrow card besides.
-                fontSize: unpriced ? 12 : 13.5,
+                fontSize: unpriced ? 12 : 14.5,
+                letterSpacing: '-0.01em',
                 whiteSpace: 'nowrap',
                 color: unpriced ? 'error.main' : POS_ACCENT,
               }}

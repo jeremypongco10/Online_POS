@@ -88,12 +88,12 @@ class CategoriesController extends BaseCrudController
      * GET /api/v1/categories/{id}/discount-eligibility
      *
      * This category's own overrides only — every type not present here
-     * is eligible by default (see TaxService::isProductEligibleForDiscount).
-     * A product's OWN override, if it has one, still wins over whatever
-     * this returns; this endpoint has no way to know that, since it's
-     * scoped to one category, not one product — see ProductsController::
-     * discountEligibility for the fully resolved view a single product
-     * actually gets at checkout.
+     * is NOT eligible by default (see TaxService::isProductEligibleForDiscount
+     * for why: opt-in, not opt-out). A product's OWN override, if it has
+     * one, still wins over whatever this returns; this endpoint has no
+     * way to know that, since it's scoped to one category, not one
+     * product — see ProductsController::discountEligibility for the
+     * fully resolved view a single product actually gets at checkout.
      */
     public function discountEligibility($id = null)
     {
@@ -120,9 +120,11 @@ class CategoriesController extends BaseCrudController
      * for discount eligibility (a per-product override exists too, see
      * ProductsController::updateDiscountEligibility, but configuring
      * every product in a catalog individually isn't the intended
-     * workflow). Same sparse-table semantics as the product version:
-     * `eligible: true` deletes the row (true is already the default
-     * with none), and a type absent from `rules` is left untouched.
+     * workflow). Same sparse-table semantics as the product version,
+     * inverted from how they read at a glance since the default is now
+     * "not eligible": `eligible: false` deletes the row (false is
+     * already the default with none), and a type absent from `rules`
+     * is left untouched.
      */
     public function updateDiscountEligibility($id = null)
     {
@@ -147,7 +149,7 @@ class CategoriesController extends BaseCrudController
 
             $existing = $model->where('category_id', $id)->where('discount_type', $type)->first();
 
-            if ($eligible) {
+            if (! $eligible) {
                 if ($existing !== null) {
                     $model->delete($existing->id);
                 }
@@ -155,9 +157,9 @@ class CategoriesController extends BaseCrudController
             }
 
             if ($existing !== null) {
-                $model->update($existing->id, ['eligible' => 0]);
+                $model->update($existing->id, ['eligible' => 1]);
             } else {
-                $model->insert(['category_id' => $id, 'discount_type' => $type, 'eligible' => 0]);
+                $model->insert(['category_id' => $id, 'discount_type' => $type, 'eligible' => 1]);
             }
         }
 

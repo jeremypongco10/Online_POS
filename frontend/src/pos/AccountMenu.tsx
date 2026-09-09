@@ -14,6 +14,8 @@ import ListItemText from '@mui/material/ListItemText';
 import Badge from '@mui/material/Badge';
 import Tooltip from '@mui/material/Tooltip';
 import PersonIcon from '@mui/icons-material/Person';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 import PowerSettingsNewOutlinedIcon from '@mui/icons-material/PowerSettingsNewOutlined';
 import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
@@ -24,6 +26,7 @@ import { ChangePasswordButton } from '../ChangePasswordModal';
 import type { AuthUser, CashSession, Register, Store } from '../api/types';
 import { POS_ACCENT } from './format';
 import type { HeldSale } from './holdSale';
+import type { PosZoomControl } from './usePosZoom';
 
 interface Props {
   user: AuthUser;
@@ -41,6 +44,8 @@ interface Props {
   canOpenAdmin: boolean;
   onOpenAdmin: () => void;
   onLogout: () => void;
+  /** The zoom control usePosZoom returns — this menu only renders it, PosScreen owns the hook. */
+  zoom: PosZoomControl;
 }
 
 /**
@@ -66,6 +71,7 @@ export function AccountMenu({
   canOpenAdmin,
   onOpenAdmin,
   onLogout,
+  zoom,
 }: Props) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const close = () => setAnchor(null);
@@ -212,13 +218,82 @@ export function AccountMenu({
 
           <Divider sx={{ my: 1.5 }} />
 
-          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              Preferences
-            </Typography>
-            <Stack direction="row" spacing={0.5}>
-              <ThemeToggle />
-              <ChangePasswordButton />
+          <Stack spacing={1.25}>
+            {/* Moved here from PosHeader's bar. Zoom is set once when a
+                terminal is installed and then essentially never touched —
+                usePosZoom fits the screen by itself, and this is only the
+                manual override — so it belongs with the other set-once
+                preferences rather than in the header a cashier reads all
+                shift. Hidden below md for the same reason usePosZoom
+                itself gives up there (MIN_WIDTH_TO_ZOOM): under that
+                width the layout is the stacked mobile form, where scaling
+                a two-column desktop layout means nothing. */}
+            <Stack
+              direction="row"
+              sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <Typography variant="body2" color="text.secondary">
+                Display size
+              </Typography>
+              <Stack
+                direction="row"
+                spacing={0.25}
+                sx={{ alignItems: 'center', border: '1px solid', borderColor: 'divider', borderRadius: 5, px: 0.5 }}
+              >
+                {/* Plain −/+ rather than the pair of magnifiers this had
+                    in the header: two near-identical lens glyphs took a
+                    second look to tell apart, and a stepper is the
+                    universal shape for "same thing, less/more of it". */}
+                <Tooltip title="Smaller">
+                  {/* span, because a disabled MUI button fires none of the
+                      events Tooltip listens for and would show nothing at
+                      exactly the moment the hint explains the most. */}
+                  <span>
+                    <IconButton size="small" onClick={zoom.zoomOut} disabled={!zoom.canZoomOut} aria-label="Smaller">
+                      <RemoveIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={zoom.isManual ? 'Reset to fit screen' : 'Fits the screen automatically'}>
+                  <Box
+                    component="button"
+                    type="button"
+                    onClick={zoom.reset}
+                    disabled={!zoom.isManual}
+                    sx={{
+                      all: 'unset',
+                      cursor: zoom.isManual ? 'pointer' : 'default',
+                      minWidth: 38,
+                      textAlign: 'center',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      // Keeps the stepper from shifting sideways as the
+                      // digits change under a press-and-hold.
+                      fontVariantNumeric: 'tabular-nums',
+                      color: zoom.isManual ? 'text.primary' : 'text.secondary',
+                    }}
+                  >
+                    {zoom.percent}%
+                  </Box>
+                </Tooltip>
+                <Tooltip title="Larger">
+                  <span>
+                    <IconButton size="small" onClick={zoom.zoomIn} disabled={!zoom.canZoomIn} aria-label="Larger">
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            </Stack>
+
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Preferences
+              </Typography>
+              <Stack direction="row" spacing={0.5}>
+                <ThemeToggle />
+                <ChangePasswordButton />
+              </Stack>
             </Stack>
           </Stack>
 

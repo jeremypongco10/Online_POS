@@ -1,8 +1,11 @@
+import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import type { CartTotals } from './posTypes';
 import { formatMoney, POS_ACCENT } from './format';
+import { currencySymbol } from '../regional';
+import { useAuth } from '../auth/AuthContext';
 
 /**
  * Deliberately container-less: this sits inside the receipt panel's tinted
@@ -13,6 +16,8 @@ import { formatMoney, POS_ACCENT } from './format';
  * is carried by type size, weight and colour, with one rule for structure.
  */
 export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCount: number }) {
+  const { user } = useAuth();
+
   return (
     <Stack spacing={0.75}>
       <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
@@ -61,16 +66,31 @@ export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCou
         <Typography variant="body2" sx={{ fontWeight: 700, letterSpacing: '0.06em', color: 'text.secondary' }}>
           TOTAL
         </Typography>
+        {/* The only figure on this panel that carries the symbol. Every
+            line above it is part of the same running arithmetic and
+            repeating the sign on each one just adds noise — but TOTAL is
+            the number that gets read out, written down and handed over,
+            so it says what currency it is in. */}
         <Typography variant="h4" sx={{ fontWeight: 800, color: POS_ACCENT, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+          <Box component="span" sx={{ fontSize: '0.62em', fontWeight: 700, mr: 0.4, verticalAlign: 'baseline' }}>
+            {currencySymbol(user?.currency)}
+          </Box>
           {formatMoney(totals.total)}
         </Typography>
       </Stack>
 
-      {/* No VAT line here on purpose. It is still computed (totals.taxTotal,
-          and the server recomputes it independently at checkout) and still
-          printed on the receipt — this panel is what the cashier watches
-          while ringing up, where the breakdown is noise rather than
-          something acted on. */}
+      {/* No tax breakdown here — deliberately, and not for want of the
+          figures: VAT, VAT-exempt and zero-rated sales are all computed
+          (calculateCart), and the server recomputes them independently at
+          checkout. They belong on the receipt, which prints them behind
+          the store's own show_bir_details switch (ReceiptModal), not on
+          the panel a cashier watches while ringing up — nothing here is
+          acted on, so a breakdown of how TOTAL divides up is reading
+          material in the one place that should stay a single figure.
+
+          "Less VAT (exempt)" above is not an exception to that: it's part
+          of the subtraction reaching TOTAL, and without it Subtotal minus
+          Discount visibly fails to land on the total shown. */}
     </Stack>
   );
 }

@@ -16,7 +16,7 @@ class CompanyModel extends Model
 
     protected $allowedFields = [
         'trade_name', 'legal_name', 'tax_id', 'is_vat_registered', 'vat_registration_number',
-        'email', 'phone', 'address', 'currency', 'timezone', 'is_active', 'loyalty_points_per_100',
+        'email', 'phone', 'address', 'currency', 'tax_system', 'timezone', 'is_active', 'loyalty_points_per_100',
         'require_item_void_approval', 'require_cancel_approval', 'require_manual_discount_approval',
         'default_regular_discount_percent', 'default_promo_discount_percent', 'default_employee_discount_percent',
         'default_member_discount_percent', 'default_wholesale_discount_percent',
@@ -31,7 +31,12 @@ class CompanyModel extends Model
         'vat_registration_number' => ['label' => 'VAT registration number', 'rules' => 'permit_empty|max_length[50]'],
         'email' => ['label' => 'Email', 'rules' => 'permit_empty|valid_email|max_length[150]'],
         'phone' => ['label' => 'Phone', 'rules' => 'permit_empty|max_length[30]'],
-        'currency' => ['label' => 'Currency', 'rules' => 'permit_empty|max_length[3]'],
+        'currency' => ['label' => 'Currency', 'rules' => 'permit_empty|exact_length[3]|alpha'],
+        // Presentation only — see AddTaxSystemToCompanies. The rule is
+        // what keeps the column to the two regimes the UI actually
+        // knows how to render, since the column itself is a plain
+        // VARCHAR rather than an ENUM.
+        'tax_system' => ['label' => 'Tax system', 'rules' => 'permit_empty|in_list[vat,gst]'],
         'timezone' => ['label' => 'Timezone', 'rules' => 'permit_empty|max_length[64]'],
         'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
         // "Points earned per ₱100 of a sale's total" — 0 (the default) means

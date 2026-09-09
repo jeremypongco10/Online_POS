@@ -1,4 +1,5 @@
 import type { Bagger, Customer, LoyaltyCard } from '../api/types';
+import type { ActiveDiscount } from './discountCalc';
 import type { CartLine } from './posTypes';
 
 export interface HeldSale {
@@ -12,6 +13,8 @@ export interface HeldSale {
   /** BIR RR 7-2010 documentation for any Senior Citizen/PWD/5% BNPC line in `lines` — optional so a sale held before this feature existed still parses (see PosScreen's fallback to ''). */
   discountHolderName?: string;
   discountIdNumber?: string;
+  /** The discount governing this sale, if any — resumed so a held sale keeps folding in whatever gets added after it's resumed, same as it would have before it was held. Optional for the same reason as above: a sale held before this existed still parses, and PosScreen falls back to null. */
+  activeDiscount?: ActiveDiscount | null;
 }
 
 function storageKey(registerId: number): string {
@@ -42,6 +45,7 @@ export function holdSale(
     bagger: Bagger | null;
     discountHolderName?: string;
     discountIdNumber?: string;
+    activeDiscount?: ActiveDiscount | null;
   }
 ): HeldSale {
   const held: HeldSale = {
@@ -71,6 +75,7 @@ export interface DraftSale {
   bagger: Bagger | null;
   discountHolderName?: string;
   discountIdNumber?: string;
+  activeDiscount?: ActiveDiscount | null;
 }
 
 function draftKey(registerId: number): string {

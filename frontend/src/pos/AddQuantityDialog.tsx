@@ -12,7 +12,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import type { ProductWithStorePrice } from '../api/types';
-import { formatMoney, POS_ACCENT } from './format';
+import { formatMoney, POS_ACCENT, posRaisedButtonSx } from './format';
 import { IS_TOUCH } from '../isTouch';
 
 interface Props {
@@ -285,7 +285,7 @@ export function AddQuantityDialog({ product, onClose, onConfirm, onExited }: Pro
           onClick={confirm}
           variant="contained"
           disabled={!valid}
-          sx={{ bgcolor: POS_ACCENT, '&:hover': { bgcolor: POS_ACCENT } }}
+          sx={posRaisedButtonSx(POS_ACCENT)}
         >
           {valid && unitPrice > 0 ? `Add · ${formatMoney(unitPrice * parsed)}` : 'Add to cart'}
         </Button>

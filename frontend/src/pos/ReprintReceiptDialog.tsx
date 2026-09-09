@@ -16,7 +16,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
 import { api, ApiError } from '../api/client';
 import type { Receipt, SaleResponse } from '../api/types';
-import { formatMoney } from './format';
+import { formatMoney, posRaisedButtonSx } from './format';
 import { useSnackbar } from '../Snackbar';
 
 interface FoundSale extends SaleResponse {
@@ -122,7 +122,13 @@ export function ReprintReceiptDialog({ open, onClose, onFound }: Props) {
             fullWidth
             size="small"
           />
-          <Button type="button" variant="contained" onClick={search} disabled={searching || !query.trim()}>
+          <Button
+            type="button"
+            variant="contained"
+            onClick={search}
+            disabled={searching || !query.trim()}
+            sx={(theme) => posRaisedButtonSx(theme.palette.primary.main)}
+          >
             {searching ? <CircularProgress size={18} thickness={5} sx={{ color: 'inherit' }} /> : 'Search'}
           </Button>
         </Stack>

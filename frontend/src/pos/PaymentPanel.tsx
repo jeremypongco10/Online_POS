@@ -16,7 +16,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import CloseIcon from '@mui/icons-material/Close';
-import { formatMoney, POS_ACCENT } from './format';
+import { formatMoney, POS_ACCENT, posRaisedButtonSx } from './format';
 import { SearchableSelect } from '../admin/SearchableSelect';
 import type { PaymentMethodOption } from '../api/types';
 
@@ -329,7 +329,7 @@ export function PaymentPanel({ open, onClose, total, disabled, submitting, check
           variant="contained"
           disabled={!canSubmit}
           onClick={submit}
-          sx={{ bgcolor: POS_ACCENT, '&:hover': { bgcolor: POS_ACCENT }, borderRadius: 999, px: 3 }}
+          sx={{ borderRadius: 999, px: 3, ...posRaisedButtonSx(POS_ACCENT) }}
         >
           {submitting ? 'Processing…' : 'Confirm Payment'}
         </Button>
