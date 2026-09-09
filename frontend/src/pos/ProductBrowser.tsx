@@ -30,6 +30,7 @@ interface Props {
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
+  onVoidItemSearch: () => void;
 }
 
 /** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent actions sit in the Actions row pinned below the product list — see CartActionsRow. */
@@ -49,6 +50,7 @@ export function ProductBrowser({
   onCancel,
   onReturn,
   onReprintReceipt,
+  onVoidItemSearch,
 }: Props) {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [baggerDialogOpen, setBaggerDialogOpen] = useState(false);
@@ -82,6 +84,7 @@ export function ProductBrowser({
             onCancel={onCancel}
             onReturn={onReturn}
             onReprintReceipt={onReprintReceipt}
+            onVoidItemSearch={onVoidItemSearch}
           />
         </Box>
       </Stack>

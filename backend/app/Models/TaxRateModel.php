@@ -20,22 +20,35 @@ class TaxRateModel extends Model
     protected $updatedField = 'updated_at';
 
     protected $allowedFields = [
-        'company_id', 'name', 'rate', 'is_default', 'is_active',
+        'company_id', 'name', 'tax_system', 'rate', 'is_default', 'is_active',
     ];
 
     protected $validationRules = [
         'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
         'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
+        'tax_system' => ['label' => 'Tax system', 'rules' => 'permit_empty|in_list[vat,gst]'],
         'rate' => ['label' => 'Rate', 'rules' => 'required|decimal'],
         'is_default' => ['label' => 'Default', 'rules' => 'permit_empty|in_list[0,1]'],
         'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
-    public function defaultForCompany(int $companyId): ?object
+    /**
+     * The company's default rate *within its own regime*. Scoped by
+     * tax_system because the rate sets are parallel, not shared: a
+     * company on GST must never fall back to the 12% Philippine VAT row
+     * that happens to be flagged default, which is exactly what an
+     * unscoped lookup would hand it.
+     */
+    public function defaultForCompany(int $companyId, ?string $taxSystem = null): ?object
     {
-        return $this->where('company_id', $companyId)
+        $query = $this->where('company_id', $companyId)
             ->where('is_default', 1)
-            ->where('is_active', 1)
-            ->first();
+            ->where('is_active', 1);
+
+        if ($taxSystem !== null) {
+            $query = $query->where('tax_system', $taxSystem);
+        }
+
+        return $query->first();
     }
 }

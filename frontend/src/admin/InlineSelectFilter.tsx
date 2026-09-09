@@ -40,7 +40,16 @@ export function InlineSelectFilter({ label, value, onChange, minWidth = 200, opt
         onChange={onChange}
         options={options}
         disabled={disabled}
-        sx={compactOnMobile ? { minWidth: { xs: 0, sm: minWidth }, width: { xs: '100%', sm: 'auto' }, flex: { xs: 1, sm: 'initial' } } : { minWidth }}
+        // Height matched to ListToolbar's own search field/button (44px),
+        // which this control sits directly beside in every toolbar row —
+        // both were independently "small"-sized before, so the row read
+        // as slightly uneven even though nothing was actually misaligned.
+        sx={{
+          '& .MuiInputBase-root': { height: 44, fontSize: 14 },
+          ...(compactOnMobile
+            ? { minWidth: { xs: 0, sm: minWidth }, width: { xs: '100%', sm: 'auto' }, flex: { xs: 1, sm: 'initial' } }
+            : { minWidth }),
+        }}
       />
     </Stack>
   );

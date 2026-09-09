@@ -12,8 +12,19 @@ import { Modal } from './Modal';
 import { DetailView, StatusChip } from './DetailView';
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
-import { CURRENCIES, currencySymbol, DEFAULT_CURRENCY, showsBirDetail, taxSystemOf, type TaxSystem } from '../regional';
+import {
+  CURRENCIES,
+  currencyName,
+  currencySymbol,
+  DEFAULT_CURRENCY,
+  showsBirDetail,
+  TAX_SYSTEMS,
+  taxLabel,
+  taxSystemForCurrency,
+  taxSystemOf,
+} from '../regional';
 import Box from '@mui/material/Box';
+import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
@@ -198,8 +209,39 @@ function StoresTab() {
   }
 
   const columns: Column<Store>[] = [
-    { key: 'name', label: 'Name', sortKey: 'name' },
-    { key: 'code', label: 'Code', sortKey: 'code', width: 160 },
+    {
+      key: 'name',
+      label: 'Store Name',
+      sortKey: 'name',
+      // A tinted storefront tile beside the name, matching the avatar
+      // treatment products already get in the POS grid — on a table where
+      // every other column is plain text, it's what lets the eye find the
+      // row's subject without reading across.
+      render: (s) => (
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 12%, transparent)',
+              color: 'primary.main',
+            }}
+          >
+            <StorefrontOutlinedIcon sx={{ fontSize: 19 }} />
+          </Box>
+          <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }}>
+            {s.name}
+          </Typography>
+        </Stack>
+      ),
+    },
+    { key: 'code', label: 'Code', sortKey: 'code', width: 110 },
+    { key: 'address', label: 'Address', render: (s) => s.address ?? '—' },
     { key: 'vat_reg_tin', label: 'VAT Reg TIN', width: 150, render: (s) => s.vat_reg_tin ?? '—' },
     { key: 'pos_serial_no', label: 'POS Serial No', width: 150, render: (s) => s.pos_serial_no ?? '—' },
     { key: 'min_no', label: 'MIN No', width: 150, render: (s) => s.min_no ?? '—' },
@@ -896,6 +938,19 @@ function TaxesTab() {
 
   return (
     <div>
+      {/* Names the regime these rates are read under, and where it comes
+          from. Without it the Flag column appearing and disappearing with
+          a currency change on another tab looks arbitrary — this is the
+          one place a cashier sees the two settings are connected. The
+          rates themselves are untouched by any of it: they're real rows
+          referenced by products and past sales, so nothing here renames
+          or replaces them on a currency change. */}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Rates below are labelled{' '}
+        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{taxLabel(user?.tax_system)}</Box>, following the
+        tax system set on the Regional tab. Changing the currency there pre-selects the matching system.
+      </Typography>
+
       <ListToolbar
         search={q}
         onSearchChange={setQ}
@@ -1894,10 +1949,23 @@ function RegionalTab() {
   const notify = useSnackbar();
   const [company, setCompany] = useState<Company | null>(null);
   const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
-  const [system, setSystem] = useState<TaxSystem>('vat');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, reportError } = useFormErrors();
+
+  /**
+   * Derived from the currency rather than chosen: the tax system a
+   * company is on follows from where it trades, so picking Peso settles
+   * VAT and picking Kina settles GST on its own (see
+   * taxSystemForCurrency). The select below shows it read-only.
+   *
+   * Not state, because there's no second source for it to drift from —
+   * whatever the saved column says, what will be saved next is whatever
+   * this currency implies. A company loaded with a mismatched pair (set
+   * before this was derived) therefore shows as dirty until saved, which
+   * is the correction being offered rather than a bug.
+   */
+  const system = taxSystemForCurrency(currency);
 
   useEffect(() => {
     if (!user?.company_id) return;
@@ -1906,7 +1974,6 @@ function RegionalTab() {
       .then((c) => {
         setCompany(c);
         setCurrency(c.currency || DEFAULT_CURRENCY);
-        setSystem(taxSystemOf(c.tax_system));
       })
       .finally(() => setLoading(false));
   }, [user?.company_id]);
@@ -1921,7 +1988,6 @@ function RegionalTab() {
       const updated = await api.put<Company>(`/companies/${company.id}`, { currency, tax_system: system });
       setCompany(updated);
       setCurrency(updated.currency || DEFAULT_CURRENCY);
-      setSystem(taxSystemOf(updated.tax_system));
       await refreshUser();
       notify('Regional settings updated');
     } catch (err) {
@@ -1981,13 +2047,26 @@ function RegionalTab() {
         <SearchableSelect
           label="Tax system"
           value={system}
-          onChange={(v) => setSystem(taxSystemOf(v))}
+          // Read-only, and driven entirely by the currency above. The
+          // regime a company is on is a fact about where it trades, not
+          // a preference, so it's shown rather than asked — which also
+          // removes the one combination that was previously reachable
+          // and always wrong: pesos labelled GST, or kina labelled
+          // Philippine VAT.
+          disabled
+          onChange={() => {}}
           fullWidth
           options={[
             { value: 'vat', label: 'Philippine VAT' },
             { value: 'gst', label: 'GST' },
           ]}
         />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+          Set automatically from the currency —{' '}
+          <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{currencyName(currency)}</Box>{' '}
+          countries levy{' '}
+          <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{TAX_SYSTEMS[system].label}</Box>.
+        </Typography>
         {/* Said plainly and up front, because the alternative is someone
             switching to GST and assuming the system has become compliant
             somewhere it hasn't. The arithmetic genuinely is identical;

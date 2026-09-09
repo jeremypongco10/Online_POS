@@ -34,6 +34,7 @@ import TableHead from '@mui/material/TableHead';
 import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
+import { formatDateTime } from '../regional';
 
 interface FormState {
   first_name: string;
@@ -47,7 +48,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { first_name: '', last_name: '', email: '', mobile: '', address: '', is_active: true };
 
 export function CustomersScreen() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [statusFilter, setStatusFilter] = useState('');
@@ -475,7 +476,7 @@ export function CustomersScreen() {
                   <TableBody>
                     {pointsHistory.map((h) => (
                       <TableRow key={h.id}>
-                        <TableCell>{new Date(h.created_at).toLocaleString()}</TableCell>
+                        <TableCell>{formatDateTime(h.created_at, user?.currency)}</TableCell>
                         <TableCell align="right">
                           <Typography
                             component="span"

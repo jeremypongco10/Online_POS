@@ -25,6 +25,7 @@ import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordButton } from '../ChangePasswordModal';
 import type { AuthUser, CashSession, Register, Store } from '../api/types';
 import { POS_ACCENT } from './format';
+import { formatDateTime, formatTime } from '../regional';
 import type { HeldSale } from './holdSale';
 import type { PosZoomControl } from './usePosZoom';
 
@@ -124,7 +125,7 @@ export function AccountMenu({
               Receipt #: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>New Sale</Box>
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {now.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+              {formatDateTime(now, user.currency)}
             </Typography>
           </Stack>
 
@@ -177,7 +178,7 @@ export function AccountMenu({
                     >
                       <ListItemText
                         primary={h.label}
-                        secondary={new Date(h.heldAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+                        secondary={formatTime(new Date(h.heldAt), user.currency)}
                         slotProps={{ primary: { variant: 'body2' }, secondary: { variant: 'caption' } }}
                       />
                     </ListItemButton>

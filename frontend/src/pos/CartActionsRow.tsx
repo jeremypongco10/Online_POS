@@ -5,6 +5,7 @@ import type { Bagger, Customer } from '../api/types';
 import { KeyHint } from './KeyHint';
 import { PosHelpDialog } from './PosHelpDialog';
 import { POS_ACTION_TINTS } from './format';
+import { focusProductSearch } from './productGridNav';
 
 interface Props {
   customer: Customer | null;
@@ -17,6 +18,8 @@ interface Props {
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
+  /** Opens VoidItemDialog — finding a line by SKU/barcode/name, then a quantity, is that dialog's own job; this row only opens it. */
+  onVoidItemSearch: () => void;
 }
 
 /**
@@ -69,14 +72,33 @@ function ActionButton({
   onClick,
   attached = false,
   danger = false,
+  compact = false,
 }: {
   id: string;
   label: string;
-  keyLabel: string;
+  /**
+   * Omitted only by Void Item, which claims no F-key — F1 through F11
+   * are all spoken for elsewhere on this screen (see posShortcuts.ts),
+   * and F12 is universally the browser/OS devtools key, not safe to
+   * hijack the way F11's fullscreen toggle already carefully is (see
+   * that key's own comment there). No KeyHint badge renders when this
+   * is absent, rather than a hollow keycap with nothing in it.
+   */
+  keyLabel?: string;
   tint: string;
   onClick: () => void;
   attached?: boolean;
   danger?: boolean;
+  /**
+   * A smaller, non-growing tile instead of the row's usual equal-share
+   * width — for Shortcuts, the one control here that isn't a property of
+   * the sale and, per this row's own doc comment, "the least-reached-for
+   * control here". Fixed-width rather than flex: 0 alone so it doesn't
+   * shrink to its content and jump around as the row wraps; the width it
+   * gives up goes to whichever sale-property buttons are actually on
+   * screen, via their own flex-grow.
+   */
+  compact?: boolean;
 }) {
   // Solid-filled states (a customer/bagger attached, or Cancel under the
   // cursor) put white text on the action's own colour; everything else is
@@ -101,21 +123,24 @@ function ActionButton({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 0.375,
-        // Grows to share the row's width. Uncapped on purpose: a maximum
-        // here is what left a dead strip at the end of the row on a wide
-        // screen.
-        flex: '1 1 120px',
+        // Grows to share the row's width — uncapped on purpose (a maximum
+        // is what left a dead strip at the end of the row on a wide
+        // screen) — unless `compact` opts this one tile out entirely, so
+        // it neither grows into the leftover space nor shrinks below its
+        // own fixed size as the others do.
+        flex: compact ? '0 0 auto' : '1 1 120px',
+        width: compact ? 72 : undefined,
         minWidth: 0,
-        minHeight: 50,
-        px: 1.25,
-        py: 0.875,
+        minHeight: compact ? 44 : 50,
+        px: compact ? 0.75 : 1.25,
+        py: compact ? 0.625 : 0.875,
         borderRadius: 2.5,
         border: '1px solid',
         borderColor: filled ? tint : danger ? `${tint}5c` : `${tint}2e`,
         background: filled ? tint : surface,
         color: filled ? '#fff' : danger ? tint : 'text.primary',
         fontWeight: 700,
-        fontSize: 13.5,
+        fontSize: compact ? 11.5 : 13.5,
         lineHeight: 1.15,
         textTransform: 'none',
         boxShadow: filled ? `0 2px 8px -3px ${tint}` : '0 1px 2px rgba(16, 24, 40, 0.04)',
@@ -176,7 +201,7 @@ function ActionButton({
       >
         {label}
       </Box>
-      <KeyHint label={keyLabel} onAccent={filled} />
+      {keyLabel && <KeyHint label={keyLabel} onAccent={filled} />}
     </Button>
   );
 }
@@ -187,15 +212,20 @@ function ActionButton({
  * every time, without the layout re-sorting itself by some other logic
  * underneath the numbers.
  *
- * Shortcuts (F1) leads the row for exactly that reason, even though it's
- * the least-reached-for control here: it's about the terminal rather
- * than the sale, so no cart state makes it irrelevant, and ascending
- * order has nowhere else to put the lowest key. It moved down here from
- * a bare icon in PosHeader so that more of the till's function keys live
- * on a labelled control in one place instead of scattered across the
- * screen (Search and Pay are the two still elsewhere, and deliberately
- * so — each sits beside the field/flow it actually opens rather than in
- * this row of sale-property toggles).
+ * Shortcuts (F1) and Search (F2) lead the row for exactly that reason,
+ * even though they're the two least-reached-for controls here: neither
+ * is a property of the sale, so no cart state makes either irrelevant,
+ * and ascending order has nowhere else to put the lowest keys. Shortcuts
+ * moved down here from a bare icon in PosHeader; Search already had its
+ * own visible control (the KeyHint badge on the search field itself) and
+ * gained this one alongside it, so there's a tappable way back to that
+ * field from anywhere in this row too. Pay is the one function key still
+ * genuinely elsewhere — it sits beside the payment flow it actually
+ * opens, in ReceiptPanel, rather than in this row of sale-property
+ * toggles. Being reached for the least is also why Shortcuts and Search
+ * are the two `compact` tiles in the row (see ActionButton) — fixed,
+ * smaller widths rather than an equal share of it, so the buttons a
+ * cashier actually presses all shift get the room they give up.
  *
  * Customer (F3) and Bagger (F4) come next and are always here — they
  * attach to whatever sale is about to happen, empty cart or not. The
@@ -250,7 +280,11 @@ function ActionButton({
  * need that (PosScreen wires F9 straight to the same onCancel this
  * calls) but keeps one for parity and as a stable hook for tests. Hold
  * keeps one for the same reason, even though F6 also doesn't need it —
- * see the note above.
+ * see the note above. Search keeps one too, though F2 reaches the search
+ * field directly rather than through this button (PosScreen's own
+ * `search` handler focuses it by id) — the button's `id` here is purely
+ * for parity with its neighbours and as a stable hook for tests, same as
+ * Cancel and Hold.
  */
 export function CartActionsRow({
   customer,
@@ -263,6 +297,7 @@ export function CartActionsRow({
   onCancel,
   onReturn,
   onReprintReceipt,
+  onVoidItemSearch,
 }: Props) {
   // Owned here rather than in PosScreen so this row stays self-contained;
   // F1 reaches it by DOM-clicking the button below, the same way the other
@@ -292,6 +327,25 @@ export function CartActionsRow({
         keyLabel="F1"
         tint={POS_ACTION_TINTS.shortcuts}
         onClick={() => setHelpOpen(true)}
+        compact
+      />
+
+      {/* Search (F2) already lives on the field it opens — the KeyHint
+          badge inside ProductSearch's own input — which is why this row
+          didn't carry it originally (see this component's own doc
+          comment above). Added anyway on request: a visible, tappable
+          way back to that field for a cashier who's landed somewhere
+          else on screen, same as Customer/Bagger give a visible way into
+          their own dialogs rather than relying on the key alone.
+          `compact` for the same reason as Shortcuts — it opens no state
+          of its own here, so it doesn't need an equal share of the row. */}
+      <ActionButton
+        id="pos-action-search"
+        label="Search"
+        keyLabel="F2"
+        tint={POS_ACTION_TINTS.search}
+        onClick={focusProductSearch}
+        compact
       />
 
       <ActionButton
@@ -341,6 +395,26 @@ export function CartActionsRow({
             keyLabel="F6"
             tint={POS_ACTION_TINTS.hold}
             onClick={onHold}
+          />
+
+          {/* Finds a line by SKU/barcode/name and voids some or all of
+              its quantity — the keyboard/scanner alternative to hunting
+              down the right row and tapping its own void icon, which
+              only gets slower as the cart fills up. Sits with the other
+              sale-property buttons rather than off with Cancel: unlike
+              Cancel, it never destroys the whole sale, and unlike a
+              destructive action it still needs a moment's confirmation
+              of *which* line before anything happens (VoidItemDialog's
+              own job) rather than acting the instant it's tapped — the
+              same reasoning Discount and Hold get the neutral tinted
+              treatment while Cancel alone gets the bare/red one. No
+              F-key: every one through F11 is already claimed elsewhere
+              on this screen (see ActionButton's own `keyLabel` note). */}
+          <ActionButton
+            id="pos-action-void-item"
+            label="Void Item"
+            tint={POS_ACTION_TINTS.voidItem}
+            onClick={onVoidItemSearch}
           />
 
           {/* Pushes Cancel to the far right rather than letting it sit

@@ -21,6 +21,7 @@ import { ListToolbar } from './ListToolbar';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 import { useList } from './useList';
+import { formatDateTime } from '../regional';
 
 const money = (v: string | number | null | undefined) => (v === null || v === undefined ? '—' : formatMoney(Number(v)));
 
@@ -42,7 +43,7 @@ const money = (v: string | number | null | undefined) => (v === null || v === un
  * out by submitting.
  */
 export function CashDrawersScreen() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canManage = hasPermission('cash-sessions.manage');
 
   // Defaults to Open: the only drawers you can act on are the open ones,
@@ -81,7 +82,7 @@ export function CashDrawersScreen() {
   const userLabel = (id: number | null) => (id === null ? 'System' : (users.find((u) => u.id === id)?.name ?? `#${id}`));
 
   const columns: Column<CashSession>[] = [
-    { key: 'opened_at', label: 'Opened', sortKey: 'opened_at', render: (s) => new Date(s.opened_at).toLocaleString() },
+    { key: 'opened_at', label: 'Opened', sortKey: 'opened_at', render: (s) => formatDateTime(s.opened_at, user?.currency) },
     { key: 'register', label: 'POS Terminal', render: (s) => terminalLabel(s.register_id) },
     { key: 'cashier', label: 'Cashier', render: (s) => userLabel(s.user_id) },
     { key: 'opening_balance', label: 'Opening', align: 'right', render: (s) => money(s.opening_balance) },
@@ -206,6 +207,8 @@ interface ModalProps {
 }
 
 function CashSessionModal({ session, canManage, registerName, registerLabel, cashierLabel, userLabel, onClose, onRecorded }: ModalProps) {
+  // Dates in this modal follow the company's country, same as the list behind it.
+  const { user } = useAuth();
   const isOpen = session.status === 'open';
   const [summary, setSummary] = useState<CashSessionSummary | null>(null);
   const [movements, setMovements] = useState<CashMovement[]>([]);
@@ -240,8 +243,8 @@ function CashSessionModal({ session, canManage, registerName, registerLabel, cas
   const fields: DetailField[] = [
     { label: 'POS Terminal', value: registerLabel },
     { label: 'Cashier', value: cashierLabel },
-    { label: 'Opened', value: new Date(session.opened_at).toLocaleString() },
-    { label: 'Closed', value: session.closed_at ? new Date(session.closed_at).toLocaleString() : '—' },
+    { label: 'Opened', value: formatDateTime(session.opened_at, user?.currency) },
+    { label: 'Closed', value: formatDateTime(session.closed_at, user?.currency) },
     { label: 'Opening Cash', value: money(session.opening_balance) },
     { label: 'Cash Sales', value: summary ? money(summary.cash_sales_total) : '—' },
     { label: 'Cash In', value: summary ? money(summary.cash_in_total) : '—' },
@@ -299,7 +302,7 @@ function CashSessionModal({ session, canManage, registerName, registerLabel, cas
                       {m.reason || (m.type === 'cash_in' ? 'Cash in' : 'Cash out')}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(m.created_at).toLocaleString()} · {userLabel(m.user_id)}
+                      {formatDateTime(m.created_at, user?.currency)} · {userLabel(m.user_id)}
                     </Typography>
                   </Box>
                   {/* Signed, because a bare amount in a list that mixes both

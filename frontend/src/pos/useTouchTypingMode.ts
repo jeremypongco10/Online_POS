@@ -7,7 +7,8 @@ import { IS_TOUCH } from '../isTouch';
  *
  * The problem this solves twice over: on a tablet, a focused text field
  * summons a keyboard that covers half the screen — and on a page running in
- * the Fullscreen API (which is every cashier session, see enterFullscreen),
+ * the Fullscreen API (which the app no longer requests, but a cashier can
+ * still trigger with F11 — see fullscreen.ts),
  * that keyboard makes Android tear fullscreen down and rebuild it, which
  * shows as a ~2s black screen. A field that auto-focuses on open (so a
  * scanned loyalty card has somewhere to land) therefore triggers both the

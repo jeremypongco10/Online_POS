@@ -27,8 +27,8 @@ export function ProductCardSkeleton() {
       // Same radius/hairline shadow/height as ProductCard, so the swap to
       // real content is invisible rather than a re-layout.
       sx={{
-        borderRadius: 2.5,
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+        borderRadius: 3,
+        boxShadow: '0 1px 3px rgba(16, 24, 40, 0.06)',
         height: '100%',
         overflow: 'hidden',
         display: 'flex',
@@ -36,18 +36,18 @@ export function ProductCardSkeleton() {
         bgcolor: '#fff',
       }}
     >
-      <Box sx={{ flex: 1, minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Skeleton animation="wave" variant="circular" width={34} height={34} />
+      <Box sx={{ flex: 1, minHeight: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Skeleton animation="wave" variant="circular" width={40} height={40} />
       </Box>
-      <Box sx={{ px: 1.5, py: 1.25, flexShrink: 0 }}>
+      <Box sx={{ px: 1.75, py: 1.5, flexShrink: 0 }}>
         {/* Two name lines then the stock/price row — the exact block
             ProductCard renders, so the placeholder occupies the same
-            174px row the grid reserves for a real tile. */}
-        <Skeleton animation="wave" variant="text" width="92%" sx={{ fontSize: 12.5 }} />
-        <Skeleton animation="wave" variant="text" width="60%" sx={{ fontSize: 12.5 }} />
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 0.35, gap: 0.5 }}>
-          <Skeleton animation="wave" variant="text" width={40} sx={{ fontSize: 11 }} />
-          <Skeleton animation="wave" variant="rounded" width={50} height={11} />
+            198px row the grid reserves for a real tile. */}
+        <Skeleton animation="wave" variant="text" width="92%" sx={{ fontSize: 14.5 }} />
+        <Skeleton animation="wave" variant="text" width="60%" sx={{ fontSize: 14.5 }} />
+        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 0.5, gap: 0.5 }}>
+          <Skeleton animation="wave" variant="text" width={44} sx={{ fontSize: 11.5 }} />
+          <Skeleton animation="wave" variant="rounded" width={56} height={13} />
         </Stack>
       </Box>
     </Card>

@@ -21,7 +21,7 @@ export function AdminScreen({ onBackToPos }: Props) {
 
   return (
     <AdminLayout section={section} onSectionChange={setSection} onBackToPos={onBackToPos}>
-      {section === 'dashboard' && <DashboardBody />}
+      {section === 'dashboard' && <DashboardBody onNavigate={setSection} onBackToPos={onBackToPos} />}
       {section === 'products' && <CatalogScreen />}
       {section === 'inventory' && <InventoryScreen />}
       {section === 'purchasing' && <PurchasingScreen />}

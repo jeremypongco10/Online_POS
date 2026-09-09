@@ -24,6 +24,7 @@ import OpenWithOutlinedIcon from '@mui/icons-material/OpenWithOutlined';
 import AddShoppingCartOutlinedIcon from '@mui/icons-material/AddShoppingCartOutlined';
 import KeyboardReturnOutlinedIcon from '@mui/icons-material/KeyboardReturnOutlined';
 import TouchAppOutlinedIcon from '@mui/icons-material/TouchAppOutlined';
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { POS_SHORTCUTS, type PosShortcutGroup } from './posShortcuts';
 import { POS_ACCENT, POS_ACTION_TINTS } from './format';
 import { IS_TOUCH } from '../isTouch';
@@ -81,6 +82,7 @@ const KEY_FACE: Record<string, { icon: ReactNode; color: string }> = {
   Enter: { icon: <AddShoppingCartOutlinedIcon />, color: POS_ACTION_TINTS.keys },
   Esc: { icon: <KeyboardReturnOutlinedIcon />, color: POS_ACTION_TINTS.keys },
   Hold: { icon: <TouchAppOutlinedIcon />, color: POS_ACTION_TINTS.keys },
+  Delete: { icon: <DeleteOutlineOutlinedIcon />, color: POS_ACTION_TINTS.voidItem },
 };
 
 /**

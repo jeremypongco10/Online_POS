@@ -18,6 +18,8 @@ import { api, ApiError } from '../api/client';
 import type { Receipt, SaleResponse } from '../api/types';
 import { formatMoney, posRaisedButtonSx } from './format';
 import { useSnackbar } from '../Snackbar';
+import { useAuth } from '../auth/AuthContext';
+import { formatDateTime } from '../regional';
 
 interface FoundSale extends SaleResponse {
   sale_date: string;
@@ -48,6 +50,9 @@ interface Props {
  */
 export function ReprintReceiptDialog({ open, onClose, onFound }: Props) {
   const notify = useSnackbar();
+  // For the sale dates in the results list — written the way the
+  // company's own country writes them (see regional.ts).
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<FoundSale[]>([]);
   const [searched, setSearched] = useState(false);
@@ -151,7 +156,7 @@ export function ReprintReceiptDialog({ open, onClose, onFound }: Props) {
                 >
                   <ListItemText
                     primary={sale.invoice_number}
-                    secondary={new Date(sale.sale_date).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+                    secondary={formatDateTime(sale.sale_date, user?.currency)}
                     slotProps={{ primary: { sx: { fontWeight: 600 } }, secondary: { variant: 'caption' } }}
                   />
                   {loadingId === sale.id ? (

@@ -5,6 +5,7 @@ import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
@@ -12,17 +13,17 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type { CartTotals, CartLine } from './posTypes';
-import type { Bagger, Customer, PaymentMethodOption, Store } from '../api/types';
+import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
 import { POS_ACCENT, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
+import { useAuth } from '../auth/AuthContext';
+import { formatDateTime } from '../regional';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
 import { PaymentPanel, type Payment } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
 
 interface Props {
-  /** The store this terminal is ringing up on. The whole record rather than just its name, because the letterhead prints the same block the receipt does — address, and the BIR identifiers behind its own show_bir_details switch. */
-  store: Store | null;
-  /** Who's ringing up, and on which terminal — the same two facts printed under a receipt's store letterhead, shown here for the same reason. */
+  /** Who's ringing up, and on which terminal — shown under the "Current Sale" heading; the store itself is named up in PosHeader instead (see that component's own storeName prop). */
   cashierName: string;
   registerName: string | null;
   /** Shown here only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. */
@@ -69,12 +70,61 @@ function InlineFact({ icon, value, trailing }: { icon: ReactNode; value: string;
 }
 
 /**
+ * Connectivity — moved here from PosHeader, alongside the cashier/
+ * terminal/time line it now sits next to in the footer below. Both are
+ * the same kind of fact: session/receipt-footer information a cashier
+ * glances at rather than something that belongs beside the header's own
+ * controls (search, account).
+ *
+ * Deliberately lopsided: online is the boring, expected state, so it's a
+ * bare dot with the wording left to a tooltip; offline is the state a
+ * cashier has to act on, so it spells itself out in red. Reflects
+ * navigator.onLine only — there is no backend heartbeat, and inventing
+ * one here would claim more than the browser actually knows.
+ */
+function ConnectionStatus() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  return (
+    <Tooltip title={online ? 'Online' : 'No connection — sales cannot be completed'}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        <Box
+          sx={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            bgcolor: online ? 'success.main' : 'error.main',
+            flexShrink: 0,
+          }}
+        />
+        {!online && (
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'error.main' }}>
+            Offline
+          </Typography>
+        )}
+      </Stack>
+    </Tooltip>
+  );
+}
+
+/**
  * Its own component purely so the clock's per-second tick re-renders one
  * text node instead of the whole ReceiptPanel — the cart, totals and
  * payment panel all sit under that, and none of them have any reason to
  * re-render on a tick.
  */
 function SessionClock() {
+  const { user } = useAuth();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -85,14 +135,13 @@ function SessionClock() {
     // tabular-nums keeps every digit the same width, so the line doesn't
     // shift sideways each second as the digits change.
     <Typography variant="caption" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-      {now.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' })}
+      {formatDateTime(now, user?.currency)}
     </Typography>
   );
 }
 
-/** Right panel: one continuous card styled like a printed receipt — store letterhead, cashier/terminal/time, customer/bagger (when attached), item list, totals, payment, and Pay, all inside a single border. Hold/Return/Cancellation live in the product panel's Actions row instead — see CartActionsRow. */
+/** Right panel: one continuous card styled like a printed receipt — a "Current Sale" heading, cashier/terminal/time, customer/bagger (when attached), item list, totals, payment, and Pay, all inside a single border. Hold/Return/Cancellation live in the product panel's Actions row instead — see CartActionsRow. */
 export function ReceiptPanel({
-  store,
   cashierName,
   registerName,
   customer,
@@ -205,43 +254,51 @@ export function ReceiptPanel({
         flexDirection: 'column',
       }}
     >
-      {/* The store letterhead — bold like a receipt's own masthead line,
-          not a caption like Customer/Bagger below it, and always shown
-          rather than gated on a presence check: every sale happens at
-          some store, so there's no "nothing to show" state for this the
-          way there is for an unattached customer.
+      {/* Used to lead with the store's own name here — a letterhead, like
+          a printed receipt's masthead. Dropped once PosHeader started
+          showing the store beside "POS System": the same fact printed
+          twice a few inches apart on the same screen. This panel is the
+          working cart before it's anything else, so its own heading says
+          that instead. */}
+      <Stack sx={{ px: 2.5, pt: 1.75, pb: 1.25, flexShrink: 0, alignItems: 'center', gap: 1 }}>
+        {/* A tinted pill rather than plain bold text — this is the one
+            heading on the panel with nothing else competing for
+            attention above it, so it gets the same "here's what this
+            is" treatment a section badge gets elsewhere in the POS,
+            instead of reading as just another line of type.
 
-          Cashier, terminal and the clock sit directly under it, exactly
-          where a printed receipt prints them — they used to live in a
-          full-width StatusBar footer along the bottom of the screen,
-          which cost a whole bar of vertical space to say what this
-          letterhead was already half-saying. Connectivity was the one
-          thing in that footer that isn't receipt content, so it moved to
-          PosHeader instead.
-
-          The address comes along too, but deliberately NOT the TIN/MIN/
-          S/N block the printed receipt carries under it: those are static
-          store registration details a cashier never acts on, and at this
-          column's width they wrapped to a second line of fine print for
-          no one's benefit. They remain legally required on the receipt
-          itself, so ReceiptModal still prints all three — this is a
-          display decision about the live panel, not about the document. */}
-      <Stack sx={{ px: 2.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
-        {store?.name && (
-          <Typography sx={{ fontWeight: 700, fontSize: 15, textAlign: 'center' }} noWrap title={store.name}>
-            {store.name}
-          </Typography>
-        )}
-        {store?.address && (
-          <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', lineHeight: 1.35 }}>
-            {store.address}
-          </Typography>
-        )}
-        <Stack
-          direction="row"
-          spacing={0.75}
-          sx={{ alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', mt: 0.5 }}
+            "Current Sale" is only true once there's actually a sale in
+            progress — an empty cart isn't one yet, it's the gap between
+            two of them. "Next Customer Please" says that instead, the
+            same line a physical till sign at an empty register reads,
+            so the panel doesn't claim to be mid-transaction when nothing
+            has been rung up. */}
+        <Box
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 999,
+            bgcolor: `${POS_ACCENT}14`,
+            color: POS_ACCENT,
+          }}
         >
+          <Typography sx={{ fontWeight: 700, fontSize: 13, letterSpacing: '0.02em' }}>
+            {lines.length === 0 ? 'Next Customer Please' : 'Current Sale'}
+          </Typography>
+        </Box>
+
+        {/* Cashier, terminal, the clock and connectivity — tried living
+            below Pay as a closing footer, the way a printed receipt's own
+            session line sits after the payment section. Moved back up
+            here on request instead, right under the heading it used to
+            sit under originally. Connectivity moved down from PosHeader
+            to join the rest of this same kind of information; see that
+            component's own comment. */}
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <ConnectionStatus />
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            ·
+          </Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }} noWrap title={cashierName}>
             {cashierName}
           </Typography>
@@ -354,10 +411,13 @@ export function ReceiptPanel({
 
       {/* A tinted band with a solid top edge, not just another dashed rule on the same white:
           the totals and checkout actions are a summary zone, and against the white item list
-          above they need an actual background change to read as one instead of as more rows. */}
-      {/* The one gap this Stack controls is totals -> buttons, and it needs to be generous:
-          the TOTAL figure is set at h4, so a tighter gap left its descenders almost touching
-          the Pay button. */}
+          above they need an actual background change to read as one instead of as more rows.
+
+          Just Totals and Pay — the cashier/terminal/time line that used
+          to sit wedged between them stayed off this band on its trip
+          back up to the header (see above): crammed this close to the
+          TOTAL figure, small grey text right under a bold blue number
+          read as clutter rather than as a caption. */}
       <Stack
         spacing={2.5}
         sx={{

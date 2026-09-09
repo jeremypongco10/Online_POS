@@ -24,7 +24,7 @@ interface Props {
 
 export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh, refreshing, extra, actions }: Props) {
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, mb: 2, flexWrap: { sm: 'wrap' } }}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, mb: 2.5, flexWrap: { sm: 'wrap' } }}>
       {/* `extra` (e.g. a store filter) gets its own row on a phone — grouping it
           with refresh+search in one row, as before, left next to nothing for the
           search field once `extra` was wide enough (a filter dropdown, not just
@@ -42,12 +42,17 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
           <Tooltip title="Refresh">
             <span>
               <IconButton
-                size="small"
                 onClick={onRefresh}
                 disabled={refreshing}
                 aria-label="Refresh"
                 sx={{
                   flexShrink: 0,
+                  // Matches the search field's own height below (44px) —
+                  // both were separately sized "small" before, which put
+                  // the icon button a few pixels shorter than the field
+                  // sitting right next to it.
+                  width: 44,
+                  height: 44,
                   border: '1px solid',
                   borderColor: 'divider',
                   '@keyframes spin': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } },
@@ -59,19 +64,43 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
             </span>
           </Tooltip>
         )}
-        {/* Full-bleed on phones — the 260px default would otherwise overflow a narrow viewport. */}
+        {/* Full-bleed on phones — the 260px default would otherwise overflow a narrow viewport.
+            Height/font bumped here rather than in SearchField itself, which the POS product
+            search also renders with its own careful, deliberately tighter sizing — this override
+            only reaches the admin toolbar's own instance. */}
         {onSearchChange && (
           <SearchField
             value={search ?? ''}
             onChange={onSearchChange}
-            sx={{ minWidth: { xs: 0, sm: 260 }, maxWidth: { sm: 420 }, width: { xs: '100%', sm: '100%' }, flex: 1 }}
+            sx={{
+              minWidth: { xs: 0, sm: 260 },
+              maxWidth: { sm: 420 },
+              width: { xs: '100%', sm: '100%' },
+              flex: 1,
+              '& .MuiOutlinedInput-root': { height: 44, fontSize: 14.5 },
+            }}
           />
         )}
       </Stack>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
         {actions}
         {onAdd && (
-          <Button variant="contained" startIcon={<AddIcon />} onClick={onAdd} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={onAdd}
+            sx={{
+              width: { xs: '100%', sm: 'auto' },
+              height: 44,
+              px: 2.5,
+              borderRadius: 2,
+              fontWeight: 600,
+              fontSize: 14.5,
+              textTransform: 'none',
+              boxShadow: 'none',
+              '&:hover': { boxShadow: 'none' },
+            }}
+          >
             {addLabel ?? 'Add'}
           </Button>
         )}

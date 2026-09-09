@@ -1,115 +1,47 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Stack from '@mui/material/Stack';
-import Paper from '@mui/material/Paper';
-import Grid from '@mui/material/Grid';
-import Table from '@mui/material/Table';
-import TableHead from '@mui/material/TableHead';
-import TableBody from '@mui/material/TableBody';
-import TableRow from '@mui/material/TableRow';
-import TableCell from '@mui/material/TableCell';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import CircularProgress from '@mui/material/CircularProgress';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined';
-import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
-import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
+import PaidRoundedIcon from '@mui/icons-material/PaidRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import ShoppingBagRoundedIcon from '@mui/icons-material/ShoppingBagRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
+import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
+import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
+import AddBoxRoundedIcon from '@mui/icons-material/AddBoxRounded';
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
+import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../api/client';
 import { SearchableSelect } from '../admin/SearchableSelect';
 import type { DashboardData, PaymentMethodOption, Store } from '../api/types';
 import { formatMoney } from '../pos/format';
+import { currencySymbol, formatDate } from '../regional';
 import { METHOD_LABELS } from '../pos/PaymentPanel';
+import type { AdminSection } from '../admin/AdminLayout';
+import { canAccessPos } from '../auth/posAccess';
+import './dashboard.css';
 
-function StatTile({
-  label,
-  value,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-  color: 'primary' | 'success' | 'info';
-}) {
-  return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1.5 }}>
-        <Box
-          sx={{
-            width: 40,
-            height: 40,
-            borderRadius: 1.5,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: `color-mix(in srgb, var(--mui-palette-${color}-main) 14%, transparent)`,
-            color: `${color}.main`,
-          }}
-        >
-          {icon}
-        </Box>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          {label}
-        </Typography>
-      </Stack>
-      <Typography variant="h4" sx={{ fontWeight: 700 }}>
-        {value}
-      </Typography>
-    </Paper>
-  );
+const ACCENTS = ['#3978f6', '#27b98b', '#8957e5', '#f7a928', '#ef6176'];
+const money = (value: number, symbol: string) => `${symbol} ${formatMoney(value)}`;
+
+function MetricCard({ title, value, note, tone, icon, points }: { title: string; value: string; note: string; tone: string; icon: ReactNode; points: string }) {
+  return <article className="dash-metric">
+    <div className="dash-metric-icon" style={{ '--metric-tone': tone } as React.CSSProperties}>{icon}</div>
+    <div className="dash-metric-copy"><span>{title}</span><strong>{value}</strong><small>{note}</small></div>
+    <svg className="dash-spark" viewBox="0 0 72 35" aria-hidden="true"><polyline points={points} fill="none" stroke={tone} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />{points.split(' ').map((point, index) => { const [cx, cy] = point.split(','); return <circle key={index} cx={cx} cy={cy} r="1.6" fill="#fff" stroke={tone} strokeWidth="1.2" />; })}</svg>
+  </article>;
 }
 
-function DashPanel({
-  title,
-  columns,
-  rows,
-  emptyLabel,
-}: {
-  title: string;
-  columns: string[];
-  rows: { key: string | number; cells: ReactNode[] }[];
-  emptyLabel: string;
-}) {
-  return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 1.5 }}>
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5, fontSize: 16 }}>
-        {title}
-      </Typography>
-      {rows.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          {emptyLabel}
-        </Typography>
-      ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              {columns.map((c, i) => (
-                <TableCell key={c} align={i === 0 ? 'left' : 'right'}>
-                  {c}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.key}>
-                {row.cells.map((cell, i) => (
-                  <TableCell key={i} align={i === 0 ? 'left' : 'right'}>
-                    {cell}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-    </Paper>
-  );
+function Panel({ title, hint, action, children, className = '' }: { title: string; hint?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+  return <section className={`dash-panel ${className}`}><header className="dash-panel-heading"><div><h2>{title}</h2>{hint && <p>{hint}</p>}</div>{action}</header>{children}</section>;
 }
 
-/** Phase 21: Today's Sales, Today's Transactions, Average Transaction, Top Products, Low Stock, Payment Breakdown, Sales by Store. */
-export function DashboardBody() {
+const EmptyRow = ({ label, columns }: { label: string; columns: number }) => <tr><td className="dash-empty" colSpan={columns}>{label}</td></tr>;
+
+interface Props { onNavigate?: (section: AdminSection) => void; onBackToPos?: () => void; }
+
+export function DashboardBody({ onNavigate, onBackToPos }: Props) {
   const { user, hasPermission } = useAuth();
   const canView = hasPermission('dashboard.view');
   const [stores, setStores] = useState<Store[]>([]);
@@ -121,156 +53,67 @@ export function DashboardBody() {
   useEffect(() => {
     if (!user || !canView) return;
     api.get<Store[]>(`/stores?company_id=${user.company_id}&is_active=1&per_page=50`).then(setStores);
-    // Not filtered to is_active — a deactivated method can still show up
-    // in today's payment breakdown for a payment taken before it was
-    // turned off, and that row should still get its real name, not just
-    // its raw code.
-    api
-      .get<PaymentMethodOption[]>('/payment-methods?per_page=50')
-      .then(setPaymentMethods)
-      .catch(() => {});
+    api.get<PaymentMethodOption[]>('/payment-methods?per_page=50').then(setPaymentMethods).catch(() => {});
   }, [user, canView]);
-
-  function methodLabel(code: string): string {
-    return paymentMethods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
-  }
 
   useEffect(() => {
     if (!user || !canView) return;
     setLoading(true);
     const query = storeId === '' ? `company_id=${user.company_id}` : `company_id=${user.company_id}&store_id=${storeId}`;
-    api
-      .get<DashboardData>(`/reports/dashboard?${query}`)
-      .then(setData)
-      .finally(() => setLoading(false));
+    api.get<DashboardData>(`/reports/dashboard?${query}`).then(setData).finally(() => setLoading(false));
   }, [user, storeId, canView]);
 
+  const productUnits = useMemo(() => data?.top_products.reduce((sum, item) => sum + Number(item.total_quantity), 0) ?? 0, [data]);
+  const totalPayments = useMemo(() => data?.payment_breakdown.reduce((sum, row) => sum + Number(row.total_amount), 0) ?? 0, [data]);
+  const paymentGradient = useMemo(() => {
+    if (!data || totalPayments <= 0) return '#e9eef7 0deg 360deg';
+    let angle = 0;
+    return data.payment_breakdown.map((row, i) => { const start = angle; angle += (Number(row.total_amount) / totalPayments) * 360; return `${ACCENTS[i % ACCENTS.length]} ${start}deg ${angle}deg`; }).join(', ');
+  }, [data, totalPayments]);
+
   if (!user) return null;
+  if (!canView) return <div className="dash-no-access"><LockOutlinedIcon /><p>You don&apos;t have access to the dashboard.</p></div>;
 
-  // Reachable even without a "Dashboard" nav entry — it's the section
-  // the Back Office lands on by default for every non-cashier role,
-  // regardless of whether they actually hold dashboard.view.
-  if (!canView) {
-    return (
-      <Stack sx={{ alignItems: 'center', justifyContent: 'center', py: 10, gap: 1.5 }}>
-        <LockOutlinedIcon sx={{ fontSize: 40, color: 'text.disabled' }} />
-        <Typography variant="body1" color="text.secondary">
-          You don&apos;t have access to the dashboard.
-        </Typography>
-      </Stack>
-    );
-  }
+  const symbol = currencySymbol(user.currency);
+  const displayName = user.name.split(/\s+/)[0] || user.name;
+  const methodLabel = (code: string) => paymentMethods.find((method) => method.code === code)?.name ?? METHOD_LABELS[code] ?? code;
+  const maxRevenue = Math.max(...(data?.top_products.map((item) => Number(item.total_revenue)) ?? []), 1);
+  const chartPoints = data?.top_products.map((item, index, rows) => { const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * 100; const y = 74 - (Number(item.total_revenue) / maxRevenue) * 58; return `${x},${y}`; }).join(' ') ?? '';
 
-  return (
-    <Box>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', mb: 2.25 }}>
-        <Typography variant="h5">Dashboard</Typography>
-        <SearchableSelect
-          value={storeId === '' ? '' : String(storeId)}
-          onChange={(v) => setStoreId(v === '' ? '' : Number(v))}
-          sx={{ minWidth: 160 }}
-          options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
-        />
-      </Stack>
+  return <div className="backoffice-dashboard">
+    <div className="dash-welcome">
+      <div><h1>Good morning, {displayName}! <span aria-hidden="true">👋</span></h1><p>Here&apos;s what&apos;s happening with your store today.</p></div>
+      <div className="dash-filters"><div className="dash-date">{formatDate(data?.date ?? new Date(), user.currency)}</div><SearchableSelect value={storeId === '' ? '' : String(storeId)} onChange={(value) => setStoreId(value === '' ? '' : Number(value))} sx={{ minWidth: 165 }} options={[{ value: '', label: 'All Stores' }, ...stores.map((store) => ({ value: String(store.id), label: store.name }))]} /></div>
+    </div>
 
-      {loading || !data ? (
-        <Stack sx={{ alignItems: 'center', justifyContent: 'center', py: 10 }}>
-          <CircularProgress />
-        </Stack>
-      ) : (
-        <Box sx={{ p: 3 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {data.date}
-          </Typography>
+    {loading || !data ? <div className="dash-loading"><CircularProgress size={30} /></div> : <>
+      <div className="dash-metrics-grid">
+        <MetricCard title="Total Sales" value={money(data.today_sales, symbol)} note="Today" tone="#20b987" icon={<PaidRoundedIcon />} points="2,29 14,22 25,25 37,14 49,18 61,7 70,12" />
+        <MetricCard title="Total Transactions" value={String(data.today_transactions)} note={`${money(data.average_transaction, symbol)} average`} tone="#3978f6" icon={<ReceiptLongRoundedIcon />} points="2,28 13,13 24,21 36,12 47,16 59,5 70,10" />
+        <MetricCard title="Products Sold" value={formatMoney(productUnits).replace('.00', '')} note="Across top products" tone="#8957e5" icon={<ShoppingBagRoundedIcon />} points="2,27 13,20 25,22 37,12 48,17 60,9 70,4" />
+        <MetricCard title="Low Stock Items" value={String(data.low_stock.length)} note={data.low_stock.length ? 'Needs attention' : 'Stock levels look good'} tone="#f7a928" icon={<WarningAmberRoundedIcon />} points="2,29 14,24 25,16 36,20 48,11 60,13 70,5" />
+      </div>
 
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <StatTile
-                label="Today's Sales"
-                value={formatMoney(data.today_sales)}
-                icon={<PaidOutlinedIcon fontSize="small" />}
-                color="primary"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <StatTile
-                label="Today's Transactions"
-                value={data.today_transactions}
-                icon={<ReceiptLongOutlinedIcon fontSize="small" />}
-                color="success"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <StatTile
-                label="Average Transaction"
-                value={formatMoney(data.average_transaction)}
-                icon={<TrendingUpOutlinedIcon fontSize="small" />}
-                color="info"
-              />
-            </Grid>
-          </Grid>
+      <div className="dash-layout"><main className="dash-main-column">
+        <div className="dash-charts-grid">
+          <Panel title="Sales Overview" hint="Revenue across today’s top products">
+            {data.top_products.length ? <div className="dash-line-chart"><div className="dash-y-labels"><span>{money(maxRevenue, symbol)}</span><span>{money(maxRevenue / 2, symbol)}</span><span>{money(0, symbol)}</span></div><div className="dash-chart-plot"><svg preserveAspectRatio="none" viewBox="0 0 100 80" aria-label="Revenue chart"><defs><linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#3978f6" stopOpacity=".22" /><stop offset="1" stopColor="#3978f6" stopOpacity="0" /></linearGradient></defs><polygon points={`0,80 ${chartPoints} 100,80`} fill="url(#salesArea)" /><polyline points={chartPoints} fill="none" stroke="#3978f6" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />{chartPoints.split(' ').filter(Boolean).map((point, index) => { const [cx, cy] = point.split(','); return <circle key={index} cx={cx} cy={cy} r="1.5" fill="#fff" stroke="#3978f6" strokeWidth="1" />; })}</svg><div className="dash-x-labels">{data.top_products.map((item) => <span key={item.product_id}>{item.product_name ?? `#${item.product_id}`}</span>)}</div></div></div> : <div className="dash-empty-block">No sales yet today.</div>}
+          </Panel>
+          <Panel title="Sales by Payment Method" hint="Today">
+            {data.payment_breakdown.length ? <div className="payment-breakdown"><div className="payment-donut" style={{ background: `conic-gradient(${paymentGradient})` }}><div><strong>{money(data.today_sales, symbol)}</strong><span>Total sales</span></div></div><div className="payment-legend">{data.payment_breakdown.map((row, index) => <div key={row.method}><i style={{ background: ACCENTS[index % ACCENTS.length] }} /><span>{methodLabel(row.method)}</span><strong>{money(Number(row.total_amount), symbol)}</strong><em>{totalPayments ? `${((Number(row.total_amount) / totalPayments) * 100).toFixed(1)}%` : '0%'}</em></div>)}</div></div> : <div className="dash-empty-block">No payments yet today.</div>}
+          </Panel>
+        </div>
 
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <DashPanel
-                title="Top Products"
-                columns={['Product', 'Qty', 'Revenue']}
-                emptyLabel="No sales yet today."
-                rows={data.top_products.map((p) => ({
-                  key: p.product_id,
-                  cells: [p.product_name ?? `#${p.product_id}`, parseFloat(p.total_quantity), formatMoney(parseFloat(p.total_revenue))],
-                }))}
-              />
-            </Grid>
+        <div className="dash-tables-grid">
+          <Panel title="Top Selling Products" hint="Today" action={<button className="dash-link" onClick={() => onNavigate?.('products')}>View all <ArrowForwardRoundedIcon /></button>}><div className="dash-table-wrap"><table className="dash-data-table"><thead><tr><th>#</th><th>Product</th><th>Qty Sold</th><th>Total Sales</th></tr></thead><tbody>{data.top_products.length === 0 ? <EmptyRow label="No sales yet today." columns={4} /> : data.top_products.slice(0, 5).map((item, index) => <tr key={item.product_id}><td>{index + 1}</td><td><span className="product-dot" style={{ background: ACCENTS[index % ACCENTS.length] }}><Inventory2RoundedIcon /></span><strong>{item.product_name ?? `Product #${item.product_id}`}</strong></td><td>{Number(item.total_quantity).toLocaleString()}</td><td>{money(Number(item.total_revenue), symbol)}</td></tr>)}</tbody></table></div></Panel>
+          <Panel title="Sales by Store" hint="Today" action={<button className="dash-link" onClick={() => onNavigate?.('reports')}>View reports <ArrowForwardRoundedIcon /></button>}><div className="dash-table-wrap"><table className="dash-data-table"><thead><tr><th>Store</th><th>Transactions</th><th>Total Sales</th></tr></thead><tbody>{data.sales_by_store.length === 0 ? <EmptyRow label="No store sales yet today." columns={3} /> : data.sales_by_store.slice(0, 5).map((row) => <tr key={row.store_id}><td><span className="store-icon"><StorefrontRoundedIcon /></span><strong>{row.store_name ?? `Store #${row.store_id}`}</strong></td><td>{Number(row.transaction_count).toLocaleString()}</td><td>{money(Number(row.total_sales), symbol)}</td></tr>)}</tbody></table></div></Panel>
+        </div>
+      </main>
 
-            <Grid size={{ xs: 12, md: 6 }}>
-              <DashPanel
-                title="Low Stock"
-                columns={['Product', 'Qty', 'Reorder At']}
-                emptyLabel="Nothing below reorder level."
-                rows={data.low_stock.map((row) => ({
-                  key: row.id,
-                  cells: [
-                    row.product_name,
-                    <Typography key="qty" component="span" color="error.main" sx={{ fontWeight: 600 }}>
-                      {parseFloat(row.quantity)}
-                    </Typography>,
-                    parseFloat(row.reorder_level),
-                  ],
-                }))}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 6 }}>
-              <DashPanel
-                title="Payment Breakdown"
-                columns={['Method', 'Count', 'Amount']}
-                emptyLabel="No payments yet today."
-                rows={data.payment_breakdown.map((row) => ({
-                  key: row.method,
-                  cells: [
-                    methodLabel(row.method),
-                    row.payment_count,
-                    formatMoney(parseFloat(row.total_amount)),
-                  ],
-                }))}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, md: 6 }}>
-              <DashPanel
-                title="Sales by Store"
-                columns={['Store', 'Transactions', 'Sales']}
-                emptyLabel="No sales yet today."
-                rows={data.sales_by_store.map((row) => ({
-                  key: row.store_id,
-                  cells: [row.store_name ?? `#${row.store_id}`, row.transaction_count, formatMoney(parseFloat(row.total_sales))],
-                }))}
-              />
-            </Grid>
-          </Grid>
-        </Box>
-      )}
-    </Box>
-  );
+      <aside className="dash-side-column">
+        <Panel title="Stock Alerts" hint={`${data.low_stock.length} item${data.low_stock.length === 1 ? '' : 's'} need attention`} action={<button className="dash-link" onClick={() => onNavigate?.('inventory')}>View all</button>}><div className="stock-alerts">{data.low_stock.length === 0 ? <div className="dash-empty-block">All stock levels look good.</div> : data.low_stock.slice(0, 5).map((row) => <button key={row.id} onClick={() => onNavigate?.('inventory')}><span><WarningAmberRoundedIcon /></span><div><strong>{row.product_name}</strong><small>{row.sku} · Reorder at {Number(row.reorder_level)}</small></div><em>{Number(row.quantity)} left</em></button>)}</div></Panel>
+        <Panel title="Quick Actions"><div className="quick-actions">{onBackToPos && canAccessPos(user) && <button className="qa-blue" onClick={onBackToPos}><AddShoppingCartRoundedIcon /><span>New Sale</span></button>}<button className="qa-purple" onClick={() => onNavigate?.('products')}><AddBoxRoundedIcon /><span>Add Product</span></button><button className="qa-green" onClick={() => onNavigate?.('reports')}><BarChartRoundedIcon /><span>View Reports</span></button><button className="qa-orange" onClick={() => onNavigate?.('inventory')}><Inventory2RoundedIcon /><span>Manage Stock</span></button></div></Panel>
+      </aside></div>
+    </>}
+  </div>;
 }

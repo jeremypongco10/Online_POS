@@ -27,6 +27,7 @@ import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
 import { ReprintReceiptDialog } from './ReprintReceiptDialog';
 import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
+import { VoidItemDialog } from './VoidItemDialog';
 import { DiscountDialog, type DiscountResult } from './DiscountDialog';
 import { discountRequiresHolderId, discountTypeLabel, type DiscountDefaults, type DiscountTypeCode } from './discountTypes';
 import { computeDiscountAmounts, type ActiveDiscount } from './discountCalc';
@@ -43,7 +44,6 @@ import {
 } from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { usePosZoom } from './usePosZoom';
-import { keepFullscreen } from '../fullscreen';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
 interface Props {
@@ -107,6 +107,16 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // rather than in Cart so the dialog survives the cart re-rendering
   // underneath it.
   const [voidSubject, setVoidSubject] = useState<VoidSubject | null>(null);
+  // Whether VoidItemDialog (find a cart line by SKU/barcode/name, then
+  // pick a quantity) is open. That dialog only ever produces a
+  // VoidSubject for voidSubject above to pick up — it never removes
+  // anything itself, so this is the only state it needs here.
+  const [voidItemSearchOpen, setVoidItemSearchOpen] = useState(false);
+  // Set only by the Delete shortcut below, for the one line F10 already
+  // has selected — tells VoidItemDialog to skip its own search step and
+  // open straight to the quantity for this specific line. Null for the
+  // ordinary path (the "Void Item" button), which always starts blank.
+  const [voidItemPreselect, setVoidItemPreselect] = useState<CartLine | null>(null);
   // The company's two void-approval switches (see SalesController::
   // voidPolicy). Both default to true rather than false while they load,
   // so a void/cancel can never slip through unapproved just because this
@@ -158,14 +168,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // Also returns the manual override PosHeader's zoom control drives.
   const posZoom = usePosZoom();
 
-  // Kiosk fullscreen, for as long as the register is on screen. Login
-  // already requests it, but a reloaded session never goes through the
-  // login form and Esc drops out of it — this re-enters on the cashier's
-  // next gesture in either case. Scoped here rather than app-wide on
-  // purpose: this component only mounts for a POS role (see App's Gate),
-  // so the Back Office keeps its browser chrome. See keepFullscreen.
-  useEffect(() => keepFullscreen(), []);
-
   // The DOM node ProductSearch's search field portals into — see
   // PosHeader's searchSlotRef and ProductSearch's searchPortalTarget.
   // State, not a plain ref object: PosHeader's callback ref fires during
@@ -177,14 +179,27 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   /**
    * Drives the cart selection with the arrow keys while it's active,
-   * and drops it on Esc. Listens on the window in the capture phase
-   * for one specific reason: focus is still in the search box (that's
-   * the whole point), and that field's own onKeyDown already claims
-   * ArrowDown to jump into the product grid. Capturing here first, and
-   * stopping propagation, keeps the arrows on the cart for as long as
-   * a line is selected without changing what they do the rest of the
-   * time. Every other key falls through untouched, so a scan (or any
-   * typing) still lands in the search box mid-review.
+   * voids the selected line on Delete, and drops the selection on Esc.
+   * Listens on the window in the capture phase for one specific reason:
+   * focus is still in the search box (that's the whole point), and that
+   * field's own onKeyDown already claims ArrowDown to jump into the
+   * product grid. Capturing here first, and stopping propagation, keeps
+   * these keys on the cart for as long as a line is selected without
+   * changing what they do the rest of the time. Every other key falls
+   * through untouched, so a scan (or any typing) still lands in the
+   * search box mid-review.
+   *
+   * Delete is deliberately scoped to only this active-selection window
+   * rather than bound globally the way the F-keys are (see
+   * useKeyboardShortcuts) — Delete means "remove a character" inside any
+   * text field, and the search box holds focus essentially all the time
+   * this screen is up. Hijacking it unconditionally would break ordinary
+   * typing everywhere (Backspace, the more commonly reached-for
+   * correction key, is deliberately left alone entirely — see the check
+   * below). Confined to here, Delete only fires once a cart line has
+   * been deliberately selected via F10, the same carve-out Escape
+   * already gets on the line above — a cashier who
+   * hasn't pressed F10 can Delete-edit the search box exactly as normal.
    */
   useEffect(() => {
     if (selectedCartKey === null) return;
@@ -196,6 +211,30 @@ export function PosScreen({ onOpenAdmin }: Props) {
         setSelectedCartKey(null);
         return;
       }
+
+      // Delete only, not Backspace. Both would be equally scoped (only
+      // while a line is selected), but Backspace is the key almost
+      // everyone reflexively reaches for to correct a typo — and the
+      // search box keeps real focus through all of this, typo included.
+      // Delete sees far less accidental use there, since a cursor sitting
+      // at the end of what was just typed (the common case) makes it a
+      // no-op anyway.
+      if (e.key === 'Delete') {
+        const line = lines.find((l) => l.key === selectedCartKey);
+        if (!line) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // Opens VoidItemDialog straight into its quantity step for this
+        // line (see that dialog's `initialLine` prop) rather than
+        // requesting the full-line void directly — the cashier may want
+        // to void fewer than the whole quantity, same as the "Void Item"
+        // button's own search path already allows.
+        setVoidItemPreselect(line);
+        setVoidItemSearchOpen(true);
+        setSelectedCartKey(null);
+        return;
+      }
+
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
 
       const current = lines.findIndex((l) => l.key === selectedCartKey);
@@ -709,7 +748,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // stray function key clearing the cart underneath would be especially
   // confusing there.
   const blockingDialogOpen =
-    paymentDialogOpen || showCloseRegister || Boolean(receipt) || Boolean(voidSubject) || discountOpen || reprintOpen;
+    paymentDialogOpen ||
+    showCloseRegister ||
+    Boolean(receipt) ||
+    Boolean(voidSubject) ||
+    discountOpen ||
+    reprintOpen ||
+    voidItemSearchOpen;
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     search: () => document.getElementById('pos-product-search')?.focus(),
@@ -846,6 +891,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               receipt column lets the cart start at the very top of the
               screen instead of being pushed down by a full-width bar. */}
           <PosHeader
+            storeName={(assignedStore ?? selectedStore)?.name ?? null}
             searchSlotRef={setSearchSlot}
             actions={
               <AccountMenu
@@ -903,6 +949,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
               onReprintReceipt={() => setReprintOpen(true)}
+              onVoidItemSearch={() => setVoidItemSearchOpen(true)}
             />
           </Box>
         </Box>
@@ -919,7 +966,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }}
         >
           <ReceiptPanel
-            store={assignedStore ?? selectedStore ?? null}
             cashierName={user.name}
             registerName={selectedRegister?.name ?? null}
             customer={customer}
@@ -980,13 +1026,40 @@ export function PosScreen({ onOpenAdmin }: Props) {
           // "approved by" clause only appears when someone actually did.
           const by = approvedBy ? ` — approved by ${approvedBy}` : '';
           if (voidSubject?.kind === 'item') {
-            removeLine(voidSubject.line.key);
-            notify(`Voided ${voidSubject.line.product.name}${by}`);
+            const { line } = voidSubject;
+            const voidQty = voidSubject.voidQuantity ?? line.quantity;
+            // A partial void (VoidItemDialog is the only path that can
+            // produce one — the cart row's own void button always means
+            // "all of it") reduces the line instead of dropping it, the
+            // same operation the quantity stepper already does; only the
+            // full-line case removes it outright.
+            if (voidQty >= line.quantity) {
+              removeLine(line.key);
+            } else {
+              updateQuantity(line.key, line.quantity - voidQty);
+            }
+            const qtyLabel = formatQuantity(voidQty, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0);
+            notify(`Voided ${qtyLabel} × ${line.product.name}${by}`);
           } else if (voidSubject?.kind === 'cart') {
             resetSale();
             notify(`Sale cancelled${by}`);
           }
           setVoidSubject(null);
+        }}
+      />
+
+      <VoidItemDialog
+        open={voidItemSearchOpen}
+        lines={lines}
+        initialLine={voidItemPreselect}
+        onClose={() => {
+          setVoidItemSearchOpen(false);
+          setVoidItemPreselect(null);
+        }}
+        onSelect={(line, quantity) => {
+          setVoidItemSearchOpen(false);
+          setVoidItemPreselect(null);
+          setVoidSubject({ kind: 'item', line, voidQuantity: quantity });
         }}
       />
 

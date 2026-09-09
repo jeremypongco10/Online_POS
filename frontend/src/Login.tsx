@@ -10,9 +10,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { useColorScheme } from '@mui/material/styles';
 import { keyframes } from '@emotion/react';
 import { useAuth } from './auth/AuthContext';
-import { canAccessPos } from './auth/posAccess';
 import { ApiError } from './api/client';
-import { enterFullscreen } from './fullscreen';
 import { ThemeToggle } from './ThemeToggle';
 import logoLight from './assets/logo.png';
 import logoDark from './assets/logo-dark.png';
@@ -57,12 +55,7 @@ export function Login() {
     setError(null);
     setFieldErrors(null);
     try {
-      const user = await login(identifier, password);
-      // Cashier/Cashier Supervisor land on the register, not the Back
-      // Office — that's the "POS" this is meant for. A manager signing in
-      // on a shared office PC shouldn't have their browser chrome taken
-      // away without asking.
-      if (canAccessPos(user)) enterFullscreen();
+      await login(identifier, password);
     } catch (err) {
       if (err instanceof ApiError && err.status === 422 && err.errors) {
         // Field-specific validation (missing/malformed input) — shown

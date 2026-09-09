@@ -38,6 +38,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckOutlinedIcon from '@mui/icons-material/CheckOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import { formatDateTime } from '../regional';
 
 interface CreateForm {
   name: string;
@@ -780,7 +781,7 @@ export function UsersScreen() {
             { label: 'Phone', value: viewing?.phone },
             { label: 'Role', value: viewing ? roleName(viewing.role_id) : undefined },
             { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
-            { label: 'Last Login', value: viewing?.last_login_at ? new Date(viewing.last_login_at).toLocaleString() : undefined },
+            { label: 'Last Login', value: viewing?.last_login_at ? formatDateTime(viewing.last_login_at, user?.currency) : undefined },
           ]}
         />
         <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>

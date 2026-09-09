@@ -146,7 +146,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
           // pure-white plate made the handful of tiles that DO have a photo
           // read as holes punched in the grid. Light enough not to tint the
           // photo, dark enough to sit in the same family as its neighbours.
-          <Box sx={{ width: '100%', flex: 1, minHeight: 44, bgcolor: '#f7f9fc', p: 1.25 }}>
+          <Box sx={{ width: '100%', flex: 1, minHeight: 52, bgcolor: '#f7f9fc', p: 1.5 }}>
             <Box
               component="img"
               src={assetUrl(product.image_path as string)}
@@ -156,39 +156,30 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
             />
           </Box>
         ) : (
-          // A soft plate in the product's own hue, initials set in that
-          // same hue on top of it — not the 34px solid dot this replaced.
-          // Two problems with the dot, both visible the moment a full
-          // grid is on screen: a saturated circle floating in the middle
-          // of a white plate left the top half of every tile visibly
-          // empty, and forty of them at once read as scattered confetti
-          // rather than as a way to tell products apart.
-          //
-          // This is not the full-tile wash that was tried (and rejected
-          // for fighting the price and the cart for attention) — the tint
-          // stops at the photo plate and never reaches the text block, so
-          // the name and price below still sit on plain paper.
+          // Same near-white plate as a real photo above, at the user's
+          // request to drop the tinted gradient this used to carry (a
+          // wash of the product's own hue, meant to help tell tiles
+          // apart at a glance across a full grid). The initials stay in
+          // that hue — still enough to tell products apart by colour —
+          // but the plate itself is now plain, matching every photo tile
+          // beside it instead of standing out as the "no photo" one.
           <Box
             sx={{
               width: '100%',
               flex: 1,
-              minHeight: 40,
+              minHeight: 48,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: `linear-gradient(135deg, ${chipColor}24 0%, ${chipColor}0d 100%)`,
+              bgcolor: '#f7f9fc',
             }}
           >
             <Box
               component="span"
               sx={{
-                fontSize: 19,
+                fontSize: 22,
                 fontWeight: 800,
                 letterSpacing: '0.04em',
-                // Full-strength hue on a ~10% wash of itself. These are
-                // decoration, not content — the product's actual name is
-                // spelled out directly below — so this trades a little
-                // contrast for a tile that doesn't shout.
                 color: chipColor,
               }}
             >
@@ -201,7 +192,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
             the card's own border on the left/right, with barely a gap
             below the chip plate above it. This is the padding *inside*
             each tile, not the gap between tiles or around the grid. */}
-        <Box sx={{ px: 1.5, py: 1.25, width: '100%', flexShrink: 0 }}>
+        <Box sx={{ px: 1.75, py: 1.5, width: '100%', flexShrink: 0 }}>
           {/* Two lines, not one: at a single line most of this grid read
               "Colgate Toothpa…", "Nescafe 3-in-1 C…", "Purefoods Tende…"
               — enough to hide which variant of a product a tile actually
@@ -219,7 +210,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              minHeight: 34,
+              minHeight: 38,
               // Was 12.5/400. The name is the thing a cashier is actually
               // reading once the colour has got their eye to the right
               // tile, and at regular weight in grey-black it was the
@@ -227,7 +218,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               // decorative dot. Medium weight and full-strength text
               // colour put the emphasis back on the words.
               fontWeight: 500,
-              fontSize: 13,
+              fontSize: 14.5,
               lineHeight: 1.3,
               color: 'text.primary',
             }}
@@ -258,10 +249,10 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
                 component="span"
                 title={outOfStock ? 'Out of stock' : `${trimStock(stock)} on hand`}
                 sx={{
-                  fontSize: 10.5,
+                  fontSize: 11.5,
                   fontWeight: 700,
-                  lineHeight: 1.5,
-                  px: 0.625,
+                  lineHeight: 1.6,
+                  px: 0.75,
                   borderRadius: 0.75,
                   minWidth: 0,
                   whiteSpace: 'nowrap',
@@ -289,9 +280,8 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               sx={{
                 fontWeight: 800,
                 // "No price" is a label, not a figure to scan at a
-                // glance, so it doesn't get the same size as a real one
-                // — and at 16px it crowded the narrow card besides.
-                fontSize: unpriced ? 12 : 14.5,
+                // glance, so it doesn't get the same size as a real one.
+                fontSize: unpriced ? 13 : 16.5,
                 letterSpacing: '-0.01em',
                 whiteSpace: 'nowrap',
                 color: unpriced ? 'error.main' : POS_ACCENT,

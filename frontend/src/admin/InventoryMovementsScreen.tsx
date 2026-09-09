@@ -6,6 +6,8 @@ import { DataTable, type Column } from './DataTable';
 import { ListToolbar } from './ListToolbar';
 import Chip from '@mui/material/Chip';
 import type { ChipProps } from '@mui/material/Chip';
+import { formatDateTime } from '../regional';
+import { useAuth } from '../auth/AuthContext';
 
 const TYPE_LABELS: Record<InventoryTransaction['type'], string> = {
   purchase: 'Purchase',
@@ -24,6 +26,8 @@ function typeColor(type: InventoryTransaction['type']): ChipProps['color'] {
 
 /** Read-only audit trail behind every stock change — pairs with InventoryScreen's Stock Levels tab. */
 export function InventoryMovementsScreen() {
+  // For the movement dates below — written the country's way (see regional.ts).
+  const { user } = useAuth();
   const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, reload } =
     useList<InventoryTransaction>('/inventory/movements');
 
@@ -42,7 +46,7 @@ export function InventoryMovementsScreen() {
   const storeLabel = (id: number) => stores.find((s) => s.id === id)?.name ?? `#${id}`;
 
   const columns: Column<InventoryTransaction>[] = [
-    { key: 'created_at', label: 'Date', sortKey: 'created_at', render: (t) => new Date(t.created_at).toLocaleString() },
+    { key: 'created_at', label: 'Date', sortKey: 'created_at', render: (t) => formatDateTime(t.created_at, user?.currency) },
     { key: 'product', label: 'Product', render: (t) => productLabel(t.product_id) },
     { key: 'store', label: 'Store', render: (t) => storeLabel(t.store_id) },
     {

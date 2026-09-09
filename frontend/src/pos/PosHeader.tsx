@@ -1,13 +1,19 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { POS_HEADER_BG } from './format';
 
 interface Props {
   /** The account avatar/menu — composed by PosScreen, which owns the ~13 props AccountMenu needs. */
   actions?: ReactNode;
+  /**
+   * The store this terminal is ringing up on — same name the receipt
+   * letterhead and StatusBar's account menu already show. Optional only
+   * for the instant before the stores list has loaded; every POS user
+   * resolves to one by then (see PosScreen's assignedStore/selectedStore).
+   */
+  storeName?: string | null;
   /**
    * Where ProductSearch's search field actually mounts, via a portal —
    * this bar doesn't own the field's state (query, scanner mode, the
@@ -21,60 +27,20 @@ interface Props {
 }
 
 /**
- * Connectivity, kept from the StatusBar footer this bar absorbed — the
- * one thing in that footer that wasn't receipt content (cashier, terminal
- * and the clock all moved to ReceiptPanel's letterhead instead), and the
- * one thing there worth a glance from across the room.
- *
- * Deliberately lopsided: online is the boring, expected state, so it's a
- * bare dot with the wording left to a tooltip; offline is the state a
- * cashier has to act on, so it spells itself out in red. Reflects
- * navigator.onLine only — there is no backend heartbeat, and inventing
- * one here would claim more than the browser actually knows.
- */
-function ConnectionStatus() {
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-  }, []);
-
-  return (
-    <Tooltip title={online ? 'Online' : 'No connection — sales cannot be completed'}>
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0, px: 0.5 }}>
-        <Box
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            bgcolor: online ? 'success.main' : 'error.main',
-            flexShrink: 0,
-          }}
-        />
-        {!online && (
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'error.light' }}>
-            Offline
-          </Typography>
-        )}
-      </Stack>
-    </Tooltip>
-  );
-}
-
-/**
  * The dark top bar — the search field (mounted here via portal; see
- * searchSlotRef), connectivity, and the account menu.
+ * searchSlotRef) and the account menu.
  * Deliberately a fixed dark navy rather than following the app's own
  * light/dark theme toggle, so the icon colours and the search pill's own
  * background are forced to match it instead of to theme.palette — the
  * same reasoning ReceiptPanel forces its own light scheme regardless of
  * the app-wide setting.
+ *
+ * Connectivity used to sit here too, as a bare dot beside the account
+ * menu. Moved into ReceiptPanel's own footer instead, alongside the
+ * cashier/terminal/time line it already carries — connectivity, like
+ * those, is session/receipt-footer information the cashier glances at
+ * rather than something this bar's own controls (search, account) need
+ * to compete with.
  *
  * Display zoom used to sit here too. It moved into AccountMenu's
  * preferences: it's set once when a terminal is installed and then
@@ -88,7 +54,7 @@ function ConnectionStatus() {
  * it, so it belongs in front of whoever is watching the money rather
  * than one tap from the person holding the drawer.
  */
-export function PosHeader({ actions, searchSlotRef }: Props) {
+export function PosHeader({ actions, storeName, searchSlotRef }: Props) {
   return (
     <Stack
       direction="row"
@@ -112,6 +78,22 @@ export function PosHeader({ actions, searchSlotRef }: Props) {
         zIndex: 1,
       }}
     >
+      {/* Two-line identity where the logo used to sit: a fixed "POS System"
+          title over the store this terminal is actually ringing up on.
+          Hidden below sm — on a phone-width till this and the search field
+          can't both fit, and the search field is what the cashier's hands
+          are actually on all shift. */}
+      <Stack sx={{ minWidth: 0, flexShrink: 0, display: { xs: 'none', sm: 'block' } }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 15, lineHeight: 1.25, color: '#fff' }} noWrap>
+          POS System
+        </Typography>
+        {storeName && (
+          <Typography variant="caption" sx={{ lineHeight: 1.25, color: 'rgba(255,255,255,.62)' }} noWrap>
+            {storeName}
+          </Typography>
+        )}
+      </Stack>
+
       {/* Portal target for ProductSearch's search field — see searchSlotRef.
           Sized here rather than left to the portaled content's own width,
           so the header's layout (logo | search | icons) is stable even
@@ -134,7 +116,6 @@ export function PosHeader({ actions, searchSlotRef }: Props) {
       <Box ref={searchSlotRef} sx={{ flex: 1, maxWidth: 900, minWidth: 0 }} />
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
-        <ConnectionStatus />
         {actions}
       </Stack>
     </Stack>

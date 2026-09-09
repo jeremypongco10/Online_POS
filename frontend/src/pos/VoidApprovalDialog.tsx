@@ -21,8 +21,22 @@ import type { CartLine } from './posTypes';
 import { calculateLine } from './posTypes';
 import { formatMoney, formatQuantity, posRaisedButtonSx } from './format';
 
-/** Which action is awaiting sign-off — one cart line, or the whole cart via Cancel Sale. Each hits its own backend endpoint (see submit()) so the audit trail records them as distinct event kinds. */
-export type VoidSubject = { kind: 'item'; line: CartLine } | { kind: 'cart'; itemCount: number; amount: number };
+/**
+ * Which action is awaiting sign-off — one cart line (all of it, or part
+ * of it), or the whole cart via Cancel Sale. Each hits its own backend
+ * endpoint (see submit()) so the audit trail records them as distinct
+ * event kinds.
+ *
+ * `voidQuantity` is how much of the line to remove — omitted (or equal
+ * to the line's own quantity) means the whole line, same as every void
+ * before VoidItemDialog existed; anything less is a partial void that
+ * leaves the remainder in the cart. Optional rather than always required
+ * so the cart row's own void button (which only ever means "all of it")
+ * doesn't have to restate `line.quantity` back at this type.
+ */
+export type VoidSubject =
+  | { kind: 'item'; line: CartLine; voidQuantity?: number }
+  | { kind: 'cart'; itemCount: number; amount: number };
 
 interface Props {
   subject: VoidSubject | null;
@@ -91,6 +105,16 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
   if (!subject) return null;
 
   const lineTotals = subject.kind === 'item' ? calculateLine(subject.line) : null;
+  // How much of the line this actually covers, and its own slice of the
+  // line's value — proportional to the full line's already-computed
+  // gross (itself net of any discount/tax), since there's no per-unit
+  // split of those already on the line to read instead. Exact for the
+  // common case (voidQuantity omitted or equal to the full line, the
+  // ratio is 1), approximate only for a genuine partial void.
+  const voidQuantity = subject.kind === 'item' ? (subject.voidQuantity ?? subject.line.quantity) : null;
+  const isPartialVoid = subject.kind === 'item' && voidQuantity! < subject.line.quantity;
+  const voidAmount =
+    subject.kind === 'item' ? (isPartialVoid ? lineTotals!.gross * (voidQuantity! / subject.line.quantity) : lineTotals!.gross) : null;
   const resolvedReason = reason === 'Other' ? otherReason.trim() : reason;
 
   async function submit(e: FormEvent) {
@@ -108,7 +132,7 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
           kind: subject.kind,
           reason: resolvedReason,
           ...(subject.kind === 'item'
-            ? { product_name: subject.line.product.name, quantity: subject.line.quantity, amount: lineTotals!.gross }
+            ? { product_name: subject.line.product.name, quantity: voidQuantity, amount: voidAmount }
             : { item_count: subject.itemCount, amount: subject.amount }),
         });
         onApproved('');
@@ -129,8 +153,8 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
                 password,
                 reason: resolvedReason,
                 product_name: subject.line.product.name,
-                quantity: subject.line.quantity,
-                amount: lineTotals!.gross,
+                quantity: voidQuantity,
+                amount: voidAmount,
                 store_id: storeId ?? undefined,
               },
               { suppressUnauthorizedHandler: true }
@@ -195,12 +219,18 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
                     {subject.line.product.name}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {formatQuantity(subject.line.quantity, subject.line.unit?.abbreviation ?? null, subject.line.unit?.decimal_places ?? 0)}{' '}
-                    × {formatMoney(subject.line.unitPrice)}
+                    {formatQuantity(voidQuantity!, subject.line.unit?.abbreviation ?? null, subject.line.unit?.decimal_places ?? 0)} ×{' '}
+                    {formatMoney(subject.line.unitPrice)}
+                    {/* Only shown for a genuine partial void — restates
+                        what's staying behind, so the approver (who may
+                        not be the cashier who picked the quantity) can
+                        see at a glance that this isn't the whole line. */}
+                    {isPartialVoid &&
+                      ` (of ${formatQuantity(subject.line.quantity, subject.line.unit?.abbreviation ?? null, subject.line.unit?.decimal_places ?? 0)} in cart)`}
                   </Typography>
                 </Box>
                 <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-                  {formatMoney(lineTotals!.gross)}
+                  {formatMoney(voidAmount!)}
                 </Typography>
               </>
             ) : (

@@ -68,6 +68,14 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   { key: 'F8', action: 'return', group: 'past', label: 'Return', detail: 'While the cart is empty: open the Returns screen in the Back Office to process a past sale.' },
   { key: 'F9', action: 'cancel', group: 'sale', label: 'Cancel Sale', detail: 'While the cart has items: clear the whole cart. Asks for confirmation, and may need supervisor approval.' },
   { key: 'F10', action: 'cart', group: 'sale', label: 'Select cart line', detail: 'Select the first item in the cart, then step through with the arrow keys. Esc clears the selection. The search box keeps focus throughout, so a scan still rings up normally.' },
+  // No `action` — like the arrow/Enter/Esc entries below, this only
+  // means anything relative to something else already having focus (or
+  // here, selection): PosScreen's own F10 capture effect binds this
+  // directly rather than through useKeyboardShortcuts, since it must
+  // only fire while a line is actually selected. Listed here anyway so
+  // the Help dialog documents it and this can't drift from what the
+  // code does the way a hand-written legend would.
+  { key: 'Delete', group: 'sale', label: 'Void selected line', detail: 'With a cart line selected (F10): opens the void flow for that line, quantity included. Backspace is left alone on purpose, so correcting a typed search never risks voiding anything.' },
   // F11 specifically, past F10, carries one real caveat the F1-F10 range
   // doesn't: on a desktop browser with a physical keyboard, F11 is also
   // the OS/browser's own fullscreen toggle. preventDefault() suppresses

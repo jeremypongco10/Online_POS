@@ -37,10 +37,12 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
       id={PRODUCT_GRID_ID}
       sx={{
         display: 'grid',
-        // A middle ground between the original 144px and the 112px this
-        // replaced — 112 packed in more columns than it was worth once the
-        // cards started reading as cramped rather than dense.
-        gridTemplateColumns: 'repeat(auto-fill, minmax(128px, 1fr))',
+        // 128 -> 150. Was already a middle ground once (against an
+        // original 144px, then a rejected 112px that packed in more
+        // columns than it was worth) — moved again on a direct "make the
+        // product list bigger" request: fewer, larger tiles, easier to
+        // read and to hit on a touch till at a glance across the store.
+        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
         // Deliberately a FIXED row height, not `minmax(…, 1fr)`: fr rows
         // share out whatever vertical space is left over, so the very
         // same card came out tall under a one-row category filter and
@@ -48,12 +50,11 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
         // tile that changes size with the result count reads as a bug —
         // uniform tiles, with honest empty space under a short list, is
         // what every POS grid does and what stays scannable.
-        // 150 -> 162 -> 174: first for the name's second line, then again
-        // for the text block's own internal padding (see ProductCard) —
-        // otherwise the extra padding ate into the fixed-height chip/photo
-        // plate above it instead of adding real breathing room.
-        gridAutoRows: 174,
-        gap: 1.25,
+        // 174 -> 198, in step with the column widening above and with
+        // ProductCard's own larger type/padding — a wider card at the old
+        // row height would have come out squat rather than simply bigger.
+        gridAutoRows: 198,
+        gap: 1.5,
         // Keeps a short list packed at the top rather than letting the
         // rows drift apart to fill the panel.
         alignContent: 'start',

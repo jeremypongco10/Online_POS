@@ -42,6 +42,10 @@ export const POS_ACTION_TINTS = {
   customer: POS_ACCENT,
   bagger: '#0891b2',
   discount: '#e11d48',
+  // Distinct from Cancel Sale's stronger, saturated red — this removes
+  // one item, not the whole sale, so it reads as "requires care" rather
+  // than "about to destroy everything", the way Cancel's colour needs to.
+  voidItem: '#ea580c',
   return: '#7c3aed',
   reprint: '#0d9488',
   cancel: '#dc2626',

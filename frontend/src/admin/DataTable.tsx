@@ -79,26 +79,21 @@ export function DataTable<T>({
     }
   }
 
+  // Flat, not a card. Every list screen now renders inside AdminLayout's
+  // own page card, so the border, radius and shadow this used to carry put
+  // a card inside a card — two nested rounded outlines a few pixels apart,
+  // which the reference design does not have. The table just sits on the
+  // surface it's given; only the header band and the pagination rule
+  // separate it from what's above.
   return (
     <Paper
       variant="outlined"
       sx={{
-        borderRadius: { xs: 0, sm: 2.5 },
+        borderRadius: 0,
         overflow: 'hidden',
-        borderColor: 'divider',
-        // Plain 'divider' (no var()) here would silently no-op — borderLeft/
-        // borderRightColor aren't in the set of props MUI's sx resolves
-        // theme color keywords for, so it'd fall back to currentColor
-        // (white in dark mode) instead of the intended grey.
-        borderLeft: { xs: 0, sm: '1px solid var(--mui-palette-divider)' },
-        borderRight: { xs: 0, sm: '1px solid var(--mui-palette-divider)' },
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
-        // Cancels AdminLayout's page-level horizontal padding (p: { xs:
-        // 2.5, ... }) so the table runs edge-to-edge on a phone instead of
-        // sitting inset with a narrow strip of empty page on both sides —
-        // every list screen uses this same component, so this fixes all
-        // of them at once, not just wherever it's currently visible.
-        mx: { xs: -2.5, sm: 0 },
+        border: 0,
+        boxShadow: 'none',
+        bgcolor: 'transparent',
       }}
     >
       {error && (
@@ -107,15 +102,33 @@ export function DataTable<T>({
         </Alert>
       )}
       <TableContainer>
-        <Table size="small">
-          <TableHead>
+        {/* Default (comfortable) density, not `size="small"` — the dense
+            variant was what made every list in the app read as cramped
+            next to a normal reference UI: small shaves padding *and* font
+            size on every cell, table-wide, and there's no isolated way to
+            get the row-height back without it. This one line is why every
+            list screen looked "not modern" at once, not a per-screen
+            issue. */}
+        <Table>
+          {/* A contained band with rounded ends, not a full-bleed
+              stripe — it sits inside the page card's padding, so
+              square corners would read as a strip that had been cut
+              off at both sides. */}
+          <TableHead
+            sx={{
+              bgcolor: 'action.hover',
+              '& th:first-of-type': { borderTopLeftRadius: 10, borderBottomLeftRadius: 10 },
+              '& th:last-of-type': { borderTopRightRadius: 10, borderBottomRightRadius: 10 },
+              '& th': { borderBottom: 0 },
+            }}
+          >
             <TableRow>
               {columns.map((col) => (
                 <TableCell
                   key={col.key}
                   align={col.align ?? 'left'}
                   sortDirection={activeSortKey === col.sortKey ? activeSortDir : false}
-                  sx={col.width ? { width: col.width, whiteSpace: 'nowrap' } : undefined}
+                  sx={{ fontWeight: 700, fontSize: 13, ...(col.width ? { width: col.width, whiteSpace: 'nowrap' } : null) }}
                 >
                   {col.sortKey ? (
                     <TableSortLabel
@@ -131,7 +144,7 @@ export function DataTable<T>({
                 </TableCell>
               ))}
               {rowActions && (
-                <TableCell align="right" sx={{ width: '1%', whiteSpace: 'nowrap' }}>
+                <TableCell align="right" sx={{ width: '1%', whiteSpace: 'nowrap', fontWeight: 700, fontSize: 13 }}>
                   Actions
                 </TableCell>
               )}
@@ -200,9 +213,12 @@ export function DataTable<T>({
           sx={{
             borderTop: '1px solid',
             borderColor: 'divider',
-            bgcolor: 'action.hover',
-            minHeight: 40,
-            '& .MuiToolbar-root': { minHeight: 40, pl: 2, pr: 1 },
+            // Left on the card rather than tinted: the header band above is
+            // the one shaded strip in this table, and a second one down here
+            // boxed the rows in on both sides.
+            minHeight: 56,
+            '& .MuiToolbar-root': { minHeight: 56, pl: 2.5, pr: 1.5 },
+            '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: 13.5 },
           }}
         />
       )}
