@@ -10,16 +10,20 @@ type Handlers = Record<PosShortcutAction, () => void> & {
  * Binds the shortcuts declared in posShortcuts.ts — that list is what the
  * Help dialog documents, so keys, labels and behaviour can't drift apart.
  * (F7 was Refund, removed as a duplicate of Return; it's since been
- * reused for Reprint receipt, whose 'reprint' action this hook binds —
- * see that entry's comment in posShortcuts.ts for how it hands off to
- * ReceiptModal's own local F7 listener once a receipt is actually on
- * screen. Renumbering the rest for either change would have retrained
- * everyone for nothing. Bagger and Hold swapped to F4/F6 per a direct
- * request.)
+ * reused for Reprint receipt AND, once the cart has items, Void Item —
+ * both live behind the one 'reprint' action this hook binds, since F11
+ * couldn't be spared from Pay for Void Item (browsers reserve F12 for
+ * DevTools, so there was nowhere else to put it) and Reprint/Void Item
+ * are never on screen at the same time anyway. See that action's entry
+ * in posShortcuts.ts for the full three-way breakdown, including how it
+ * hands off to ReceiptModal's own local F7 listener once a receipt is
+ * actually on screen. Renumbering the rest for either change would have
+ * retrained everyone for nothing. Bagger and Hold swapped to F4/F6 per a
+ * direct request.)
  *
  * Search/Customer/Bagger/Pay/Help DOM-click their own control rather than
  * taking a lifted callback, since those controls' open state lives in
- * ProductBrowser, PosHeader or CartActionsRow (Help, which moved down
+ * ProductBrowser, ReceiptPanel or CartActionsRow (Help, which moved down
  * there with the rest of the function keys) rather than in PosScreen;
  * Hold/Return/Cancel take a plain callback because PosScreen already owns
  * those handlers.

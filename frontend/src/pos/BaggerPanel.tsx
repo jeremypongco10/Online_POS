@@ -110,7 +110,10 @@ export function BaggerPanel({ storeId, bagger, onSelect }: Props) {
             sx={{
               alignItems: 'center',
               p: 2,
-              background: `linear-gradient(135deg, ${POS_ACCENT}1f 0%, ${POS_ACCENT}0a 100%)`,
+              // Flat, matching CustomerLoyaltyPanel's identical header —
+              // see that component for why this is a wash rather than a
+              // solid accent bar.
+              bgcolor: `${POS_ACCENT}14`,
             }}
           >
             <Avatar sx={{ width: 52, height: 52, fontWeight: 700, fontSize: 18, bgcolor: POS_ACCENT, color: '#fff' }}>

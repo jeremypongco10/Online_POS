@@ -19,3 +19,7 @@ backend/writable/backups/
 # Generated SQLite schema for the test suite (rebuilt by
 # tests/_support/build-test-db.php — see tests/integration/*Test.php)
 backend/writable/tests.db
+
+# Local database dumps — contain password hashes, customer records and
+# the full audit trail. Never belong in the repo.
+backups/

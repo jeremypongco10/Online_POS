@@ -37,12 +37,13 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
       id={PRODUCT_GRID_ID}
       sx={{
         display: 'grid',
-        // 128 -> 150. Was already a middle ground once (against an
+        // 128 -> 150 -> 164. Was already a middle ground once (against an
         // original 144px, then a rejected 112px that packed in more
-        // columns than it was worth) — moved again on a direct "make the
-        // product list bigger" request: fewer, larger tiles, easier to
-        // read and to hit on a touch till at a glance across the store.
-        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+        // columns than it was worth) — widened twice since on direct
+        // "make the product list bigger" / "bigger touch targets"
+        // requests: fewer, larger tiles, easier to read and to hit on a
+        // touch till at a glance across the store.
+        gridTemplateColumns: 'repeat(auto-fill, minmax(164px, 1fr))',
         // Deliberately a FIXED row height, not `minmax(…, 1fr)`: fr rows
         // share out whatever vertical space is left over, so the very
         // same card came out tall under a one-row category filter and
@@ -50,10 +51,11 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
         // tile that changes size with the result count reads as a bug —
         // uniform tiles, with honest empty space under a short list, is
         // what every POS grid does and what stays scannable.
-        // 174 -> 198, in step with the column widening above and with
-        // ProductCard's own larger type/padding — a wider card at the old
-        // row height would have come out squat rather than simply bigger.
-        gridAutoRows: 198,
+        // 174 -> 198 -> 214, in step with the column widening above and
+        // with ProductCard's own larger type/padding — a wider card at
+        // the old row height would have come out squat rather than simply
+        // bigger.
+        gridAutoRows: 214,
         gap: 1.5,
         // Keeps a short list packed at the top rather than letting the
         // rows drift apart to fill the panel.

@@ -56,15 +56,34 @@ export const POS_SHORTCUTS: PosShortcut[] = [
   // conditionally-rendered buttons; a missing element silently no-ops.
   { key: 'F5', action: 'discount', group: 'sale', label: 'Discount', detail: 'Open the discount picker for the whole sale — pick a type once and the POS applies it to every eligible item.' },
   { key: 'F6', action: 'hold', group: 'sale', label: 'Hold', detail: 'Park the current cart so the next customer can be served, and resume it later from the account menu.' },
-  // Does double duty, and only one half runs through the global handler
-  // below. With no receipt on screen, F7 opens the invoice lookup
-  // (ReprintReceiptDialog) via the 'reprint' action here. But the moment
-  // a receipt IS on screen — right after checkout, or after that lookup
-  // finds one — the global handler is disabled entirely (blockingDialogOpen
-  // in PosScreen), so F7 falls through to ReceiptModal's own local
-  // listener instead, which just prints what's already showing. Same key,
-  // whichever half currently applies; documented once, here, either way.
-  { key: 'F7', action: 'reprint', group: 'past', label: 'Reprint receipt', detail: 'While the cart is empty: look up a past sale by invoice number and print its receipt. While a receipt is already on screen, prints that one instead.' },
+  { key: 'F7', action: 'reprint', group: 'sale', label: 'Void Item', detail: 'While the cart has items: find one by SKU, barcode or name — the same flow as the Void Item button — then choose how much of it to remove.' },
+  // F7 does TRIPLE duty, which is why it appears TWICE in this list below
+  // — once filed under Past sales (as Reprint receipt) and once under
+  // This sale (as Void Item) — even though both share the one 'reprint'
+  // action that actually gets bound. Splitting it into two list entries,
+  // rather than the single combined one this used to be, is what lets a
+  // cashier scanning either column actually find it: someone looking for
+  // "how do I void an item" under This Sale won't think to read Past
+  // Sales' Reprint entry for the answer.
+  //
+  // Only two of the three duties route through the bound action, though.
+  // With the cart empty and no receipt on screen, F7 opens the invoice
+  // lookup (ReprintReceiptDialog) — the Reprint receipt entry below. With
+  // the cart NOT empty, CartActionsRow swaps Reprint out for Void Item —
+  // same key, same bound action, entirely different button (see
+  // PosScreen's reprint handler, which DOM-clicks whichever of the two
+  // actually exists) — the Void Item entry below. Reprint and Void Item
+  // are never both on screen at once, so despite two entries here, F7
+  // never means two things at the same moment.
+  //
+  // The third duty bypasses this action entirely: with the cart empty
+  // and a receipt already on screen — right after checkout, or after the
+  // reprint lookup finds one — the global handler is disabled altogether
+  // (blockingDialogOpen in PosScreen), so F7 instead reaches ReceiptModal's
+  // own local listener, which just prints what's already showing. That
+  // case isn't a separate list entry; it's folded into the Reprint
+  // receipt one below, the same way it always was.
+  { key: 'F7', action: 'reprint', group: 'past', label: 'Reprint receipt', detail: 'While the cart is empty: look up a past sale by invoice number and print its receipt (or, with a receipt already on screen, print that one instead).' },
   { key: 'F8', action: 'return', group: 'past', label: 'Return', detail: 'While the cart is empty: open the Returns screen in the Back Office to process a past sale.' },
   { key: 'F9', action: 'cancel', group: 'sale', label: 'Cancel Sale', detail: 'While the cart has items: clear the whole cart. Asks for confirmation, and may need supervisor approval.' },
   { key: 'F10', action: 'cart', group: 'sale', label: 'Select cart line', detail: 'Select the first item in the cart, then step through with the arrow keys. Esc clears the selection. The search box keeps focus throughout, so a scan still rings up normally.' },

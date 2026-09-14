@@ -40,17 +40,41 @@ const SEARCH_FIELD_ID = 'pos-product-search';
 
 /**
  * The floor the corrective effect below enforces on the product search
- * field's real rendered width. This isn't cosmetic: PosHeader's logo, help/
- * cash-movement icons, and this very zoom control are all fixed-width, so
- * zooming in shrinks the *logical* space available to lay everything out —
- * past a point, only the one flexible element left (the search field) pays
- * for it. Measured directly (not derived from a fixed max-zoom percentage)
+ * field's real rendered width. This isn't cosmetic: the category rail, the
+ * grid/list toggle beside the field, and this very zoom control are all
+ * fixed-width, so zooming in shrinks the *logical* space available to lay
+ * everything out — past a point, only the one flexible element left (the
+ * search field) pays for it. Measured directly (not derived from a fixed
+ * max-zoom percentage)
  * because the actual safe ceiling depends on the window's width, which a
  * single constant can't account for: at a 1440px-wide window the field was
  * still 128px at 130% zoom, but at the 900px floor where zoom controls
  * start being offered at all, it was already down to 11px at just 100%.
  */
 const MIN_SEARCH_WIDTH = 160;
+
+/**
+ * The zoom this hook currently has applied to the page, as a plain
+ * multiplier (1 when none is).
+ *
+ * Exported because CSS `zoom` splits the page into two coordinate spaces,
+ * and anything that does its own geometry has to convert between them:
+ * `getBoundingClientRect()` (and `window.innerWidth`/`innerHeight`)
+ * report *visual* pixels, already multiplied by this, while a number
+ * written to an element's own top/left/right is interpreted in *layout*
+ * pixels and multiplied by it again when painted. Dividing a measured
+ * rect by this converts it into the space an inline style is written in.
+ * See AccountMenu for the bug that costs when it's skipped.
+ *
+ * Reads the inline style this module writes rather than computed style:
+ * it's the same value, and `zoom` is missing from getComputedStyle in
+ * browsers that don't support the property at all — where it also isn't
+ * being applied, so 1 is the correct answer there anyway.
+ */
+export function readPosZoom(): number {
+  const applied = parseFloat(document.documentElement.style.zoom);
+  return Number.isFinite(applied) && applied > 0 ? applied : 1;
+}
 
 function clamp(zoom: number): number {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
@@ -199,17 +223,18 @@ export function usePosZoom(): PosZoomControl {
   // the cascade).
   //
   // Polls across a few frames rather than checking once: the field isn't
-  // in the DOM this hook's very first commit (it reaches its slot in
-  // PosHeader via a portal, which needs an extra render after the slot's
-  // ref attaches), so a single rAF on mount — with a persisted override
-  // from a previous, wider window — would find nothing yet, skip the
-  // check, and never get another chance since `applied` doesn't change
-  // again on its own. Once the field exists this resolves on the very
-  // first frame, same as before, for every later click of the controls.
+  // in the DOM this hook's very first commit — ProductBrowser (and the
+  // search field inside it) only mounts once the register's cash-session
+  // gate clears, which is itself async — so a single rAF on mount — with a
+  // persisted override from a previous, wider window — would find nothing
+  // yet, skip the check, and never get another chance since `applied`
+  // doesn't change again on its own. Once the field exists this resolves
+  // on the very first frame, same as before, for every later click of the
+  // controls.
   useEffect(() => {
     let frame = 0;
     let attempts = 0;
-    const MAX_ATTEMPTS = 90; // ~1.5s at 60fps — generous for the portal to connect, bounded so this can't poll forever if the field is never on screen.
+    const MAX_ATTEMPTS = 90; // ~1.5s at 60fps — generous for the cash-session gate to clear, bounded so this can't poll forever if the field is never on screen.
 
     const check = () => {
       const field = document.getElementById(SEARCH_FIELD_ID);

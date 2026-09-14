@@ -8,15 +8,17 @@ use App\Models\CompanyModel;
 use App\Models\CustomerModel;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
-use App\Models\InvoiceSequenceModel;
+use App\Models\InvoiceSeriesModel;
 use App\Models\LoyaltyCardModel;
 use App\Models\LoyaltyPointTransactionModel;
 use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
 use App\Models\ProductModel;
+use App\Models\RegisterModel;
 use App\Models\SaleItemModel;
 use App\Models\SaleModel;
 use App\Models\StoreModel;
+use App\Models\TransactionCounterModel;
 use App\Models\UnitModel;
 use App\Models\UserModel;
 use App\Models\UserStoreModel;
@@ -24,6 +26,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
 use Config\Database;
 use Config\Services;
+use RuntimeException;
 
 /**
  * /api/v1/sales — ringing up sales, voiding, and reading sale history.
@@ -70,6 +73,11 @@ class SalesController extends BaseCrudController
 
         $taxService = Services::taxService();
         $vatAmount = 0.0;
+        // The VAT-EXCLUSIVE base of the taxable lines. BIR wants this
+        // printed next to the VAT itself — "VATable Sales" and "VAT
+        // Amount" are two required lines, not one: the tax alone doesn't
+        // say what was taxed to arrive at it.
+        $vatableSales = 0.0;
         $vatExemptAmount = 0.0;
         $zeroRatedAmount = 0.0;
         $nonVatAmount = 0.0;
@@ -79,6 +87,7 @@ class SalesController extends BaseCrudController
             switch ($item->tax_type) {
                 case 'vat':
                     $vatAmount += (float) $item->tax_amount;
+                    $vatableSales += $net;
                     break;
                 case 'vat_exempt':
                     $vatExemptAmount += $net;
@@ -92,6 +101,10 @@ class SalesController extends BaseCrudController
         }
 
         return $this->ok([
+            // The receipt's own sale id, so the POS can report back that
+            // this one went to paper (see markPrinted()) without the
+            // caller having to carry the id separately.
+            'sale_id' => (int) $sale->id,
             'company' => [
                 'name' => $sale->company_name,
                 'tin' => $sale->company_tin,
@@ -102,7 +115,24 @@ class SalesController extends BaseCrudController
                 'vat_reg_tin' => $sale->store_vat_reg_tin,
                 'pos_serial_no' => $sale->store_pos_serial_no,
                 'min_no' => $sale->store_min_no,
+                // Read live rather than snapshotted: a Permit to Use is
+                // renewed on its own cycle, and a reprint should show the
+                // permit the machine holds, not one that has since lapsed.
+                'ptu_number' => model(StoreModel::class)->find((int) $sale->store_id)->ptu_number ?? null,
             ],
+            // The Sold To block a VAT invoice carries for a business
+            // purchase — null on an ordinary walk-in sale, where there is
+            // no registered buyer to name.
+            'buyer' => [
+                'name' => $sale->customer_name,
+                'address' => $sale->customer_address,
+                'tin' => $sale->customer_tin,
+                'business_style' => $sale->customer_business_style,
+            ],
+            'is_training' => (bool) $sale->is_training,
+            // Anything past the first print is a duplicate and has to say
+            // so on the paper — see markPrinted() below.
+            'is_reprint' => (int) $sale->print_count > 0,
             // Top-level, not nested under `store`: this prints at the
             // BOTTOM of the receipt, physically far from the header block
             // above, so it reads better as its own field than as one more
@@ -110,6 +140,10 @@ class SalesController extends BaseCrudController
             // from the rest of that group.
             'footer_note' => $sale->store_receipt_footer_note,
             'invoice_number' => $sale->invoice_number,
+            // Distinct from invoice_number above — see
+            // AddTransactionNumberSettingsToCompanies. Null under the
+            // per_session reset rule when no cash session was attached.
+            'transaction_no' => $sale->transaction_no,
             'date' => $sale->sale_date,
             'cashier' => $sale->cashier_name,
             'bagger' => $sale->bagger_name,
@@ -147,6 +181,7 @@ class SalesController extends BaseCrudController
             // per-line tax_type on sale_items (unaffected by this flag)
             // remains the source of truth for BIR sales reports.
             'show_bir_details' => (bool) $sale->show_bir_details,
+            'vatable_sales' => round($vatableSales, 2),
             'vat_amount' => round($vatAmount, 2),
             'vat_exempt_amount' => round($vatExemptAmount, 2),
             'zero_rated_amount' => round($zeroRatedAmount, 2),
@@ -266,6 +301,21 @@ class SalesController extends BaseCrudController
         $taxService = Services::taxService();
         $paymentService = Services::paymentService();
         $inventoryCalc = Services::inventoryCalculator();
+
+        /**
+         * Loaded here rather than with the other receipt snapshots below,
+         * because the line loop needs it: a business that has not
+         * registered with the BIR charges no tax at all (see
+         * AddBirRegisteredToCompanies), so every line resolves to no rate
+         * regardless of what the product carries or the client sends.
+         *
+         * Enforced server-side on purpose. The POS hides tax when this is
+         * off, but "the screen didn't show it" is not what decides whether
+         * tax was collected — this is.
+         */
+        $company = model(CompanyModel::class)->find((int) $payload['company_id']);
+        $taxEnabled = $company === null || (bool) $company->is_bir_registered;
+
         $productModel = model(ProductModel::class);
         $unitModel = model(UnitModel::class);
         $inventoryModel = model(InventoryModel::class);
@@ -304,7 +354,7 @@ class SalesController extends BaseCrudController
                     return $this->apiFail("unit_price must be greater than zero for custom item: {$name}", 422);
                 }
 
-                $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
+                $taxRate = $taxEnabled ? $taxService->resolveRate($item['tax_rate_id'] ?? null) : null;
                 $discountType = $item['discount_type'] ?? null;
                 $result = $this->resolveLineDiscount(
                     $taxService,
@@ -366,7 +416,7 @@ class SalesController extends BaseCrudController
             $requiredQtyByProduct[$item['product_id']] = ($requiredQtyByProduct[$item['product_id']] ?? 0) + $quantity;
 
             $unitPrice = (float) $item['unit_price'];
-            $taxRate = $taxService->resolveRate($item['tax_rate_id'] ?? null);
+            $taxRate = $taxEnabled ? $taxService->resolveRate($item['tax_rate_id'] ?? null) : null;
             $discountType = $item['discount_type'] ?? null;
             $result = $this->resolveLineDiscount(
                 $taxService,
@@ -498,34 +548,104 @@ class SalesController extends BaseCrudController
         // right now — a later rename of the company/store/customer, or a
         // cashier's display name changing, must never alter this invoice. ---
         $cashierId = (int) ($payload['user_id'] ?? Services::authContext()->userId);
-        $company = model(CompanyModel::class)->find((int) $payload['company_id']);
+        // $company is already loaded above, where the line loop needed it
+        // for the tax-enabled check — not re-fetched here.
         $store = model(StoreModel::class)->find((int) $payload['store_id']);
         // Gates whether the BIR identifiers below are actually written
         // onto the sale, not just whether they're filled in — see
         // AddShowBirDetailsToStores. Consulted exactly once, right here:
         // toggling the store's setting after this sale exists can never
         // reach back and change what already printed.
-        $showBirDetails = $store === null || (bool) $store->show_bir_details;
+        // ...and gated again by whether the business is BIR-registered at
+        // all: an unregistered business has no VAT breakdown to print and
+        // no accreditation numbers to print it under, so the per-branch
+        // switch can't turn them on.
+        $showBirDetails = $taxEnabled && ($store === null || (bool) $store->show_bir_details);
         $cashier = model(UserModel::class)->find($cashierId);
-        $customerName = ! empty($payload['customer_id'])
-            ? (model(CustomerModel::class)->find((int) $payload['customer_id'])->name ?? null)
+        // The buyer block a VAT invoice carries for a business purchase —
+        // name, address, TIN and business style — snapshotted like every
+        // other receipt field so editing the customer later can't restate
+        // an invoice already issued.
+        $customer = ! empty($payload['customer_id'])
+            ? model(CustomerModel::class)->find((int) $payload['customer_id'])
             : null;
+        $customerName = $customer->name ?? null;
+
+        // Training sales are rung up exactly like real ones so a cashier
+        // learns the real flow, but they're marked here and then excluded
+        // from every total, report and reading, and they never consume a
+        // real invoice number (see the numbering block below).
+        $register = model(RegisterModel::class)->find((int) $payload['register_id']);
+        $isTraining = $register !== null && (bool) $register->is_training_mode;
 
         $db = Database::connect();
         $db->transStart();
 
         // --- Generate invoice number (see class-level note on ordering) ---
-        $invoiceNumber = model(InvoiceSequenceModel::class)->nextNumber(
-            (int) $payload['company_id'],
-            (int) $payload['store_id'],
-            'sale',
-            'INV-'
-        );
+        // InvoiceSeriesModel::nextNumber() is the Sales Invoice Configuration
+        // module's own atomic, row-locked generator (see that model) —
+        // superseding InvoiceSequenceModel, which is left in place untouched
+        // for the other two types (purchase_order/return; see PurchasesController)
+        // and for the historical record of numbers already issued through it.
+        // 'Sales Invoice' is the one invoice_type this POS's single checkout
+        // flow resolves to; a branch with no active series for it throws here,
+        // caught below and turned into a 422 the cashier sees as checkoutError.
+        // A training sale must never burn a number out of the real BIR
+        // series — the series has to account for every number it issues,
+        // and a practice transaction is not one of them. It gets its own
+        // obviously-not-an-invoice number from a per-register counter
+        // instead, and the receipt is stamped TRAINING on top of that.
+        if ($isTraining) {
+            $trainingNo = model(TransactionCounterModel::class)->nextNumber((int) $payload['register_id'], 'training');
+            $invoiceNumber = 'TRN-' . str_pad((string) $trainingNo, 8, '0', STR_PAD_LEFT);
+        } else {
+            try {
+                $invoiceResult = model(InvoiceSeriesModel::class)->nextNumber(
+                    (int) $payload['company_id'],
+                    (int) $payload['store_id'],
+                    'Sales Invoice'
+                );
+            } catch (RuntimeException $e) {
+                $db->transRollback();
+
+                return $this->apiFail($e->getMessage(), 422);
+            }
+            $invoiceNumber = $invoiceResult['formatted'];
+        }
+
+        // --- Generate transaction number: a plain internal shift
+        // reference, distinct from the invoice number above and
+        // separately configurable (see
+        // AddTransactionNumberSettingsToCompanies) — company.
+        // transaction_no_reset_rule decides which TransactionCounterModel
+        // scope this sale's number is drawn from:
+        //   - per_session: resets with each new cash session; null if no
+        //     session is attached (nothing to scope the counter to).
+        //   - per_register: one sequence per register, never reset.
+        //   - per_day: resets at the start of each calendar day.
+        // The counter itself is always a bare int; prefix/length here are
+        // purely cosmetic formatting, mirroring how invoice numbers are
+        // formatted from invoice_series' prefix/number_length.
+        $resetRule = $company->transaction_no_reset_rule ?? 'per_session';
+        $scopeKey = match ($resetRule) {
+            'per_register' => 'register',
+            'per_day' => date('Y-m-d'),
+            default => ! empty($payload['cash_session_id']) ? 'session:' . $payload['cash_session_id'] : null,
+        };
+
+        $transactionNo = null;
+        if ($scopeKey !== null) {
+            $rawNumber = model(TransactionCounterModel::class)->nextNumber((int) $payload['register_id'], $scopeKey);
+            $length = (int) ($company->transaction_no_length ?? 0);
+            $transactionNo = ($company->transaction_no_prefix ?? '')
+                . ($length > 0 ? str_pad((string) $rawNumber, $length, '0', STR_PAD_LEFT) : (string) $rawNumber);
+        }
 
         // --- Create sale ---
         $saleId = $this->model->insert([
             ...$payload,
             'invoice_number' => $invoiceNumber,
+            'transaction_no' => $transactionNo,
             'status' => 'completed',
             'sale_date' => date('Y-m-d H:i:s'),
             'subtotal' => $subtotal,
@@ -552,6 +672,10 @@ class SalesController extends BaseCrudController
             'cashier_name' => $cashier->name ?? null,
             'bagger_name' => $bagger->name ?? null,
             'customer_name' => $customerName,
+            'customer_address' => $customer->address ?? null,
+            'customer_tin' => $customer->tax_id ?? null,
+            'customer_business_style' => $customer->business_style ?? null,
+            'is_training' => $isTraining ? 1 : 0,
             'loyalty_card_number' => $loyaltyCard->card_number ?? null,
         ], true);
 
@@ -641,6 +765,16 @@ class SalesController extends BaseCrudController
             }
         }
 
+        // --- Accumulated grand total: the terminal's lifetime total, only
+        // ever added to, and the figure every X/Z-reading is bracketed by
+        // (see BirReadingService). Inside the transaction, so a checkout
+        // that rolls back can't leave the machine claiming a sale it
+        // never completed. Training sales are not sales and never touch
+        // it. ---
+        if (! $isTraining) {
+            Services::birReadingService()->addToGrandTotal((int) $payload['register_id'], (float) $total);
+        }
+
         // --- COMMIT ---
         $db->transComplete();
 
@@ -687,6 +821,33 @@ class SalesController extends BaseCrudController
      * no POS-only role (Cashier, Bagger, Cashier Supervisor) holds, while
      * every one of them needs this one boolean.
      */
+    /**
+     * POST /api/v1/sales/{id}/mark-printed
+     *
+     * Records that this sale's receipt has been put on paper. The count
+     * itself is the point: an accredited terminal has to mark every
+     * reissue as a duplicate, and "has it been printed before" is the
+     * only honest way to know which print is the original. Called by the
+     * POS right after it opens the print dialog, so the NEXT fetch of
+     * this receipt comes back with is_reprint true.
+     *
+     * Gated on sales.view rather than a manage permission — printing a
+     * receipt the cashier is already looking at is not a privileged act,
+     * and refusing it would just mean untracked reprints.
+     */
+    public function markPrinted($id = null): ResponseInterface
+    {
+        $sale = $this->applyScope()->find($id);
+
+        if (! $sale) {
+            return $this->notFound();
+        }
+
+        $this->model->update($id, ['print_count' => (int) $sale->print_count + 1]);
+
+        return $this->ok(['print_count' => (int) $sale->print_count + 1]);
+    }
+
     public function voidPolicy()
     {
         $auth = Services::authContext();
@@ -704,7 +865,11 @@ class SalesController extends BaseCrudController
 
     /**
      * POST /api/v1/sales/log-void
-     * body: { kind: 'item'|'cart', reason, product_name?, quantity?, amount?, item_count? }
+     * body: { kind: 'item'|'cart', reason?, product_name?, quantity?, amount?, item_count? }
+     *
+     * `reason` is required for 'cart' and optional for 'item' — an item
+     * void no longer collects one (see VoidApprovalDialog), so the line
+     * itself is the record of what happened.
      *
      * Records a void the cashier performed on their own authority, for
      * the case where the company has approval switched off. No
@@ -721,9 +886,20 @@ class SalesController extends BaseCrudController
     {
         $payload = $this->request->getJSON(true) ?? [];
 
+        // Reason is only required for a cart void (Cancel Sale) — an item
+        // void no longer collects one at all (see VoidApprovalDialog):
+        // the line itself, name, quantity, amount, already is a full
+        // record of what left the sale, and a preset reason on top of
+        // that never told a reviewer anything the line data didn't.
+        // Cancelling the whole cart is the rarer, bigger action, so it
+        // still asks why. Read directly off the raw payload rather than
+        // after validation, purely to pick which rule 'reason' itself
+        // gets below — 'kind' is still validated properly right after.
+        $reasonRequired = ($payload['kind'] ?? null) !== 'item';
+
         if (! $this->validateData($payload, [
             'kind' => ['label' => 'Kind', 'rules' => 'required|in_list[item,cart]'],
-            'reason' => ['label' => 'Reason', 'rules' => 'required|max_length[255]'],
+            'reason' => ['label' => 'Reason', 'rules' => ($reasonRequired ? 'required' : 'permit_empty') . '|max_length[255]'],
             'product_name' => ['label' => 'Item', 'rules' => 'permit_empty|max_length[150]'],
             'quantity' => ['label' => 'Quantity', 'rules' => 'permit_empty|numeric'],
             'amount' => ['label' => 'Amount', 'rules' => 'permit_empty|numeric'],
@@ -737,7 +913,7 @@ class SalesController extends BaseCrudController
                 'item' => $payload['product_name'] ?? null,
                 'quantity' => $payload['quantity'] ?? null,
                 'amount' => $payload['amount'] ?? null,
-                'reason' => $payload['reason'],
+                'reason' => $payload['reason'] ?? null,
             ]);
         } else {
             $count = (int) ($payload['item_count'] ?? 0);
@@ -760,7 +936,11 @@ class SalesController extends BaseCrudController
         if (! $this->validateData($payload, [
             'identifier' => ['label' => 'Supervisor username or email', 'rules' => 'required'],
             'password' => ['label' => 'Password', 'rules' => 'required'],
-            'reason' => ['label' => 'Reason', 'rules' => 'required|max_length[255]'],
+            // permit_empty, not required: VoidApprovalDialog no longer
+            // collects a reason for an item void — see logVoid()'s own
+            // note on why. Approval (the supervisor's credentials just
+            // above) is unaffected; only the reason went away.
+            'reason' => ['label' => 'Reason', 'rules' => 'permit_empty|max_length[255]'],
             'product_name' => ['label' => 'Item', 'rules' => 'required|max_length[150]'],
             'quantity' => ['label' => 'Quantity', 'rules' => 'permit_empty|numeric'],
             'amount' => ['label' => 'Amount', 'rules' => 'permit_empty|numeric'],
@@ -782,7 +962,7 @@ class SalesController extends BaseCrudController
             'item' => $payload['product_name'],
             'quantity' => $payload['quantity'] ?? null,
             'amount' => $payload['amount'] ?? null,
-            'reason' => $payload['reason'],
+            'reason' => $payload['reason'] ?? null,
             'approved_by' => $approver->name,
             'approved_by_id' => (int) $approver->id,
         ]);

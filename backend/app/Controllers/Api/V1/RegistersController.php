@@ -32,7 +32,60 @@ class RegistersController extends BaseCrudController
             return $this->apiFail('store_id must be one of your own company\'s stores', 422);
         }
 
+        if (($error = $this->validateOpeningFloat(
+            $payload['opening_float_mode'] ?? RegisterModel::OPENING_FLOAT_MANUAL,
+            $payload['default_opening_float'] ?? null
+        )) !== null) {
+            return $error;
+        }
+
         return parent::create();
+    }
+
+    public function update($id = null)
+    {
+        $row = $this->applyScope()->find($id);
+        if ($row === null) {
+            return $this->notFound();
+        }
+
+        $payload = $this->payload();
+
+        // The effective value after this update, not just what's in the
+        // request body — a PUT here can (and often does, e.g. the
+        // Active/Inactive toggle) touch only one field, and a row's
+        // existing opening-float configuration shouldn't fail validation
+        // against itself just because this particular request never
+        // mentions it.
+        $mode = array_key_exists('opening_float_mode', $payload) ? $payload['opening_float_mode'] : $row->opening_float_mode;
+        $float = array_key_exists('default_opening_float', $payload) ? $payload['default_opening_float'] : $row->default_opening_float;
+
+        if (($error = $this->validateOpeningFloat($mode, $float)) !== null) {
+            return $error;
+        }
+
+        return parent::update($id);
+    }
+
+    /**
+     * "Required only when the mode actually needs it" — the one rule a
+     * single-column validation rule on `default_opening_float` can't
+     * express (see RegisterModel's own note), so it lives here instead.
+     * A register set to 'fixed' or 'fixed_confirm' with no configured
+     * float would have nothing for CashSessionsController::open() to
+     * apply, so that combination is rejected before it can ever be saved.
+     */
+    private function validateOpeningFloat(string $mode, $float)
+    {
+        if ($mode === RegisterModel::OPENING_FLOAT_MANUAL) {
+            return null;
+        }
+
+        if ($float === null || $float === '' || (float) $float <= 0) {
+            return $this->apiFail('An opening float greater than zero is required when the opening float mode is not manual.', 422);
+        }
+
+        return null;
     }
 
     /**

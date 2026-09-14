@@ -1,6 +1,6 @@
 /**
  * Company-wide currency and tax-regime settings — the two things the
- * Back Office's Regional tab configures, and the labels every screen
+ * Back Office's Tax tab configures, and the labels every screen
  * reads back out of them.
  *
  * Lives at src/ rather than in pos/format.ts because both halves of the
@@ -99,7 +99,7 @@ export function taxSystemOf(value: string | null | undefined): TaxSystem {
 
 /**
  * The regime each currency's country levies. This is what the tax system
- * *is*, not a suggestion — the Regional tab derives the setting from the
+ * *is*, not a suggestion — the Tax tab derives the setting from the
  * currency and shows it read-only, so every entry on CURRENCIES above
  * must appear here or the setting has no value to take.
  *
@@ -114,14 +114,14 @@ const CURRENCY_TAX_SYSTEM: Record<string, TaxSystem> = {
 };
 
 /**
- * The regime a currency implies. Total over CURRENCIES, so the Regional
+ * The regime a currency implies. Total over CURRENCIES, so the Tax
  * tab can render the tax system as a derived, read-only value.
  *
  * The fallback matters more than it used to now that the list is two
  * entries: a company still holding a currency that was dropped from
  * CURRENCIES (USD, say) lands here, and gets VAT — this system's own
  * column default, and what it did before the setting existed. That
- * company reads as unsaved on the Regional tab until someone picks one
+ * company reads as unsaved on the Tax tab until someone picks one
  * of the two currencies now offered, which is the correction being
  * asked for rather than a fault.
  */

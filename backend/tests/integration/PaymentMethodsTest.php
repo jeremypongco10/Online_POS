@@ -2,6 +2,7 @@
 
 use App\Libraries\JwtService;
 use App\Models\CompanyModel;
+use App\Models\InvoiceSeriesModel;
 use App\Models\PaymentMethodModel;
 use App\Models\ProductModel;
 use App\Models\RegisterModel;
@@ -240,6 +241,27 @@ final class PaymentMethodsTest extends CIUnitTestCase
             'track_inventory' => 0,
         ], true);
         model(StoreProductPriceModel::class)->insert(['product_id' => $productId, 'store_id' => $storeId, 'cost_price' => 20, 'selling_price' => 50]);
+
+        // SalesController::create() now draws its invoice number from the
+        // one active invoice_series row for (company, store, 'Sales
+        // Invoice') — see InvoiceSeriesModel::nextNumber() — rather than
+        // the old bare InvoiceSequenceModel counter; without this, both
+        // checkout tests that call this helper would 422 with
+        // INVOICE_SERIES_UNAVAILABLE before ever reaching the payment-
+        // method assertion they're actually testing.
+        model(InvoiceSeriesModel::class)->insert([
+            'company_id' => $this->companyId,
+            'store_id' => $storeId,
+            'invoice_type' => 'Sales Invoice',
+            'series_code' => 'TEST',
+            'prefix' => 'INV-',
+            'starting_number' => 1,
+            'current_number' => 0,
+            'maximum_number' => 99999999,
+            'number_length' => 8,
+            'effective_from' => date('Y-m-d'),
+            'status' => 'active',
+        ]);
 
         return [$storeId, $registerId, $productId];
     }

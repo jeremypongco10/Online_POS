@@ -242,7 +242,11 @@ const CartRow = memo(function CartRow({
         // Dashed rather than solid — the same "torn perforation" line every
         // printed receipt uses between line items, instead of a spreadsheet
         // row border.
-        py: 0.85,
+        //
+        // The row is also the tap target that selects a line (see onClick
+        // below), so the vertical padding is sized for a finger rather
+        // than for the two lines of type it wraps.
+        py: 1.15,
         // Left padding specifically clears the highlight rule drawn at
         // this box's leading edge — without it the product name sits
         // flush against that bar the moment a row lights up. The dashed
@@ -270,8 +274,17 @@ const CartRow = memo(function CartRow({
         // on and this is the only thing marking where the cashier is.
         bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'transparent',
         boxShadow: `inset ${selected ? 4 : 3}px 0 0 ${selected ? POS_ACCENT : highlighted ? POS_ACCENT : 'transparent'}`,
-        transition: 'background-color 0.4s ease, box-shadow 0.4s ease',
+        transition: 'background-color 0.4s ease, box-shadow 0.4s ease, opacity 0.4s ease',
         cursor: 'pointer',
+        // Same dimming ProductCard gives an unpriced (equally un-actable)
+        // tile — a voided line is still fully legible (the whole point is
+        // that it stays readable, not that it's hidden away), just
+        // visibly taken out of play. Combined with the strikethrough and
+        // "Voided" tag on the amount below, rather than relying on either
+        // alone: opacity by itself reads as "this row hasn't loaded yet"
+        // on some monitors, and strikethrough alone is easy to miss at a
+        // glance on a busy cart.
+        opacity: line.voided ? 0.6 : 1,
         '&:hover': { bgcolor: selected ? `${POS_ACCENT}14` : highlighted ? `${POS_ACCENT}0a` : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
         // A mouse doesn't need the extra click: hovering a row is already
@@ -285,28 +298,104 @@ const CartRow = memo(function CartRow({
         },
       }}
     >
-      {/* Line 1, receipt-style: description on the left, extended price on the right. */}
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 1.5 }}>
-        {/* Typography defaults to a 1.5 line-height meant for paragraphs — left alone, that padded
-            each of these two lines far more than the row's own py did. */}
-        <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 15, lineHeight: 1.25, minWidth: 0 }} noWrap title={line.product.name}>
-          {line.product.name}
-        </Typography>
+      {/* Line 1, receipt-style: description on the left, extended price on the right.
+          alignItems is flex-start rather than the row's usual baseline —
+          the left side now carries two lines (name, then the identifier
+          below), and baseline-aligning a two-line block against the
+          single-line price read oddly; flex-start keeps the price level
+          with the top line, where it was before this was added. */}
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 1.5 }}>
+        <Box sx={{ minWidth: 0 }}>
+          {/* Typography defaults to a 1.5 line-height meant for paragraphs — left alone, that padded
+              each of these two lines far more than the row's own py did. */}
+          <Typography
+            sx={{
+              fontFamily: RECEIPT_FONT,
+              fontWeight: 700,
+              fontSize: 15,
+              lineHeight: 1.25,
+              textDecoration: line.voided ? 'line-through' : 'none',
+            }}
+            noWrap
+            title={line.product.name}
+          >
+            {line.product.name}
+          </Typography>
+          {/* Whichever code a scanner would actually read for this line —
+              the barcode when one's set, the store's own SKU otherwise,
+              same preference order the search box's own exact-match
+              lookup uses. Quiet by design: this identifies the line, it
+              doesn't need the weight of the name above it. Skipped for a
+              custom item — there's no real catalog code behind one to
+              show. */}
+          {!line.isCustom && (
+            <Tooltip title={line.product.barcode ? `Barcode: ${line.product.barcode}` : `SKU: ${line.product.sku}`}>
+              <Typography
+                noWrap
+                sx={{ fontFamily: RECEIPT_FONT, fontSize: 11, lineHeight: 1.35, color: 'text.disabled', cursor: 'help' }}
+              >
+                {line.product.barcode ?? line.product.sku}
+              </Typography>
+            </Tooltip>
+          )}
+        </Box>
         <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', flexShrink: 0 }}>
-          <Typography sx={{ fontFamily: RECEIPT_FONT, fontWeight: 700, fontSize: 15, lineHeight: 1.25, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {/* The explicit tag, not just the strikethrough on the amount
+              next to it — strikethrough alone is easy to miss at a glance
+              on a busy cart, and this is the one thing on the row that
+              has to be unmissable. Same shape as CategoryPills'/
+              CartActionsRow's own tinted badges, in error red rather than
+              the accent blue everything else here uses, since this is the
+              one label on a cart row that means "this no longer counts",
+              not "here's a property of this line". */}
+          {line.voided && (
+            <Box
+              component="span"
+              sx={{
+                px: 0.6,
+                py: 0.1,
+                borderRadius: 0.75,
+                fontSize: 10.5,
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                color: 'error.main',
+                bgcolor: (t) => `color-mix(in srgb, ${t.palette.error.main} 12%, transparent)`,
+              }}
+            >
+              Voided
+            </Box>
+          )}
+          <Typography
+            sx={{
+              fontFamily: RECEIPT_FONT,
+              fontWeight: 700,
+              fontSize: 15,
+              lineHeight: 1.25,
+              fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap',
+              textDecoration: line.voided ? 'line-through' : 'none',
+              color: line.voided ? 'text.disabled' : undefined,
+            }}
+          >
             {formatMoney(totals.gross)}
           </Typography>
           {/* Trailing the amount, exactly where a BIR receipt prints it.
               Deliberately quiet — it's a classification a customer checks
-              on request, not something a cashier reads every line. */}
-          <Tooltip title={TAX_INDICATOR_LABELS[indicator] ?? indicator}>
-            <Typography
-              component="span"
-              sx={{ fontFamily: RECEIPT_FONT, fontSize: 12, fontWeight: 700, color: 'text.disabled', cursor: 'help' }}
-            >
-              {indicator}
-            </Typography>
-          </Tooltip>
+              on request, not something a cashier reads every line. Not
+              shown at all once voided: this line no longer contributes
+              to any VAT total, so the classification has nothing left to
+              describe. */}
+          {!line.voided && (
+            <Tooltip title={TAX_INDICATOR_LABELS[indicator] ?? indicator}>
+              <Typography
+                component="span"
+                sx={{ fontFamily: RECEIPT_FONT, fontSize: 12, fontWeight: 700, color: 'text.disabled', cursor: 'help' }}
+              >
+                {indicator}
+              </Typography>
+            </Tooltip>
+          )}
         </Stack>
       </Stack>
 
@@ -344,7 +433,14 @@ const CartRow = memo(function CartRow({
             stopPropagation because these sit inside the row's own click
             target: without it, adjusting a quantity would bubble up,
             toggle the selection back off and take the very buttons being
-            pressed away mid-adjustment. */}
+            pressed away mid-adjustment.
+
+            Not rendered at all once voided — there's nothing left to
+            correct or void a second time on a line that's already been
+            taken off the sale (see CartLine.voided), so the row simply
+            has no trailing controls rather than a revealed pair that
+            would only get in the way. */}
+        {!line.voided && (
         <Stack
           direction="row"
           spacing={0.75}
@@ -359,9 +455,9 @@ const CartRow = memo(function CartRow({
           {/* A soft pill track with the buttons floating inside it, rather
               than the boxed-and-divided control this replaced — three
               hairline-separated cells read like a spreadsheet widget next
-              to the receipt's clean type. Same 32px outer footprint, so
-              the touch target didn't shrink: the 28px buttons plus the
-              track's own 2px inset add back up. */}
+              to the receipt's clean type. 38px outer footprint: the 34px
+              buttons plus the track's own 2px inset, sized so a quantity
+              can be corrected with a finger mid-queue. */}
           <Stack
             direction="row"
             sx={{
@@ -381,8 +477,8 @@ const CartRow = memo(function CartRow({
                   disabled={atMinimum}
                   aria-label="Reduce quantity"
                   sx={{
-                    width: 28,
-                    height: 28,
+                    width: 34,
+                    height: 34,
                     p: 0,
                     color: 'text.secondary',
                     // Lifts out of the track on hover as a white disc —
@@ -390,16 +486,16 @@ const CartRow = memo(function CartRow({
                     '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT },
                   }}
                 >
-                  <RemoveIcon sx={{ fontSize: 17 }} />
+                  <RemoveIcon sx={{ fontSize: 19 }} />
                 </IconButton>
               </span>
             </Tooltip>
             <Typography
               sx={{
                 fontFamily: RECEIPT_FONT,
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: 700,
-                minWidth: 26,
+                minWidth: 32,
                 textAlign: 'center',
                 fontVariantNumeric: 'tabular-nums',
               }}
@@ -411,14 +507,14 @@ const CartRow = memo(function CartRow({
                 onClick={() => onQuantityChange(line.key, line.quantity + step)}
                 aria-label="Increase quantity"
                 sx={{
-                  width: 28,
-                  height: 28,
+                  width: 34,
+                  height: 34,
                   p: 0,
                   color: 'text.secondary',
                   '&:hover': { bgcolor: 'background.paper', color: POS_ACCENT },
                 }}
               >
-                <AddIcon sx={{ fontSize: 17 }} />
+                <AddIcon sx={{ fontSize: 19 }} />
               </IconButton>
             </Tooltip>
           </Stack>
@@ -428,17 +524,18 @@ const CartRow = memo(function CartRow({
               onClick={() => onRequestVoid(line)}
               aria-label="Void item"
               sx={{
-                width: 32,
-                height: 32,
+                width: 38,
+                height: 38,
                 p: 0,
                 color: 'text.secondary',
                 '&:hover': { color: 'error.main', backgroundColor: (t) => `color-mix(in srgb, ${t.palette.error.main} 12%, transparent)` },
               }}
             >
-              <BlockOutlinedIcon sx={{ fontSize: 18 }} />
+              <BlockOutlinedIcon sx={{ fontSize: 20 }} />
             </IconButton>
           </Tooltip>
         </Stack>
+        )}
       </Stack>
     </Box>
   );

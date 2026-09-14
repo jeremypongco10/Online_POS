@@ -17,6 +17,7 @@ class StoreModel extends Model
     protected $allowedFields = [
         'company_id', 'name', 'code', 'address', 'phone', 'email', 'is_active', 'receipt_footer_note',
         'vat_reg_tin', 'pos_serial_no', 'min_no', 'show_bir_details',
+        'ptu_number', 'ptu_date_issued', 'ptu_valid_until',
     ];
 
     protected $validationRules = [

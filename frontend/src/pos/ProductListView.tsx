@@ -137,7 +137,11 @@ const ProductListRow = memo(function ProductListRow({
       // unmistakable "you are here". The hover tint matches the
       // cards' as well, rather than MUI's default grey wash.
       sx={{
-        py: 1,
+        // A 60px row: same finger-target sizing as the grid's larger
+        // tiles, so switching view modes doesn't switch how precisely a
+        // cashier has to tap.
+        minHeight: 60,
+        py: 1.25,
         px: 1.5,
         gap: 1.5,
         transition: 'background-color 0.15s ease',
@@ -228,9 +232,9 @@ export const ProductListView = memo(function ProductListView({ results, onAdd, o
   return (
     <Paper
       variant="outlined"
-      // Matches ProductCard's radius and hairline shadow so the two view
-      // modes read as the same design, not two different screens.
-      sx={{ borderRadius: 2.5, overflow: 'hidden', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)' }}
+      // Matches ProductCard's radius and flat, border-only surface so the
+      // two view modes read as the same design, not two different screens.
+      sx={{ borderRadius: 2.5, overflow: 'hidden', boxShadow: 'none' }}
     >
       {/* Column captions. Small, muted and uppercase — enough to label the
           columns without competing with the product names underneath. */}

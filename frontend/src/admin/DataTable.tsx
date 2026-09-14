@@ -116,7 +116,15 @@ export function DataTable<T>({
               off at both sides. */}
           <TableHead
             sx={{
-              bgcolor: 'action.hover',
+              // A light tint of the brand color rather than the neutral
+              // gray this was before — matches the same color-mix wash
+              // already used for icon tiles and page backgrounds
+              // elsewhere (AdminLayout, SettingsScreen), so the header
+              // band reads as part of the same design language instead
+              // of a plain UI-gray default. 8%, not the 12% those small
+              // icon tiles use — a full-width band this large needs a
+              // lighter touch to stay a wash rather than a solid color.
+              bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 8%, var(--mui-palette-background-paper))',
               '& th:first-of-type': { borderTopLeftRadius: 10, borderBottomLeftRadius: 10 },
               '& th:last-of-type': { borderTopRightRadius: 10, borderBottomRightRadius: 10 },
               '& th': { borderBottom: 0 },
@@ -128,7 +136,13 @@ export function DataTable<T>({
                   key={col.key}
                   align={col.align ?? 'left'}
                   sortDirection={activeSortKey === col.sortKey ? activeSortDir : false}
-                  sx={{ fontWeight: 700, fontSize: 13, ...(col.width ? { width: col.width, whiteSpace: 'nowrap' } : null) }}
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: 13,
+                    ...(col.width
+                      ? { width: col.width, maxWidth: col.width, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+                      : null),
+                  }}
                 >
                   {col.sortKey ? (
                     <TableSortLabel
@@ -155,7 +169,15 @@ export function DataTable<T>({
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   {columns.map((col) => (
-                    <TableCell key={col.key} align={col.align ?? 'left'} sx={col.width ? { width: col.width, whiteSpace: 'nowrap' } : undefined}>
+                    <TableCell
+                      key={col.key}
+                      align={col.align ?? 'left'}
+                      sx={
+                        col.width
+                          ? { width: col.width, maxWidth: col.width, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+                          : undefined
+                      }
+                    >
                       <Skeleton variant="text" sx={{ fontSize: 14 }} />
                     </TableCell>
                   ))}
@@ -181,7 +203,15 @@ export function DataTable<T>({
               rows.map((row) => (
                 <TableRow key={rowKey(row)} hover sx={{ '&:last-of-type td': { borderBottom: 0 } }}>
                   {columns.map((col) => (
-                    <TableCell key={col.key} align={col.align ?? 'left'} sx={col.width ? { width: col.width, whiteSpace: 'nowrap' } : undefined}>
+                    <TableCell
+                      key={col.key}
+                      align={col.align ?? 'left'}
+                      sx={
+                        col.width
+                          ? { width: col.width, maxWidth: col.width, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+                          : undefined
+                      }
+                    >
                       {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? '')}
                     </TableCell>
                   ))}

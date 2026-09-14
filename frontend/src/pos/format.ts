@@ -8,17 +8,6 @@
 export const POS_ACCENT = '#2563eb';
 
 /**
- * PosHeader's own bar colour — a fixed dark navy, deliberately independent
- * of the app's light/dark theme toggle rather than switching with it (the
- * design this mirrors keeps its top bar dark regardless of light/dark
- * mode). Everything painted on this bar — the logo swap, icon colours, the
- * search pill's own background — is forced to match this rather than to
- * theme.palette, the same reasoning ReceiptPanel forces its own light
- * scheme regardless of the app-wide setting.
- */
-export const POS_HEADER_BG = '#12163a';
-
-/**
  * One tint per POS action, carried by that action's icon chip wherever it
  * appears — the buttons in CartActionsRow and the same actions listed in
  * PosHelpDialog.
@@ -58,46 +47,49 @@ export const POS_ACTION_TINTS = {
 } as const;
 
 /**
- * The raised treatment the Pay button wears, as a spreadable sx fragment
- * so every primary button in the POS gets it from one place instead of
- * each dialog growing its own near-miss version. Started life inline on
- * Pay; pulled out here the moment a second button wanted it.
+ * The primary-button treatment, as a spreadable sx fragment so every
+ * primary button in the POS gets it from one place instead of each dialog
+ * growing its own near-miss version. Started life inline on Pay; pulled
+ * out here the moment a second button wanted it.
  *
- * Deliberately only the *effect* — surface, shadow, and the hover/press/
- * disabled states. Shape is left to the caller, because the callers
- * genuinely differ and those differences are intentional: PaymentPanel's
- * confirm is a pill, DiscountDialog's has its own minimum height, Pay
- * runs the full width of the receipt column.
+ * Deliberately only the *effect* — surface and the hover/press/disabled
+ * states. Shape is left to the caller, because the callers genuinely
+ * differ and those differences are intentional: PaymentPanel's confirm is
+ * a pill, DiscountDialog's has its own minimum height, Pay runs the full
+ * width of the receipt column.
  *
- * The lighter top edge is a translucent white overlay laid over the flat
- * colour rather than a gradient between two hand-picked shades. That's
- * what lets this work for any tint it's handed — POS blue, the theme's
- * indigo, the red on a void — without needing a lightened and darkened
- * variant of each one defined somewhere. Hover swaps to a black overlay
- * for the same reason.
+ * One flat fill, no gradient, no drop shadow, no hover lift. This used to
+ * carry all three (a white-overlay top edge, a coloured glow, and a 1px
+ * translateY) — the "raised" look the name still refers to. They went in
+ * the move to a flat/minimal POS: a coloured glow under every primary
+ * button is the single loudest thing in a screen otherwise built from
+ * hairlines, and the lift made buttons twitch under a finger on a touch
+ * till. The press response is now a colour step instead of a movement.
  *
- * `&.Mui-disabled` has to spell out the reset. MUI's own disabled rule
- * only clears background-*color*, and the overlay above is a
- * background-*image*, so without this a disabled button would keep its
- * live surface and only lose the colour underneath it.
+ * Hover/press darken the tint itself via color-mix rather than switching
+ * to hand-picked shades, which is what lets this work for any tint it's
+ * handed — POS blue, the theme's indigo, the red on a void — without
+ * needing a darkened variant of each one defined somewhere.
+ *
+ * `&.Mui-disabled` has to spell out the reset: MUI's own disabled rule
+ * only clears background-*color*, so backgroundImage is cleared here too
+ * in case a caller's variant brings one of its own.
  */
 export function posRaisedButtonSx(tint: string = POS_ACCENT) {
   return {
-    background: `linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 100%), ${tint}`,
-    boxShadow: `0 8px 20px -10px ${tint}, 0 1px 2px rgba(16, 24, 40, 0.16)`,
-    transition: 'background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease',
+    backgroundColor: tint,
+    backgroundImage: 'none',
+    boxShadow: 'none',
+    transition: 'background-color 0.15s ease',
     '&:hover': {
-      background: `linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.16) 100%), ${tint}`,
-      boxShadow: `0 12px 24px -10px ${tint}, 0 1px 2px rgba(16, 24, 40, 0.2)`,
-      transform: 'translateY(-1px)',
-    },
-    '&:active': { transform: 'translateY(0)', boxShadow: `0 4px 10px -6px ${tint}` },
-    '&.Mui-disabled': {
-      background: 'none',
-      backgroundImage: 'none',
-      bgcolor: 'action.disabledBackground',
+      backgroundColor: `color-mix(in srgb, ${tint} 88%, #000)`,
       boxShadow: 'none',
-      transform: 'none',
+    },
+    '&:active': { backgroundColor: `color-mix(in srgb, ${tint} 78%, #000)` },
+    '&.Mui-disabled': {
+      backgroundColor: 'action.disabledBackground',
+      backgroundImage: 'none',
+      boxShadow: 'none',
     },
   };
 }

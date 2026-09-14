@@ -72,4 +72,13 @@ class Services extends BaseService
 
         return new \App\Libraries\AuditLogger();
     }
+
+    public static function birReadingService(bool $getShared = true): \App\Libraries\BirReadingService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('birReadingService');
+        }
+
+        return new \App\Libraries\BirReadingService();
+    }
 }

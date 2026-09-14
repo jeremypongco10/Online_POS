@@ -6,12 +6,14 @@ import Box from '@mui/material/Box';
  * "F9 cancels" reads it where the cancelling happens, and the row of hints
  * that used to restate all of them can go.
  *
- * Styled as an actual keycap — a small raised pill with its own
- * background and a hairline "pressed edge" shadow along the bottom — not
+ * A small flat badge with its own background and a hairline border — not
  * bare inline text with nothing to separate it from the button's own
- * label. Deliberately a fixed light/dark neutral rather than tinted to
- * match each button's own colour: a solid badge in the button's own hue
- * (tried first) read as loud and slightly alarming on the red Cancel Sale
+ * label, and no longer the moulded keycap this used to be (a raised pill
+ * with an inset "pressed edge" shadow along the bottom), which went with
+ * the rest of the POS's shadows in the move to flat surfaces.
+ * Deliberately a fixed light/dark neutral rather than tinted to match
+ * each button's own colour: a solid badge in the button's own hue (tried
+ * first) read as loud and slightly alarming on the red Cancel Sale
  * button, and inconsistent from one button to the next since every
  * button here carries a different colour.
  *
@@ -28,12 +30,12 @@ export function KeyHint({ label, onAccent = false }: { label: string; onAccent?:
         alignItems: 'center',
         justifyContent: 'center',
         ml: 0.75,
-        minWidth: 20,
-        height: 18,
+        minWidth: 22,
+        height: 20,
         px: 0.6,
         borderRadius: 0.75,
         fontFamily: 'inherit',
-        fontSize: 10.5,
+        fontSize: 11,
         fontWeight: 700,
         letterSpacing: '0.02em',
         lineHeight: 1,
@@ -47,7 +49,8 @@ export function KeyHint({ label, onAccent = false }: { label: string; onAccent?:
           ? {
               bgcolor: 'rgba(255,255,255,0.22)',
               color: '#fff',
-              boxShadow: 'inset 0 -1.5px 0 rgba(0,0,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.3)',
+              border: '1px solid',
+              borderColor: 'rgba(255,255,255,0.32)',
             }
           : {
               bgcolor: 'action.selected',

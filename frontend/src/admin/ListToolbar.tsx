@@ -24,7 +24,17 @@ interface Props {
 
 export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh, refreshing, extra, actions }: Props) {
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'center' }, mb: 2.5, flexWrap: { sm: 'wrap' } }}>
+    // `gap`, not the Stack `spacing` prop. MUI implements spacing as a
+    // margin on every child after the first, which a wrapping row adds
+    // on top of the line's own width — so once the filters, search and
+    // Add button no longer fit, the row overflowed its card and the
+    // button landed on top of the search field instead of wrapping. gap
+    // is applied by the grid/flex algorithm itself and is accounted for
+    // before anything wraps.
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      sx={{ alignItems: { xs: 'stretch', sm: 'center' }, mb: 2.5, flexWrap: { sm: 'wrap' }, gap: 1.5 }}
+    >
       {/* `extra` (e.g. a store filter) gets its own row on a phone — grouping it
           with refresh+search in one row, as before, left next to nothing for the
           search field once `extra` was wide enough (a filter dropdown, not just
@@ -37,7 +47,7 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
           once `extra` is wide enough to force a wrap, so that row doesn't end in a
           dead gap either. Capped so it doesn't balloon on a wide screen with
           nothing else in the row. */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: { sm: 1 }, minWidth: 0 }}>
+      <Stack direction="row" sx={{ alignItems: 'center', gap: 1.5, flex: { sm: '1 1 240px' }, minWidth: 0 }}>
         {onRefresh && (
           <Tooltip title="Refresh">
             <span>
@@ -73,16 +83,25 @@ export function ListToolbar({ search, onSearchChange, onAdd, addLabel, onRefresh
             value={search ?? ''}
             onChange={onSearchChange}
             sx={{
-              minWidth: { xs: 0, sm: 260 },
+              // minWidth 0, not 260: a hard floor here is what stopped the
+              // field giving ground when the row got crowded, which is how
+              // the row came to be wider than the card in the first place.
+              // 260 survives as the flex BASIS below — the width it gets
+              // when there's room, rather than a width it insists on.
+              minWidth: 0,
               maxWidth: { sm: 420 },
-              width: { xs: '100%', sm: '100%' },
-              flex: 1,
+              width: '100%',
+              flex: { xs: 1, sm: '1 1 260px' },
               '& .MuiOutlinedInput-root': { height: 44, fontSize: 14.5 },
             }}
           />
         )}
       </Stack>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+      {/* flexShrink 0 so the primary action keeps its full width and
+          label instead of being squeezed by the filters to its left, and
+          ml:auto so it stays pinned to the right edge when the row has
+          spare room. */}
+      <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1.5, flexShrink: 0, ml: { sm: 'auto' } }}>
         {actions}
         {onAdd && (
           <Button

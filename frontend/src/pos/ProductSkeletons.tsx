@@ -24,11 +24,11 @@ export function ProductCardSkeleton() {
   return (
     <Card
       variant="outlined"
-      // Same radius/hairline shadow/height as ProductCard, so the swap to
+      // Same radius/flat surface/height as ProductCard, so the swap to
       // real content is invisible rather than a re-layout.
       sx={{
         borderRadius: 3,
-        boxShadow: '0 1px 3px rgba(16, 24, 40, 0.06)',
+        boxShadow: 'none',
         height: '100%',
         overflow: 'hidden',
         display: 'flex',

@@ -19,6 +19,17 @@ export interface CartLine {
    * case, matching the server's own NULL-tolerant discount_type column.
    */
   discountType?: DiscountTypeCode | null;
+  /**
+   * True once this line has been voided — either the whole line, or the
+   * split-off remainder of a partial void (see PosScreen's
+   * applyItemVoid). A voided line stays in the cart instead of being
+   * removed, struck through in Cart.tsx so the sale still shows exactly
+   * what was rung up and then taken back off — and is excluded
+   * everywhere a line normally counts toward the sale: calculateCart
+   * below, the checkout payload, and every "does this cart have
+   * anything left to sell" check in PosScreen.
+   */
+  voided?: boolean;
 }
 
 export interface LineTotals {
@@ -145,6 +156,10 @@ export function calculateCart(lines: CartLine[]): CartTotals {
   let total = 0;
 
   for (const line of lines) {
+    // A voided line stays in `lines` for display (see CartLine.voided)
+    // but was, by definition, taken back off the sale — it contributes
+    // nothing here, the same as if it had never been rung up.
+    if (line.voided) continue;
     const { gross, tax } = calculateLine(line);
     const shelf = line.quantity * line.unitPrice;
 

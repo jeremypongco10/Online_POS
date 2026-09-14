@@ -16,8 +16,6 @@ interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
-  /** Forwarded straight to ProductSearch — see that component's own doc for what this does. */
-  searchPortalTarget?: HTMLElement | null;
   customer: Customer | null;
   card: LoyaltyCard | null;
   onAttachCustomer: (customer: Customer | null, card: LoyaltyCard | null) => void;
@@ -26,19 +24,17 @@ interface Props {
   cartHasItems: boolean;
   /** The Discount button — one discount chosen for the whole sale, which is the normal workflow (see DiscountDialog). */
   onOpenDiscount: () => void;
-  onHold: () => void;
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
   onVoidItemSearch: () => void;
 }
 
-/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, the account menu) lives in PosHeader instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent actions sit in the Actions row pinned below the product list — see CartActionsRow. */
+/** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, the account menu) lives in ReceiptPanel's letterhead instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent actions sit in the Actions row pinned below the product list — see CartActionsRow. */
 export function ProductBrowser({
   companyId,
   storeId,
   onAdd,
-  searchPortalTarget,
   customer,
   card,
   onAttachCustomer,
@@ -46,7 +42,6 @@ export function ProductBrowser({
   onSelectBagger,
   cartHasItems,
   onOpenDiscount,
-  onHold,
   onCancel,
   onReturn,
   onReprintReceipt,
@@ -66,7 +61,7 @@ export function ProductBrowser({
           middle of the column instead of a wide one across the row. */}
       <Stack sx={{ height: '100%', minHeight: 0 }}>
         <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-          <ProductSearch companyId={companyId} storeId={storeId} onAdd={onAdd} searchPortalTarget={searchPortalTarget} />
+          <ProductSearch companyId={companyId} storeId={storeId} onAdd={onAdd} />
         </Box>
 
         {/* A rule instead of an "ACTIONS" caption — self-describing
@@ -80,7 +75,6 @@ export function ProductBrowser({
             onOpenBagger={() => setBaggerDialogOpen(true)}
             cartHasItems={cartHasItems}
             onOpenDiscount={onOpenDiscount}
-            onHold={onHold}
             onCancel={onCancel}
             onReturn={onReturn}
             onReprintReceipt={onReprintReceipt}

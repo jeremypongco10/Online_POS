@@ -61,35 +61,35 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
     <Card
       variant="outlined"
       sx={{
-        // Softer corners and a hairline resting shadow, rather than a
-        // flat hard-bordered rectangle — twenty of these sit side by side,
-        // so the difference between "outlined boxes" and "cards" is most
-        // of what makes the grid read as modern rather than tabular.
+        // Softer corners over a completely flat surface — no resting
+        // shadow. Twenty of these sit side by side, and at that count even
+        // a hairline shadow each adds up to a grid that looks dusty; the
+        // outlined variant's own 1px border is the entire edge now.
         borderRadius: 3,
-        boxShadow: '0 1px 3px rgba(16, 24, 40, 0.06)',
+        boxShadow: 'none',
         height: '100%',
         overflow: 'hidden',
-        transition: 'background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease',
+        transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
         ...(unpriced
           ? { opacity: 0.55 }
           : {
-              // Deliberately no translateY lift. The grid lives in a
-              // scroll container, which clips at its own edge, so a card
-              // moving up by 2px had its top shaved off — and padding
-              // can't fix that, because once the list is scrolled the
-              // clip edge sits over the middle of the content. Colour and
-              // a shallow shadow stay entirely inside the card's box, so
-              // the hover reads the same in every scroll position.
-              // Border and shadow only — no background tint. The card's
-              // own background sits *behind* the photo plate, and that
-              // plate is a translucent wash of the product's hue, so an
-              // accent-blue card background bled up through it and turned
-              // a red or amber tile a muddy purple-brown on hover. The
-              // accent border reads clearly enough on its own, and the
-              // shadow now carries the accent instead.
+              // Deliberately no translateY lift and no blurred shadow. The
+              // grid lives in a scroll container, which clips at its own
+              // edge, so a card moving up by 2px had its top shaved off —
+              // and padding can't fix that, because once the list is
+              // scrolled the clip edge sits over the middle of the
+              // content. An inset ring instead: it doubles the border's
+              // apparent weight in the accent colour while staying
+              // entirely inside the card's own box, so the hover reads
+              // identically at every scroll position.
+              //
+              // No background tint either. The card's background sits
+              // *behind* the photo plate, so tinting it only showed
+              // through the tile's padding and left the plate itself
+              // untouched — a mismatched two-tone hover.
               '&:hover': {
                 borderColor: POS_ACCENT,
-                boxShadow: `0 6px 16px -8px ${POS_ACCENT}, 0 1px 3px rgba(16, 24, 40, 0.1)`,
+                boxShadow: `inset 0 0 0 1px ${POS_ACCENT}`,
               },
             }),
       }}
@@ -177,7 +177,12 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
             <Box
               component="span"
               sx={{
-                fontSize: 22,
+                // Scaled with the tile itself (see ProductGrid's row
+                // height): at 22px the initials sat as a small mark
+                // floating in a large empty plate, which read as a tile
+                // that had failed to load rather than one standing in for
+                // a missing photo.
+                fontSize: 28,
                 fontWeight: 800,
                 letterSpacing: '0.04em',
                 color: chipColor,
@@ -281,7 +286,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
                 fontWeight: 800,
                 // "No price" is a label, not a figure to scan at a
                 // glance, so it doesn't get the same size as a real one.
-                fontSize: unpriced ? 13 : 16.5,
+                fontSize: unpriced ? 13 : 17.5,
                 letterSpacing: '-0.01em',
                 whiteSpace: 'nowrap',
                 color: unpriced ? 'error.main' : POS_ACCENT,

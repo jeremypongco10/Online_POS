@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Company, PaymentMethodOption, Register, Store, TaxRate, Unit } from '../api/types';
+import type { Company, OpeningFloatMode, PaymentMethodOption, Register, Store, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { formatMoney } from '../pos/format';
 import { useConfirm } from '../ConfirmDialog';
 import { useSnackbar } from '../Snackbar';
 import { useList } from './useList';
@@ -29,6 +30,8 @@ import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import { SectionTabs } from './SectionTabs';
+import { InvoiceSeriesTab } from './InvoiceSeriesTab';
+import { SetupGuideTab } from './SetupGuideTab';
 import { InlineSelectFilter } from './InlineSelectFilter';
 import { SearchableSelect } from './SearchableSelect';
 import Grid from '@mui/material/Grid';
@@ -51,40 +54,102 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
+import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import Switch from '@mui/material/Switch';
 import { useRouteState } from '../routing';
 
-type Tab = 'stores' | 'registers' | 'payment-methods' | 'regional' | 'taxes' | 'units' | 'loyalty' | 'discounts' | 'security';
-const TABS: Tab[] = ['stores', 'registers', 'payment-methods', 'regional', 'taxes', 'units', 'loyalty', 'discounts', 'security'];
+/**
+ * Eight tabs in three groups, down from ten ungrouped ones. Two pairs
+ * were merged because their split was the main thing making this screen
+ * hard to read rather than any real separation of concerns:
+ *
+ * - 'Currency & Tax' + 'Taxes' -> 'Tax'. Two adjacent tabs whose names
+ *   gave no way to guess which held the rates and which held the wording
+ *   around them; the Taxes tab's own hint even had to point at the other
+ *   one ("the tax system set on the Regional tab" — a name no tab had
+ *   carried since it was relabelled). Now one tab: what tax is called on
+ *   top, the rates it applies to underneath.
+ * - 'Loyalty' -> folded into 'Discounts & Loyalty'. Loyalty was a whole
+ *   top-level tab holding exactly one number field, and both sides of the
+ *   merge are pricing/rewards decisions written to the same companies row.
+ *
+ * The groups are presentation only — SectionTabs renders them as one
+ * strip with dividers, so a tab is still just a tab in the URL.
+ */
+type Tab = 'guide' | 'stores' | 'registers' | 'payment-methods' | 'invoicing' | 'tax' | 'discounts' | 'units' | 'security';
+const TABS: Tab[] = ['guide', 'stores', 'registers', 'payment-methods', 'invoicing', 'tax', 'discounts', 'units', 'security'];
 const TAB_LABELS: Record<Tab, string> = {
+  guide: 'Setup Guide',
   stores: 'Stores',
   registers: 'POS Terminals',
   'payment-methods': 'Payment Methods',
-  regional: 'Currency & Tax',
-  taxes: 'Taxes',
+  invoicing: 'Sales Invoicing',
+  tax: 'Tax',
+  discounts: 'Discounts & Loyalty',
   units: 'Units',
-  loyalty: 'Loyalty',
-  discounts: 'Discounts',
   security: 'Security',
 };
-// Every other tab is visible on `${tab}.view` — Security and Discounts
-// both edit the companies table directly (like Loyalty does under the
-// hood), and that table is gated on companies.manage, not a
-// security.view/discounts.view slug that doesn't exist. Visibility and
-// edit rights are the same permission here on purpose: nobody should
-// see a control they'd immediately get a 403 trying to use, the way
-// Loyalty's own loyalty.manage/companies.manage split can (see
-// LoyaltyTab).
-const TAB_PERMISSIONS: Partial<Record<Tab, string>> = { regional: 'companies.manage', discounts: 'companies.manage', security: 'companies.manage' };
+/** Where a divider is drawn *before* a tab, splitting the strip into guide / places / selling / system. */
+const TAB_GROUP_STARTS: Tab[] = ['stores', 'payment-methods', 'units'];
+
+/**
+ * Slugs that used to be tabs of their own, pointed at whichever tab
+ * absorbed them. Without this a bookmark to .../settings/loyalty falls
+ * through useRouteState's validation to the default tab and lands on
+ * Stores — not broken, but a silent wrong answer for someone who
+ * bookmarked the page they wanted.
+ */
+const LEGACY_TAB_ALIASES: Record<string, Tab> = {
+  regional: 'tax',
+  taxes: 'tax',
+  loyalty: 'discounts',
+};
+
+// Any-of, not a single slug: the two merged tabs each carry two
+// independently-gated halves (Tax = rates on taxes.view + currency and
+// wording on companies.manage; Discounts & Loyalty = defaults on
+// companies.manage + points on loyalty.view), so the tab has to appear
+// for a user holding either one, with each card gated again on its own
+// permission inside. Everything else falls back to `${tab}.view`, except
+// invoicing, whose tab key doesn't match its permission slug
+// (invoice-series, not invoicing).
+// Deliberately NOT 'loyalty.view' here, even though the loyalty card is
+// one of this tab's two halves: every card on it reads the company row,
+// and the roles that hold loyalty.view without companies.view (Store
+// Manager, Cashier, Cashier Supervisor) can't load that row at all — the
+// tab would open empty for them. loyalty.view still gates the card
+// itself, for the companies.manage holders who reach the tab.
+const TAB_PERMISSIONS: Partial<Record<Tab, string[]>> = {
+  // Visible to anyone who can reach Settings at all — it's a map of the
+  // other tabs, and it degrades per step for whatever the role can't
+  // actually read (see SetupGuideTab's own null handling).
+  guide: ['stores.view', 'registers.view', 'payment-methods.view', 'invoice-series.view', 'taxes.view', 'units.view', 'companies.manage'],
+  tax: ['taxes.view', 'companies.manage'],
+  discounts: ['companies.manage'],
+  security: ['companies.manage'],
+  invoicing: ['invoice-series.view'],
+};
 
 export function SettingsScreen() {
   const { hasPermission } = useAuth();
   // A role can hold e.g. registers.view without stores.view — the tab
   // list (and the default landing tab) has to reflect whichever of the
   // four this particular user actually has, not always start on Stores.
-  const availableTabs = TABS.filter((t) => hasPermission(TAB_PERMISSIONS[t] ?? `${t}.view`));
+  const availableTabs = TABS.filter((t) => (TAB_PERMISSIONS[t] ?? [`${t}.view`]).some((p) => hasPermission(p)));
   const [tab, setTab] = useRouteState<Tab>(2, TABS, availableTabs[0] ?? 'stores', (t) => `/admin/settings/${t}`);
+
+  // Redirect a bookmark saved before two pairs of tabs were merged, so
+  // it lands on the tab that now holds what it was pointing at. Runs
+  // once, before the access guard below, and only for a slug no current
+  // tab claims.
+  useEffect(() => {
+    const segment = window.location.pathname.split('/').filter(Boolean)[2];
+    const alias = segment ? LEGACY_TAB_ALIASES[segment] : undefined;
+    if (alias && availableTabs.includes(alias)) setTab(alias);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Guards a stale/bookmarked URL pointing at a tab this user has since
   // lost (or never had) access to — falls back to one they can actually see.
@@ -99,20 +164,161 @@ export function SettingsScreen() {
     <div>
       <SectionTabs value={tab} onChange={setTab}>
         {availableTabs.map((t) => (
-          <Tab key={t} value={t} label={TAB_LABELS[t]} />
+          <Tab
+            key={t}
+            value={t}
+            label={TAB_LABELS[t]}
+            // A hairline before the first tab of each group. Cheaper than
+            // a second navigation surface: a sidebar would have taken
+            // ~200px off tabs whose tables already need nearly the full
+            // card width (see StoresTab's own column budget).
+            sx={
+              TAB_GROUP_STARTS.includes(t) && availableTabs.indexOf(t) > 0
+                ? { borderLeft: '1px solid', borderColor: 'divider', ml: 1.5, pl: 2.5 }
+                : undefined
+            }
+          />
         ))}
       </SectionTabs>
 
+      {tab === 'guide' && <SetupGuideTab onNavigate={(t) => setTab(t as Tab)} />}
       {tab === 'stores' && hasPermission('stores.view') && <StoresTab />}
       {tab === 'registers' && hasPermission('registers.view') && <RegistersTab />}
       {tab === 'payment-methods' && hasPermission('payment-methods.view') && <PaymentMethodsTab />}
-      {tab === 'regional' && hasPermission('companies.manage') && <RegionalTab />}
-      {tab === 'taxes' && hasPermission('taxes.view') && <TaxesTab />}
+      {tab === 'invoicing' && hasPermission('invoice-series.view') && <InvoiceSeriesTab />}
+      {tab === 'tax' && <TaxTab />}
       {tab === 'units' && hasPermission('units.view') && <UnitsTab />}
-      {tab === 'loyalty' && hasPermission('loyalty.view') && <LoyaltyTab />}
-      {tab === 'discounts' && hasPermission('companies.manage') && <DiscountsTab />}
+      {tab === 'discounts' && <DiscountsTab />}
       {tab === 'security' && hasPermission('companies.manage') && <SecurityTab />}
     </div>
+  );
+}
+
+/**
+ * The former 'Currency & Tax' and 'Taxes' tabs, now one: what the tax is
+ * called (and the currency that settles it) on top, the actual rates it
+ * applies to underneath. Each half keeps its own permission — a user with
+ * taxes.view but not companies.manage sees the rates and not the wording
+ * controls, which is the same split that used to decide whether they saw
+ * one tab or two.
+ */
+function TaxTab() {
+  const { hasPermission } = useAuth();
+  /**
+   * Bumped when the regime above is saved, to remount the rates table
+   * below. The two are separate components with separate fetches, so
+   * without this the table kept listing the rates of the system that was
+   * just switched away from — the endpoint only ever returns the current
+   * regime's rates (TaxesController::applyScope), but nothing had told
+   * the table to ask again. A remount rather than a soft reload because
+   * the rate set changes wholesale: any page or search still applied to
+   * the old list means nothing against the new one.
+   */
+  const [ratesEpoch, setRatesEpoch] = useState(0);
+
+  return (
+    <Stack spacing={4}>
+      {hasPermission('companies.manage') && <BirRegistrationCard />}
+      {hasPermission('companies.manage') && <TaxSettingsCards onRegimeSaved={() => setRatesEpoch((n) => n + 1)} />}
+      {hasPermission('taxes.view') && <TaxesTab key={ratesEpoch} />}
+    </Stack>
+  );
+}
+
+/**
+ * The switch that turns the whole tax system off for a business that
+ * hasn't registered with the BIR yet.
+ *
+ * Sits at the top of the Tax tab because it governs everything under it:
+ * with this off, the rates below are still listed and still editable,
+ * but nothing charges them. Saved on its own rather than folded into the
+ * currency card, since flipping it changes what customers are charged
+ * and shouldn't ride along with an unrelated Save.
+ */
+function BirRegistrationCard() {
+  const { user } = useAuth();
+  const notify = useSnackbar();
+  const [company, setCompany] = useState<Company | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.company_id) return;
+    api.get<Company>(`/companies/${user.company_id}`).then(setCompany);
+  }, [user?.company_id]);
+
+  const registered = company !== null && Number(company.is_bir_registered) === 1;
+
+  async function toggle(next: boolean) {
+    if (!company) return;
+    setSaving(true);
+    try {
+      setCompany(await api.put<Company>(`/companies/${company.id}`, { is_bir_registered: next ? 1 : 0 }));
+      notify(next ? 'Tax enabled — this business is BIR registered' : 'Tax disabled — no tax will be charged');
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to save', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!company) return null;
+
+  return (
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+        <ReceiptLongOutlinedIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          BIR registration
+        </Typography>
+      </Stack>
+
+      <SecurityToggle
+        title="This business is registered with the BIR"
+        detail="Turn off if you haven't registered yet. No tax is charged on any sale while this is off, whatever rate a product carries, and receipts print without the VAT breakdown or accreditation numbers."
+        checked={registered}
+        disabled={saving}
+        onChange={toggle}
+      />
+
+      {!registered && (
+        <Alert severity="warning" sx={{ mt: 2 }}>
+          Tax is switched off. Every sale is rung up at zero tax, and the tax rates below are saved but unused. Turn this on once the BIR
+          issues your registration — sales already rung up are not recalculated.
+        </Alert>
+      )}
+    </Paper>
+  );
+}
+
+/**
+ * A labelled divider between groups of fields inside a form modal.
+ *
+ * The store form previously had exactly one of these ("Receipt footer")
+ * and nothing above it, so the eye read the first two-thirds of the
+ * dialog as a single undifferentiated run of inputs and the last third
+ * as the only part that had been organised. Either every group gets a
+ * heading or none does; this is the "every" side of that.
+ */
+function FormSectionHeading({ label, hint, first }: { label: string; hint?: string; first?: boolean }) {
+  return (
+    <>
+      {!first && <Divider sx={{ mt: 1, mb: 2 }} />}
+      <Typography
+        variant="overline"
+        color="text.secondary"
+        // The bottom margin lives here only when no hint follows —
+        // otherwise the heading sat flush against the first field's own
+        // label and the two read as one doubled-up caption.
+        sx={{ display: 'block', fontWeight: 700, lineHeight: 1.6, mb: hint ? 0 : 1 }}
+      >
+        {label}
+      </Typography>
+      {hint && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {hint}
+        </Typography>
+      )}
+    </>
   );
 }
 
@@ -130,7 +336,7 @@ function StoresTab() {
   const [show, setShow] = useState(false);
   const [form, setForm] = useState({
     name: '', code: '', address: '', phone: '', email: '',
-    receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', showBirDetails: true,
+    receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', ptuNumber: '', showBirDetails: true,
     is_active: true,
   });
   const [saving, setSaving] = useState(false);
@@ -140,7 +346,7 @@ function StoresTab() {
     setEditing(null);
     setForm({
       name: '', code: '', address: '', phone: '', email: '',
-      receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', showBirDetails: true,
+      receiptFooterNote: '', vatRegTin: '', posSerialNo: '', minNo: '', ptuNumber: '', showBirDetails: true,
       is_active: true,
     });
     clearErrors();
@@ -159,6 +365,7 @@ function StoresTab() {
       vatRegTin: store.vat_reg_tin ?? '',
       posSerialNo: store.pos_serial_no ?? '',
       minNo: store.min_no ?? '',
+      ptuNumber: store.ptu_number ?? '',
       showBirDetails: Number(store.show_bir_details) === 1,
       is_active: Number(store.is_active) === 1,
     });
@@ -179,6 +386,7 @@ function StoresTab() {
       vat_reg_tin: form.vatRegTin || null,
       pos_serial_no: form.posSerialNo || null,
       min_no: form.minNo || null,
+      ptu_number: form.ptuNumber || null,
       show_bir_details: form.showBirDetails ? 1 : 0,
       is_active: form.is_active ? 1 : 0,
     };
@@ -213,6 +421,10 @@ function StoresTab() {
       key: 'name',
       label: 'Store Name',
       sortKey: 'name',
+      // Capped rather than left flexible: as the only unbounded column it
+      // absorbed every pixel freed elsewhere, so the table's total never
+      // came down and the Actions column stayed clipped off the edge.
+      width: 232,
       // A tinted storefront tile beside the name, matching the avatar
       // treatment products already get in the POS grid — on a table where
       // every other column is plain text, it's what lets the eye find the
@@ -234,21 +446,43 @@ function StoresTab() {
           >
             <StorefrontOutlinedIcon sx={{ fontSize: 19 }} />
           </Box>
-          <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }}>
-            {s.name}
-          </Typography>
+          <Tooltip title={s.name}>
+            <Typography variant="body2" noWrap sx={{ fontWeight: 600, minWidth: 0 }}>
+              {s.name}
+            </Typography>
+          </Tooltip>
         </Stack>
       ),
     },
     { key: 'code', label: 'Code', sortKey: 'code', width: 110 },
-    { key: 'address', label: 'Address', render: (s) => s.address ?? '—' },
+    {
+      key: 'address',
+      label: 'Address',
+      width: 148,
+      render: (s) =>
+        s.address ? (
+          <Tooltip title={s.address}>
+            <Typography variant="body2" noWrap>
+              {s.address}
+            </Typography>
+          </Tooltip>
+        ) : (
+          '—'
+        ),
+    },
+    // These three keep their full width rather than sharing the squeeze:
+    // a TIN, serial and MIN differ only in their last few characters, so
+    // truncating them to "123-456-789-…" hides the one part that tells
+    // two branches apart. The budget comes out of Store Name instead
+    // (capped above), which stays identifiable from its first words and
+    // carries a tooltip with the rest.
     { key: 'vat_reg_tin', label: 'VAT Reg TIN', width: 150, render: (s) => s.vat_reg_tin ?? '—' },
     { key: 'pos_serial_no', label: 'POS Serial No', width: 150, render: (s) => s.pos_serial_no ?? '—' },
-    { key: 'min_no', label: 'MIN No', width: 150, render: (s) => s.min_no ?? '—' },
+    { key: 'min_no', label: 'MIN No', width: 180, render: (s) => s.min_no ?? '—' },
     {
       key: 'show_bir_details',
       label: 'On Receipt',
-      width: 130,
+      width: 116,
       // Grayed out rather than a plain dash when there's nothing to show
       // yet — "not printing" and "nothing entered" read as different
       // states at a glance, the same distinction the View modal draws.
@@ -268,7 +502,7 @@ function StoresTab() {
     {
       key: 'is_active',
       label: 'Status',
-      width: 120,
+      width: 104,
       render: (s) => (
         <Chip size="small" label={Number(s.is_active) === 1 ? 'Active' : 'Inactive'} color={Number(s.is_active) === 1 ? 'success' : 'default'} />
       ),
@@ -345,7 +579,12 @@ function StoresTab() {
         }}
       />
 
-      <Modal open={show} title={editing ? 'Edit Store' : 'Add Store'} onClose={() => setShow(false)} compact>
+      {/* `wide`, not `compact`: at the narrow width this used to be, a
+          branch name like "Ermita Branch - Grocery & Bakery" and a MIN of
+          "MIN-2024-0001-0101" were both cut off inside their own inputs —
+          you couldn't read back what you'd typed in the field you were
+          editing. */}
+      <Modal open={show} title={editing ? 'Edit Store' : 'Add Store'} onClose={() => setShow(false)} wide>
         <form
           noValidate
           onSubmit={(e) => {
@@ -354,6 +593,9 @@ function StoresTab() {
           }}
         >
           <Grid container spacing={2} sx={{ pt: 1 }}>
+            <Grid size={{ xs: 12 }}>
+              <FormSectionHeading label="Branch details" first />
+            </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Name"
@@ -378,7 +620,7 @@ function StoresTab() {
                   clearField('code');
                 }}
                 error={!!fieldErrors?.code}
-                helperText={fieldErrors?.code}
+                helperText={fieldErrors?.code ?? 'Short branch code, e.g. 101'}
                 required
               />
             </Grid>
@@ -421,13 +663,21 @@ function StoresTab() {
                 helperText={fieldErrors?.email}
               />
             </Grid>
-            {/* The three BIR-mandated identifiers a Philippine POS/CRM
-                receipt must carry, grouped together and ahead of the free-
-                text header note below — these are fixed accreditation
-                numbers issued by BIR, not editorial content, so they read
-                as a form section of their own rather than three more
-                stray text fields. */}
-            <Grid size={{ xs: 12, sm: 4 }}>
+            {/* The BIR-mandated identifiers a Philippine POS/CRM receipt
+                must carry: fixed accreditation numbers issued by BIR, not
+                editorial content, so they get a section of their own
+                rather than reading as four more stray text fields.
+
+                Two across rather than the three-then-one they were in
+                before, which left PTU stranded on its own row at a third
+                of the width looking like it belonged to nothing. */}
+            <Grid size={{ xs: 12 }}>
+              <FormSectionHeading
+                label="BIR accreditation"
+                hint="Printed in this branch's receipt header. Leave blank until BIR issues them."
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="VAT Reg TIN"
                 fullWidth
@@ -438,10 +688,10 @@ function StoresTab() {
                   clearField('vat_reg_tin');
                 }}
                 error={!!fieldErrors?.vat_reg_tin}
-                helperText={fieldErrors?.vat_reg_tin}
+                helperText={fieldErrors?.vat_reg_tin ?? 'VAT registration TIN'}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="POS Serial No"
                 fullWidth
@@ -451,10 +701,10 @@ function StoresTab() {
                   clearField('pos_serial_no');
                 }}
                 error={!!fieldErrors?.pos_serial_no}
-                helperText={fieldErrors?.pos_serial_no}
+                helperText={fieldErrors?.pos_serial_no ?? "The terminal's serial number"}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="MIN No"
                 fullWidth
@@ -467,15 +717,33 @@ function StoresTab() {
                 helperText={fieldErrors?.min_no ?? 'Machine Identification Number'}
               />
             </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="PTU No"
+                fullWidth
+                value={form.ptuNumber}
+                onChange={(e) => {
+                  setForm({ ...form, ptuNumber: e.target.value });
+                  clearField('ptu_number');
+                }}
+                error={!!fieldErrors?.ptu_number}
+                helperText={fieldErrors?.ptu_number ?? 'BIR Permit to Use'}
+              />
+            </Grid>
             <Grid size={{ xs: 12 }}>
-              {/* Independent of whether the three fields above are filled
-                  in — lets a store save its MIN/serial ahead of BIR
+              {/* Independent of whether the fields above are filled in —
+                  lets a store save its MIN/serial ahead of BIR
                   accreditation going live, or pull them off the receipt
                   temporarily, without losing the saved values either way.
                   Also hides the VAT/VAT Exempt/Zero Rated sales breakdown
                   further down the receipt (see ReceiptModal) — a store
                   hiding its identifiers almost never wants that breakdown
-                  left showing on its own underneath them. */}
+                  left showing on its own underneath them.
+
+                  The label carries the short version and the caption the
+                  consequence: as one sentence it ran to two wrapped lines
+                  beside the checkbox and read as a paragraph someone had
+                  attached to a control. */}
               <FormControlLabel
                 control={
                   <Checkbox
@@ -483,8 +751,11 @@ function StoresTab() {
                     onChange={(e) => setForm({ ...form, showBirDetails: e.target.checked })}
                   />
                 }
-                label="Include VAT Reg TIN / POS Serial No / MIN No and the VAT sales breakdown on the printed receipt"
+                label="Print these on this branch's receipts"
               />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                Turning this off keeps the numbers saved but leaves them, and the VAT sales breakdown, off the printed receipt.
+              </Typography>
             </Grid>
             <Grid size={{ xs: 12 }}>
               {/* Visually separated from the identifiers above, on purpose
@@ -493,12 +764,12 @@ function StoresTab() {
                   free-text field sitting right under it read as if it were
                   part of that same header. This is a closing message
                   instead: it prints at the very bottom of the receipt. */}
-              <Divider sx={{ my: 0.5 }} />
-              <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1.5, mb: 1 }}>
-                Receipt footer
-              </Typography>
+              <FormSectionHeading label="Receipt footer" />
+              {/* Just "Message": the section heading above already says
+                  receipt footer, and "Receipt footer" over "Receipt
+                  footer note" read as the same words twice. */}
               <TextField
-                label="Receipt footer note"
+                label="Message"
                 fullWidth
                 multiline
                 minRows={2}
@@ -542,6 +813,7 @@ function StoresTab() {
             { label: 'VAT Reg TIN', value: viewing?.vat_reg_tin ?? '—' },
             { label: 'POS Serial No', value: viewing?.pos_serial_no ?? '—' },
             { label: 'MIN No', value: viewing?.min_no ?? '—' },
+            { label: 'PTU No', value: viewing?.ptu_number ?? '—' },
             {
               label: 'Shown on receipt',
               value: viewing ? (
@@ -577,8 +849,21 @@ function StoresTab() {
   );
 }
 
+/**
+ * What each of the three opening-float modes is called and what it does
+ * — shared between the register form's select, the list column, and the
+ * View modal, so the wording can't drift between them. Matches
+ * RegisterModel's own naming on the backend (see AddOpeningFloatToRegisters).
+ */
+const OPENING_FLOAT_MODE_META: Record<OpeningFloatMode, { label: string; hint: string }> = {
+  manual: { label: 'Cashier enters it', hint: 'The cashier counts the drawer and types the opening cash at Open POS Terminal, same as before this was configurable.' },
+  fixed: { label: 'Automatic', hint: 'Opens with the configured float — no screen, no typing, no tap.' },
+  fixed_confirm: { label: 'Automatic, with confirm', hint: 'Shows the configured float and asks the cashier to tap once to start the shift — not editable.' },
+};
+
 function RegistersTab() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const symbol = currencySymbol(user?.currency);
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [stores, setStores] = useState<Store[]>([]);
@@ -592,7 +877,15 @@ function RegistersTab() {
   const [editing, setEditing] = useState<Register | null>(null);
   const [viewing, setViewing] = useState<Register | null>(null);
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ store_id: '', name: '', code: '', is_active: true });
+  const [form, setForm] = useState({
+    store_id: '',
+    name: '',
+    code: '',
+    is_active: true,
+    opening_float_mode: 'manual' as OpeningFloatMode,
+    default_opening_float: '',
+    is_training_mode: false,
+  });
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
@@ -604,7 +897,7 @@ function RegistersTab() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ store_id: storeFilter, name: '', code: '', is_active: true });
+    setForm({ store_id: storeFilter, name: '', code: '', is_active: true, opening_float_mode: 'manual', default_opening_float: '', is_training_mode: false });
     clearErrors();
     setShow(true);
   }
@@ -616,6 +909,9 @@ function RegistersTab() {
       name: register.name,
       code: register.code,
       is_active: Number(register.is_active) === 1,
+      opening_float_mode: register.opening_float_mode,
+      default_opening_float: register.default_opening_float ?? '',
+      is_training_mode: Number(register.is_training_mode) === 1,
     });
     clearErrors();
     setShow(true);
@@ -629,6 +925,12 @@ function RegistersTab() {
       name: form.name,
       code: form.code,
       is_active: form.is_active ? 1 : 0,
+      opening_float_mode: form.opening_float_mode,
+      // null rather than '' for manual mode — clears any float left over
+      // from a register that used to be fixed, so a later switch back to
+      // fixed can't silently resurrect a stale figure nobody set this time.
+      default_opening_float: form.opening_float_mode === 'manual' ? null : form.default_opening_float || null,
+      is_training_mode: form.is_training_mode ? 1 : 0,
     };
     try {
       if (editing) await api.put(`/registers/${editing.id}`, payload);
@@ -660,6 +962,25 @@ function RegistersTab() {
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'code', label: 'Code', sortKey: 'code', width: 160 },
     { key: 'store', label: 'Store', render: (r) => storeName(r.store_id) },
+    {
+      key: 'opening_float',
+      label: 'Opening Cash',
+      width: 200,
+      render: (r) =>
+        r.opening_float_mode === 'manual' ? (
+          <Typography variant="body2" color="text.secondary">
+            Cashier enters it
+          </Typography>
+        ) : (
+          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {symbol}
+              {formatMoney(parseFloat(r.default_opening_float ?? '0'))}
+            </Typography>
+            <Chip size="small" variant="outlined" label={r.opening_float_mode === 'fixed' ? 'auto' : 'confirm'} sx={{ height: 20, fontSize: 11 }} />
+          </Stack>
+        ),
+    },
     {
       key: 'is_active',
       label: 'Status',
@@ -802,6 +1123,65 @@ function RegistersTab() {
                 required
               />
             </Grid>
+
+            {/* Opening cash: how a cash session starts on this
+                terminal, not a fourth product field crammed in next to
+                Name/Code — a divider marks it as its own decision. */}
+            <Grid size={{ xs: 12 }}>
+              <Divider textAlign="left" sx={{ '&::before': { width: '4%' }, mt: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: '0.04em' }}>
+                  OPENING CASH
+                </Typography>
+              </Divider>
+            </Grid>
+            <Grid size={{ xs: 12, sm: form.opening_float_mode === 'manual' ? 12 : 6 }}>
+              <SearchableSelect
+                label="How it starts"
+                fullWidth
+                value={form.opening_float_mode}
+                onChange={(v) => setForm({ ...form, opening_float_mode: v as OpeningFloatMode })}
+                options={(Object.keys(OPENING_FLOAT_MODE_META) as OpeningFloatMode[]).map((m) => ({
+                  value: m,
+                  label: OPENING_FLOAT_MODE_META[m].label,
+                }))}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                {OPENING_FLOAT_MODE_META[form.opening_float_mode].hint}
+              </Typography>
+            </Grid>
+            {form.opening_float_mode !== 'manual' && (
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Opening float"
+                  type="number"
+                  fullWidth
+                  value={form.default_opening_float}
+                  onChange={(e) => {
+                    setForm({ ...form, default_opening_float: e.target.value });
+                    clearField('default_opening_float');
+                  }}
+                  error={!!fieldErrors?.default_opening_float}
+                  helperText={fieldErrors?.default_opening_float ?? `e.g. ${symbol}5000`}
+                  required
+                  slotProps={{ htmlInput: { min: 0.01, step: 0.01 } }}
+                />
+              </Grid>
+            )}
+            <Grid size={{ xs: 12 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={form.is_training_mode}
+                    onChange={(e) => setForm({ ...form, is_training_mode: e.target.checked })}
+                  />
+                }
+                label="Training mode"
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -0.5 }}>
+                Sales on this terminal become practice only: stamped TRAINING on the receipt, given a TRN- number instead of a real invoice
+                number, and left out of every total, report and X/Z reading. Turn it off before the terminal takes real money.
+              </Typography>
+            </Grid>
             {formError && (
               <Grid size={{ xs: 12 }}>
                 <Alert severity="error">{formError}</Alert>
@@ -827,6 +1207,10 @@ function RegistersTab() {
             { label: 'Name', value: viewing?.name },
             { label: 'Code', value: viewing?.code },
             { label: 'Store', value: viewing ? storeName(viewing.store_id) : undefined },
+            { label: 'Opening cash', value: viewing ? OPENING_FLOAT_MODE_META[viewing.opening_float_mode].label : undefined },
+            ...(viewing && viewing.opening_float_mode !== 'manual'
+              ? [{ label: 'Opening float', value: `${symbol}${formatMoney(parseFloat(viewing.default_opening_float ?? '0'))}` }]
+              : []),
             { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
           ]}
         />
@@ -940,15 +1324,20 @@ function TaxesTab() {
     <div>
       {/* Names the regime these rates are read under, and where it comes
           from. Without it the Flag column appearing and disappearing with
-          a currency change on another tab looks arbitrary — this is the
-          one place a cashier sees the two settings are connected. The
-          rates themselves are untouched by any of it: they're real rows
-          referenced by products and past sales, so nothing here renames
-          or replaces them on a currency change. */}
+          a currency change looks arbitrary — this is the one place the
+          two settings are visibly connected. The rates themselves are
+          untouched by any of it: they're real rows referenced by products
+          and past sales, so nothing here renames or replaces them on a
+          currency change.
+
+          "set above" rather than a tab name: the wording controls now sit
+          on this same tab (see TaxTab). The old copy pointed at "the
+          Regional tab", which had already been relabelled Currency & Tax
+          and no longer exists at all. */}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Rates below are labelled{' '}
         <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>{taxLabel(user?.tax_system)}</Box>, following the
-        tax system set on the Regional tab. Changing the currency there pre-selects the matching system.
+        tax system set above.
       </Typography>
 
       <ListToolbar
@@ -986,6 +1375,17 @@ function TaxesTab() {
         onPerPageChange={setPerPage}
         sort={sort}
         onSortChange={setSort}
+        // Says why the list is empty instead of a bare "No records
+        // found." Rates are stored per tax system and the endpoint only
+        // ever returns the current one's (TaxesController::applyScope),
+        // so changing the currency above to one on the other regime
+        // empties this table outright — which reads as the table having
+        // failed to load rather than as the deliberate scoping it is.
+        emptyLabel={
+          q || statusFilter
+            ? 'No tax rates match this search.'
+            : `No ${taxLabel(user?.tax_system)} rates yet. Rates are kept per tax system — any set up under the other one are still saved, and come back if you switch the currency back.`
+        }
         rowActions={(t) => (
           <>
             <Tooltip title="View">
@@ -1528,35 +1928,27 @@ function UnitsTab() {
  * SalesController::create() reads this same column to award points
  * automatically at checkout when a customer is attached to the sale.
  */
-function LoyaltyTab() {
+/**
+ * Was its own top-level tab holding this one field; now a card on
+ * Discounts & Loyalty (see the Tab type's own note). Takes the company
+ * from its parent rather than fetching again — same shape as
+ * DiscountDefaultsSection, which already shares that tab's single load.
+ */
+function LoyaltyPointsSection({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
   const { user, hasPermission } = useAuth();
   const symbol = currencySymbol(user?.currency);
   const notify = useSnackbar();
   const canManage = hasPermission('loyalty.manage');
-  const [company, setCompany] = useState<Company | null>(null);
-  const [rate, setRate] = useState('0');
-  const [loading, setLoading] = useState(true);
+  const [rate, setRate] = useState(() => String(company.loyalty_points_per_100));
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
-  useEffect(() => {
-    if (!user?.company_id) return;
-    api
-      .get<Company>(`/companies/${user.company_id}`)
-      .then((c) => {
-        setCompany(c);
-        setRate(String(c.loyalty_points_per_100));
-      })
-      .finally(() => setLoading(false));
-  }, [user?.company_id]);
-
   async function submit() {
-    if (!company) return;
     setSaving(true);
     clearErrors();
     try {
       const updated = await api.put<Company>(`/companies/${company.id}`, { loyalty_points_per_100: rate || '0' });
-      setCompany(updated);
+      onSaved(updated);
       setRate(String(updated.loyalty_points_per_100));
       notify('Loyalty settings updated');
     } catch (err) {
@@ -1566,16 +1958,8 @@ function LoyaltyTab() {
     }
   }
 
-  if (loading) {
-    return (
-      <Stack sx={{ alignItems: 'center', py: 6 }}>
-        <CircularProgress size={22} />
-      </Stack>
-    );
-  }
-
   return (
-    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 520 }}>
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
         <LoyaltyOutlinedIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -1583,9 +1967,8 @@ function LoyaltyTab() {
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Every completed sale with a customer attached automatically earns them this many points per {symbol}100 of the sale
-        total — set to 0 to turn off automatic earning (points can still be adjusted manually from a customer's Points
-        History).
+        Earned automatically per {symbol}100 when a customer is attached. 0 turns it off — points can still be adjusted by
+        hand from a customer's Points History.
       </Typography>
 
       <TextField
@@ -1637,13 +2020,20 @@ function LoyaltyTab() {
  * happens to need a supervisor.
  */
 function SecurityTab() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const notify = useSnackbar();
   const [company, setCompany] = useState<Company | null>(null);
   const [itemVoid, setItemVoid] = useState(false);
   const [cancel, setCancel] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Kept separate from `saving` above — the toggles save themselves the
+  // instant they're flipped, but the idle-lock minutes field below needs
+  // its own explicit Save, and conflating the two flags would grey out
+  // (or spin) the wrong control while the other one's request is in flight.
+  const [lockMinutes, setLockMinutes] = useState('0');
+  const [lockSaving, setLockSaving] = useState(false);
+  const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
   useEffect(() => {
     if (!user?.company_id) return;
@@ -1653,6 +2043,7 @@ function SecurityTab() {
         setCompany(c);
         setItemVoid(Number(c.require_item_void_approval) === 1);
         setCancel(Number(c.require_cancel_approval) === 1);
+        setLockMinutes(String(c.pos_lock_idle_minutes));
       })
       .finally(() => setLoading(false));
   }, [user?.company_id]);
@@ -1679,6 +2070,27 @@ function SecurityTab() {
     }
   }
 
+  async function submitLockMinutes() {
+    if (!company) return;
+    setLockSaving(true);
+    clearErrors();
+    try {
+      const updated = await api.put<Company>(`/companies/${company.id}`, { pos_lock_idle_minutes: lockMinutes || '0' });
+      setCompany(updated);
+      setLockMinutes(String(updated.pos_lock_idle_minutes));
+      // This value rides the auth payload (see AuthController::
+      // attachCompanyProfile), not a dedicated endpoint — without this,
+      // a shift already underway on another terminal would keep the old
+      // timeout until that cashier's next sign-in.
+      await refreshUser();
+      notify('Idle lock updated');
+    } catch (err) {
+      reportError(err, 'Failed to save idle lock');
+    } finally {
+      setLockSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <Stack sx={{ alignItems: 'center', py: 6 }}>
@@ -1688,46 +2100,207 @@ function SecurityTab() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
-        <ShieldOutlinedIcon color="primary" />
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-          Void / cancel approval
+    <Grid container spacing={2.5} sx={{ alignItems: 'stretch' }}>
+      <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <ShieldOutlinedIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Void / cancel approval
+          </Typography>
+        </Stack>
+        {/* One line, not the five-line paragraph this used to open with.
+            The detail it carried — that a reason is always collected and
+            everything lands in the Audit Trail either way — is true of
+            both switches regardless of setting, so it reads as a footnote
+            below them rather than a preamble above them. */}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Whether a supervisor has to sign off before the cashier can take something back off a sale.
         </Typography>
-      </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        When a switch is on, the cashier must have a supervisor (someone with the Void Sales permission) enter their own
-        username and password before the action goes through. Either way the cashier picks a reason, and every void,
-        cancellation, and denied attempt is recorded in the Audit Trail — turning a switch off changes who signs for it,
-        never whether it is recorded. Void counts and totals per shift also appear on the Close Terminal screen.
-      </Typography>
 
-      <Stack spacing={1.5}>
-        <SecurityToggle
-          title="Voiding a single item"
-          detail="Mis-scans are constant, so gating each one tends to end with the supervisor's password being shared — which removes the control and the attribution together. Recommended off."
-          checked={itemVoid}
-          disabled={saving}
-          onChange={(v) => toggle('require_item_void_approval', v)}
-        />
-        <SecurityToggle
-          title="Cancelling an entire sale"
-          detail="Rare and high-signal, so the friction is cheap and the alarm means something. Recommended on."
-          checked={cancel}
-          disabled={saving}
-          onChange={(v) => toggle('require_cancel_approval', v)}
-        />
-      </Stack>
-    </Paper>
+        <Stack spacing={1.5}>
+          <SecurityToggle
+            title="Voiding a single item"
+            detail="Mis-scans are constant, and gating every one tends to end with the supervisor's password being shared. Recommended off."
+            checked={itemVoid}
+            disabled={saving}
+            onChange={(v) => toggle('require_item_void_approval', v)}
+          />
+          <SecurityToggle
+            title="Cancelling an entire sale"
+            detail="Rare and high-signal, so the friction is cheap and the alarm means something. Recommended on."
+            checked={cancel}
+            disabled={saving}
+            onChange={(v) => toggle('require_cancel_approval', v)}
+          />
+        </Stack>
+
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2.5 }}>
+          Either way the cashier picks a reason, and every void, cancellation and denied attempt is recorded in the
+          Audit Trail.
+        </Typography>
+      </Paper>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <LockOutlinedIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Idle lock
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Covers the POS screen after it sits untouched this long, so a half-rung sale isn't left on show. 0 turns
+          automatic locking off — cashiers can always lock by hand from the account menu.
+        </Typography>
+
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+          <TextField
+            label="Lock after"
+            type="number"
+            value={lockMinutes}
+            onChange={(e) => {
+              setLockMinutes(e.target.value);
+              clearField('pos_lock_idle_minutes');
+            }}
+            error={!!fieldErrors?.pos_lock_idle_minutes}
+            helperText={fieldErrors?.pos_lock_idle_minutes}
+            slotProps={{ htmlInput: { min: 0, step: 1 }, input: { endAdornment: <InputAdornment position="end">minutes idle</InputAdornment> } }}
+            sx={{ width: 260 }}
+          />
+          <Button variant="contained" onClick={submitLockMinutes} disabled={lockSaving} sx={{ height: 56 }}>
+            {lockSaving ? 'Saving…' : 'Save'}
+          </Button>
+        </Stack>
+        {formError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {formError}
+          </Alert>
+        )}
+      </Paper>
+      </Grid>
+
+      <Grid size={{ xs: 12 }}>
+        <ResetConfigurationCard />
+      </Grid>
+    </Grid>
   );
 }
 
 /**
- * Everything about how a discount behaves at the register, gathered in
- * one place — split out from Security (which now covers only voiding/
- * cancelling a sale) since these are pricing/promotions decisions, not
- * a security policy, even though the approval switch below happens to
- * work the same way a security switch does.
+ * Wipes this company's configuration back to how a new install starts.
+ *
+ * Lives at the bottom of Security, behind its own red-bordered card and
+ * a typed confirmation, because it is the only irreversible control in
+ * Settings. Eligibility is checked up front rather than on press: the
+ * server refuses a reset once the system has issued any document, and
+ * saying so before the button is touched is better than offering an
+ * action that is going to be rejected.
+ */
+function ResetConfigurationCard() {
+  const notify = useSnackbar();
+  const [eligibility, setEligibility] = useState<{ can_reset: boolean; blockers: string[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [resetting, setResetting] = useState(false);
+
+  function loadEligibility() {
+    api
+      .get<{ can_reset: boolean; blockers: string[] }>('/system/reset-eligibility')
+      .then(setEligibility)
+      .catch(() => setEligibility(null));
+  }
+
+  useEffect(loadEligibility, []);
+
+  async function run() {
+    setResetting(true);
+    try {
+      await api.post('/system/reset', { confirm: 'RESET' });
+      notify('Configuration reset. Start again from the Setup Guide.');
+      // Hard reload: half the app is holding company settings, store
+      // lists and tax rates in state that no longer exist.
+      window.location.assign('/admin/settings/guide');
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Reset failed', 'error');
+      setResetting(false);
+      setOpen(false);
+      loadEligibility();
+    }
+  }
+
+  return (
+    <>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: 'error.main' }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <WarningAmberOutlinedIcon color="error" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            Reset configuration
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Clears every branch, terminal, payment method, tax rate and invoice series, along with all company settings, and puts the system
+          back where a new install starts. Products, suppliers and customers are kept — but their per-branch prices and stock go with the
+          branches.
+        </Typography>
+
+        {eligibility && !eligibility.can_reset ? (
+          <Alert severity="info">
+            Not available — this system has already been used for real business ({eligibility.blockers.join(', ')}). Configuration that
+            produced issued documents has to stay with them.
+          </Alert>
+        ) : (
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => {
+              setTyped('');
+              setOpen(true);
+            }}
+            disabled={!eligibility}
+          >
+            Reset configuration…
+          </Button>
+        )}
+      </Paper>
+
+      <Modal open={open} title="Reset configuration" onClose={() => setOpen(false)} compact>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          This cannot be undone. Everything listed below is deleted immediately.
+        </Alert>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Branches, POS terminals, payment methods, tax rates, invoice series, cash sessions and Z-readings, plus all company settings —
+          business profile, currency, discounts, loyalty and security. Per-branch prices and stock levels go with the branches. Your
+          products, suppliers and customers stay.
+        </Typography>
+        <TextField
+          label="Type RESET to confirm"
+          fullWidth
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+        />
+        <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <Button variant="text" onClick={() => setOpen(false)} disabled={resetting}>
+            Cancel
+          </Button>
+          <Button variant="contained" color="error" onClick={run} disabled={typed !== 'RESET' || resetting}>
+            {resetting ? 'Resetting…' : 'Reset everything'}
+          </Button>
+        </Stack>
+      </Modal>
+    </>
+  );
+}
+
+/**
+ * Everything about how a discount behaves at the register, plus the
+ * loyalty earn rate that used to be a tab of its own — split out from
+ * Security (which covers only voiding/cancelling a sale) since these are
+ * pricing/rewards decisions, not a security policy, even though the
+ * approval switch below happens to work the same way a security switch
+ * does.
  *
  * Discount ELIGIBILITY (which products/categories a given type even
  * applies to) is deliberately NOT duplicated here — it's configured per
@@ -1737,8 +2310,12 @@ function SecurityTab() {
  * note below just points there rather than re-explaining it.
  */
 function DiscountsTab() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const notify = useSnackbar();
+  // Each half of this merged tab keeps the permission it had as its own
+  // tab — the tab itself appears for either (see TAB_PERMISSIONS).
+  const canManageCompany = hasPermission('companies.manage');
+  const canViewLoyalty = hasPermission('loyalty.view');
   const [company, setCompany] = useState<Company | null>(null);
   const [manualDiscount, setManualDiscount] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -1781,35 +2358,51 @@ function DiscountsTab() {
   }
 
   return (
-    <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
-          <SellOutlinedIcon color="primary" />
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Manual Discount approval
-          </Typography>
-        </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Senior Citizen, PWD, and every other discount type either carries a statutory rate or a standing company
-          policy — Manual Discount is the one with none, pure cashier discretion, applied and recorded the same way a
-          void is (see Security).
-        </Typography>
-        <SecurityToggle
-          title="Applying a Manual Discount"
-          detail="A supervisor (someone with the Approve Discounts permission) must enter their own username and password before it goes through. Recommended on."
-          checked={manualDiscount}
-          disabled={saving}
-          onChange={toggleManualDiscount}
-        />
-      </Paper>
+    <Grid container spacing={2.5} sx={{ alignItems: 'stretch' }}>
+      {canManageCompany && (
+        <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+              <SellOutlinedIcon color="primary" />
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                Manual Discount approval
+              </Typography>
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              The one discount type with no statutory rate or company policy behind it — pure cashier discretion.
+            </Typography>
+            <SecurityToggle
+              title="Applying a Manual Discount"
+              detail="Needs a supervisor's username and password. Recommended on."
+              checked={manualDiscount}
+              disabled={saving}
+              onChange={toggleManualDiscount}
+            />
+          </Paper>
+        </Grid>
+      )}
 
-      {company && <DiscountDefaultsSection company={company} onSaved={setCompany} />}
+      {company && canViewLoyalty && (
+        <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+          <LoyaltyPointsSection company={company} onSaved={setCompany} />
+        </Grid>
+      )}
 
-      <Alert severity="info" sx={{ maxWidth: 620 }}>
-        Which products or categories a discount type applies to at all is configured per category or product — open
-        Products, then a category or item's own Discount Eligibility action.
-      </Alert>
-    </Stack>
+      {company && canManageCompany && (
+        <Grid size={{ xs: 12 }}>
+          <DiscountDefaultsSection company={company} onSaved={setCompany} />
+        </Grid>
+      )}
+
+      {canManageCompany && (
+        <Grid size={{ xs: 12 }}>
+          <Alert severity="info">
+            Which products or categories a discount applies to is set per item — open Products, then a category or
+            item's own Discount Eligibility action.
+          </Alert>
+        </Grid>
+      )}
+    </Grid>
   );
 }
 
@@ -1858,7 +2451,7 @@ function DiscountDefaultsSection({ company, onSaved }: { company: Company; onSav
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, maxWidth: 620 }}>
+    <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
         <SellOutlinedIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -1866,28 +2459,31 @@ function DiscountDefaultsSection({ company, onSaved }: { company: Company; onSav
         </Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        A starting percentage for each discount type below — the cashier's Discount dialog opens with this already
-        filled in, but can always change it. Leave a field blank to have the dialog start empty, as it always has.
+        What the cashier's Discount dialog pre-fills. They can always type over it; blank just opens it empty.
       </Typography>
 
-      <Stack spacing={2}>
+      {/* Three across rather than five stacked: as a single column these
+          five short percent fields ran the height of the viewport while
+          leaving half the card empty beside them. */}
+      <Grid container spacing={2}>
         {DISCOUNT_DEFAULT_FIELDS.map(({ field, label }) => (
-          <TextField
-            key={field}
-            label={label}
-            type="number"
-            fullWidth
-            value={values[field]}
-            onChange={(e) => {
-              setValues((prev) => ({ ...prev, [field]: e.target.value }));
-              clearField(field);
-            }}
-            error={!!fieldErrors?.[field]}
-            helperText={fieldErrors?.[field] ?? 'Blank = no default'}
-            slotProps={{ htmlInput: { min: 0, max: 100, step: 0.01 }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-          />
+          <Grid key={field} size={{ xs: 12, sm: 6, md: 4 }}>
+            <TextField
+              label={label}
+              type="number"
+              fullWidth
+              value={values[field]}
+              onChange={(e) => {
+                setValues((prev) => ({ ...prev, [field]: e.target.value }));
+                clearField(field);
+              }}
+              error={!!fieldErrors?.[field]}
+              helperText={fieldErrors?.[field] ?? 'Blank = no default'}
+              slotProps={{ htmlInput: { min: 0, max: 100, step: 0.01 }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+            />
+          </Grid>
         ))}
-      </Stack>
+      </Grid>
 
       {formError && (
         <Alert severity="error" sx={{ mt: 2 }}>
@@ -1944,7 +2540,13 @@ function SecurityToggle({
  * calls refreshUser: without it the POS would keep printing the old
  * currency symbol until the cashier next signed in.
  */
-function RegionalTab() {
+/**
+ * The currency/tax-wording half of the Tax tab (see TaxTab). Laid out as
+ * two side-by-side cards rather than a 620px-wide single column — these
+ * are two short forms, and stacking them left-aligned left roughly half
+ * the card empty at desktop widths.
+ */
+function TaxSettingsCards({ onRegimeSaved }: { onRegimeSaved: () => void }) {
   const { user, refreshUser } = useAuth();
   const notify = useSnackbar();
   const [company, setCompany] = useState<Company | null>(null);
@@ -1979,6 +2581,14 @@ function RegionalTab() {
   }, [user?.company_id]);
 
   const dirty = company !== null && (currency !== (company.currency || DEFAULT_CURRENCY) || system !== taxSystemOf(company.tax_system));
+  /**
+   * Saving this particular change swaps the whole rate list underneath —
+   * rates belong to one regime or the other (TaxesController::
+   * applyScope), so a company moving to GST stops seeing its VAT rates
+   * and starts with none. Worth saying before the Save rather than
+   * leaving an empty table to explain itself afterwards.
+   */
+  const switchesRegime = company !== null && system !== taxSystemOf(company.tax_system);
 
   async function submit() {
     if (!company) return;
@@ -1986,9 +2596,14 @@ function RegionalTab() {
     clearErrors();
     try {
       const updated = await api.put<Company>(`/companies/${company.id}`, { currency, tax_system: system });
+      const regimeChanged = taxSystemOf(updated.tax_system) !== taxSystemOf(company.tax_system);
       setCompany(updated);
       setCurrency(updated.currency || DEFAULT_CURRENCY);
+      // Before onRegimeSaved: the rates table reads the regime off the
+      // auth user, so it has to be current by the time that remount
+      // refetches, or it asks again as the system it just left.
       await refreshUser();
+      if (regimeChanged) onRegimeSaved();
       notify('Regional settings updated');
     } catch (err) {
       reportError(err, 'Failed to save regional settings');
@@ -2003,8 +2618,9 @@ function RegionalTab() {
   const sample = `${currencySymbol(currency)}1,234.50`;
 
   return (
-    <Stack spacing={2.5} sx={{ maxWidth: 620 }}>
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+    <Grid container spacing={2.5} sx={{ alignItems: 'stretch' }}>
+      <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
           <PaymentsOutlinedIcon color="primary" />
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -2012,9 +2628,8 @@ function RegionalTab() {
           </Typography>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-          The symbol shown beside amounts across the POS and the Back Office. This changes how money is written,
-          never what it is worth — no amount already recorded is converted, so switch it only if the till has
-          genuinely been taking a different currency all along.
+          How money is written across the POS and Back Office — never what it is worth. Nothing already recorded is
+          converted.
         </Typography>
         <SearchableSelect
           label="Currency"
@@ -2032,8 +2647,10 @@ function RegionalTab() {
           </Typography>
         )}
       </Paper>
+      </Grid>
 
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+      <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex' }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, width: '100%' }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
           <ReceiptLongOutlinedIcon color="primary" />
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -2041,8 +2658,7 @@ function RegionalTab() {
           </Typography>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-          What the tax on a sale is called, and which parts of a receipt are printed. Tax rates themselves are set
-          on the Taxes tab — this only decides the wording around them.
+          What the tax is called and which receipt lines print. The rates themselves are set below.
         </Typography>
         <SearchableSelect
           label="Tax system"
@@ -2087,14 +2703,31 @@ function RegionalTab() {
           )}
         </Alert>
       </Paper>
+      </Grid>
 
-      {formError && <Alert severity="error">{formError}</Alert>}
+      {switchesRegime && (
+        <Grid size={{ xs: 12 }}>
+          <Alert severity="warning">
+            Saving this switches the tax system to <strong>{TAX_SYSTEMS[system].label}</strong>, and the rates below
+            change with it — each rate belongs to one system. Anything set up under{' '}
+            <strong>{TAX_SYSTEMS[taxSystemOf(company.tax_system)].label}</strong> stays saved and comes back if you
+            switch the currency back, but you'll need to add {TAX_SYSTEMS[system].label} rates before tax can be
+            charged.
+          </Alert>
+        </Grid>
+      )}
 
-      <Box>
+      {formError && (
+        <Grid size={{ xs: 12 }}>
+          <Alert severity="error">{formError}</Alert>
+        </Grid>
+      )}
+
+      <Grid size={{ xs: 12 }}>
         <Button variant="contained" onClick={submit} disabled={saving || !dirty}>
           {saving ? 'Saving…' : 'Save Changes'}
         </Button>
-      </Box>
-    </Stack>
+      </Grid>
+    </Grid>
   );
 }

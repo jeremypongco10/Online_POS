@@ -59,6 +59,7 @@ export const ADMIN_NAV_PERMISSIONS = [
   'purchases.view',
   'returns.view',
   'cash-sessions.view',
+  'readings.view',
   'users.view',
   'roles.view',
   'stores.view',
@@ -106,8 +107,8 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: 'cash',
     label: 'Cash Drawers',
-    description: 'Review register sessions and record cash paid in or out of an open drawer.',
-    permissions: ['cash-sessions.view'],
+    description: "Reconcile register sessions, and take the X and Z readings that close a terminal's day.",
+    permissions: ['cash-sessions.view', 'readings.view'],
     icon: IconCash,
   },
   {
@@ -127,13 +128,13 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: 'settings',
     label: 'Settings',
-    description: 'Configure stores, POS terminals, payment methods, tax rates, and units.',
+    description: 'Your branches and terminals, how sales are charged and numbered, and how the register behaves.',
     // Settings bundles several sub-tabs (Stores/Registers/Payment Methods/
     // Taxes/Units) — the nav entry itself needs to show up for any one of
     // them, not just stores.view, or a role granted only e.g.
     // registers.view has no way to reach the tab it was actually given
     // permission for.
-    permissions: ['stores.view', 'registers.view', 'payment-methods.view', 'taxes.view', 'units.view'],
+    permissions: ['stores.view', 'registers.view', 'payment-methods.view', 'invoice-series.view', 'taxes.view', 'units.view'],
     icon: IconSettings,
   },
 ];
@@ -169,9 +170,10 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
   const { user, logout, hasPermission } = useAuth();
   const theme = useTheme();
   // Always the light-on-dark mark. This bar is a fixed navy regardless of
-  // the app's own light/dark setting (same as PosHeader), so there's no
-  // second variant to swap to — the theme-aware pick Login.tsx makes
-  // would only ever resolve to this file here.
+  // the app's own light/dark setting (same reasoning as ReceiptPanel
+  // forcing its own light scheme in the POS), so there's no second variant
+  // to swap to — the theme-aware pick Login.tsx makes would only ever
+  // resolve to this file here.
   const logo = logoDark;
   // Nine sections don't fit across a phone, so below `md` the bar keeps
   // only the brand and the account controls, and the sections move into a

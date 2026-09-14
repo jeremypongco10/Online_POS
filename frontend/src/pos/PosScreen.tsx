@@ -19,7 +19,6 @@ import type {
 } from '../api/types';
 import { ProductBrowser } from './ProductBrowser';
 import { ReceiptPanel } from './ReceiptPanel';
-import { PosHeader } from './PosHeader';
 import { AccountMenu } from './AccountMenu';
 import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
@@ -31,7 +30,7 @@ import { VoidItemDialog } from './VoidItemDialog';
 import { DiscountDialog, type DiscountResult } from './DiscountDialog';
 import { discountRequiresHolderId, discountTypeLabel, type DiscountDefaults, type DiscountTypeCode } from './discountTypes';
 import { computeDiscountAmounts, type ActiveDiscount } from './discountCalc';
-import { calculateCart, type CartLine } from './posTypes';
+import { calculateCart, calculateLine, type CartLine } from './posTypes';
 import { formatQuantity } from './format';
 import {
   clearDraftSale,
@@ -43,6 +42,9 @@ import {
   type HeldSale,
 } from './holdSale';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { useIdleLock } from './useIdleLock';
+import { PosLockScreen } from './PosLockScreen';
+import { LogoutWithSaleDialog } from './LogoutWithSaleDialog';
 import { usePosZoom } from './usePosZoom';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
 
@@ -53,6 +55,10 @@ interface Props {
 export function PosScreen({ onOpenAdmin }: Props) {
   const { user, logout, hasPermission } = useAuth();
   const notify = useSnackbar();
+  // Idle minutes rides the auth payload (see AuthController::attachCompanyProfile)
+  // — 0 while `user` hasn't loaded yet is the same "off" default a fresh
+  // company row has, not a real company setting taking effect early.
+  const idleLock = useIdleLock(user?.pos_lock_idle_minutes ?? 0);
 
   const [stores, setStores] = useState<Store[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
@@ -66,6 +72,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [cashSession, setCashSession] = useState<CashSession | null>(null);
   const [cashSessionLoading, setCashSessionLoading] = useState(true);
   const [showCloseRegister, setShowCloseRegister] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const [lines, setLines] = useState<CartLine[]>([]);
   // Which cart line to scroll into view / highlight — set on every add (see
@@ -165,17 +172,22 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   // Scales the page down on a screen smaller than this layout was drawn
   // for, so more of the product grid stays visible instead of scrolling.
-  // Also returns the manual override PosHeader's zoom control drives.
+  // Also returns the manual override AccountMenu's zoom control drives.
   const posZoom = usePosZoom();
 
-  // The DOM node ProductSearch's search field portals into — see
-  // PosHeader's searchSlotRef and ProductSearch's searchPortalTarget.
-  // State, not a plain ref object: PosHeader's callback ref fires during
-  // commit, and this component needs a re-render once that happens so the
-  // node actually reaches ProductBrowser/ProductSearch as a prop.
-  const [searchSlot, setSearchSlot] = useState<HTMLDivElement | null>(null);
-
   const totals = useMemo(() => calculateCart(lines), [lines]);
+  /**
+   * What's actually still being sold — every check for "is there
+   * anything in this cart worth acting on" (Discount/Cancel/Pay gates,
+   * the checkout payload, the Actions row's empty-vs-has-items switch,
+   * the item count shown above TOTAL) reads this instead of `lines`
+   * directly, so a cart holding nothing but struck-through voided lines
+   * behaves the same as a genuinely empty one everywhere that matters.
+   * `lines` itself stays the source of truth for what's actually
+   * *displayed* (Cart.tsx renders voided lines too, struck through) and
+   * for calculateCart, which already excludes voided lines on its own.
+   */
+  const activeLines = useMemo(() => lines.filter((l) => !l.voided), [lines]);
 
   /**
    * Drives the cart selection with the arrow keys while it's active,
@@ -221,7 +233,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
       // no-op anyway.
       if (e.key === 'Delete') {
         const line = lines.find((l) => l.key === selectedCartKey);
-        if (!line) return;
+        // Nothing left to void on a line that's already voided — see
+        // CartLine.voided; it stays selectable (for viewing), just not
+        // actionable a second time.
+        if (!line || line.voided) return;
         e.preventDefault();
         e.stopPropagation();
         // Opens VoidItemDialog straight into its quantity step for this
@@ -258,10 +273,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [selectedCartKey, lines]);
 
-  // A selected line that's since been voided (or a cart that's been
-  // cleared/checked out) leaves the selection pointing at nothing —
-  // drop it rather than leaving an invisible selection armed, which
-  // would keep the arrows captured away from the product grid.
+  // A selected line that's since disappeared — a cart that's been
+  // cleared or checked out, not a voided line, which stays in `lines`
+  // rather than being removed (see CartLine.voided) — leaves the
+  // selection pointing at nothing. Drop it rather than leaving an
+  // invisible selection armed, which would keep the arrows captured away
+  // from the product grid.
   useEffect(() => {
     if (selectedCartKey !== null && !lines.some((l) => l.key === selectedCartKey)) {
       setSelectedCartKey(null);
@@ -380,10 +397,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
     saveDraftSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount });
   }, [registerId, lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount]);
 
-  /** Stable across renders that don't change WHICH products are in the cart, so the eligibility fetch below doesn't re-run on every quantity tweak. */
+  /** Stable across renders that don't change WHICH products are in the cart, so the eligibility fetch below doesn't re-run on every quantity tweak. Excludes voided lines — a product only sitting in the cart as a voided (struck-through) line isn't really "in" the sale any more, and there's no reason to spend the eligibility check on it. */
   const cartProductIdsKey = useMemo(
     () =>
-      Array.from(new Set(lines.filter((l) => !l.isCustom).map((l) => l.product.id)))
+      Array.from(new Set(lines.filter((l) => !l.isCustom && !l.voided).map((l) => l.product.id)))
         .sort((a, b) => a - b)
         .join(','),
     [lines]
@@ -446,7 +463,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
     if (cartProductIdsKey !== '' && discountEligibility?.key !== cartProductIdsKey) return;
 
     const eligibility = discountEligibility?.data ?? null;
-    const isEligible = (l: CartLine) => l.isCustom || eligibility?.[String(l.product.id)]?.[activeDiscount.discountType] === true;
+    // !l.voided first: a voided line has already been taken back off the
+    // sale (see CartLine.voided) and must never draw a share of a
+    // cart-wide fixed-amount discount away from the lines still actually
+    // being sold, whatever its own product's eligibility says.
+    const isEligible = (l: CartLine) => !l.voided && (l.isCustom || eligibility?.[String(l.product.id)]?.[activeDiscount.discountType] === true);
 
     setLines((prev) => {
       const eligibleLines = prev.filter(isEligible);
@@ -483,6 +504,13 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * briefly highlight it, so a cashier can always see what just landed in
    * the cart regardless of how it got there.
    *
+   * Always a new line, even when the product is already somewhere in the
+   * cart — deliberately not merged into that line's quantity. Two scans
+   * of the same barcode used to combine into one line with quantity 2;
+   * now each scan is its own line at the bottom of the list instead, on
+   * request. (Custom items already worked this way — see addCustomItem
+   * — this just makes real products match.)
+   *
    * Wrapped in useCallback with a stable identity (no `lines` dependency)
    * so it can be handed down to ProductCard/ProductListView as a prop
    * without defeating their own memoization — otherwise every add would
@@ -491,11 +519,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * product feel laggy (measured ~150-260ms per click before this, purely
    * from re-rendering dozens of unrelated cards). Reading and updating
    * `lines` only inside the setLines updater — never as a captured
-   * variable — is what makes that possible: `resultKey` is assigned
-   * synchronously inside the updater (React runs it immediately when
-   * setLines is called, even though the re-render it schedules is
-   * deferred) and read right after, so `existing`/the new line's key are
-   * always computed against the true latest cart, never a stale closure.
+   * variable — is what makes that possible.
    */
   const addProduct = useCallback(
     (product: ProductWithStorePrice, quantity?: number) => {
@@ -506,29 +530,24 @@ export function PosScreen({ onOpenAdmin }: Props) {
       // stray "0*" or rounding-to-zero doesn't silently add nothing.
       const delta = quantity !== undefined ? Math.max(step, Math.round(quantity / step) * step) : step;
 
-      let resultKey = '';
-      setLines((prev) => {
-        const existing = prev.find((l) => !l.isCustom && l.product.id === product.id);
-        if (existing) {
-          resultKey = existing.key;
-          return prev.map((l) =>
-            l.key === existing.key ? { ...l, quantity: Math.round((l.quantity + delta) * 1e6) / 1e6 } : l
-          );
-        }
-
-        resultKey = `${product.id}-${Date.now()}`;
-        const taxRate = taxRates.find((t) => t.id === product.tax_rate_id) ?? null;
-        const newLine: CartLine = {
-          key: resultKey,
-          product,
-          unit,
-          taxRate,
-          quantity: delta,
-          unitPrice: parseFloat(product.selling_price ?? '0') || 0,
-          discount: 0,
-        };
-        return [...prev, newLine];
-      });
+      // Date.now() alone isn't unique enough once every add gets its own
+      // line rather than merging — a scanner firing two reads for the
+      // same product inside one millisecond, or the same tile double-
+      // clicked, used to be harmless (both hit the same merge branch); now
+      // each needs a genuinely distinct key. Same suffix scheme holdSale
+      // already uses for exactly this reason.
+      const resultKey = `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taxRate = taxRates.find((t) => t.id === product.tax_rate_id) ?? null;
+      const newLine: CartLine = {
+        key: resultKey,
+        product,
+        unit,
+        taxRate,
+        quantity: delta,
+        unitPrice: parseFloat(product.selling_price ?? '0') || 0,
+        discount: 0,
+      };
+      setLines((prev) => [...prev, newLine]);
       setLastAddedKey(resultKey);
       notify(delta !== step ? `Added ${formatQuantity(delta, unit?.abbreviation ?? null, unit?.decimal_places ?? 0)} × ${product.name}` : `Added ${product.name}`);
     },
@@ -537,7 +556,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
   /** The Discount button in the actions row — the normal workflow: pick one discount for the sale and let the POS decide which lines qualify. */
   function openCartDiscount() {
-    if (lines.length === 0) return;
+    if (activeLines.length === 0) return;
     setDiscountOpen(true);
   }
 
@@ -618,8 +637,85 @@ export function PosScreen({ onOpenAdmin }: Props) {
     notify('Discounts removed');
   }
 
-  function removeLine(key: string) {
-    setLines((prev) => prev.filter((l) => l.key !== key));
+  /**
+   * The actual cart-side effect of a voided item — marking the whole line
+   * voided, or splitting off just the voided quantity for a partial void
+   * — plus the toast that confirms it happened. Shared between
+   * VoidApprovalDialog's onApproved (the credentialed/reason-carrying
+   * path below) and voidItemNow just below it (the no-approval-needed
+   * path, which never opens that dialog at all), so the two can't drift
+   * on what "voided" actually does to the cart.
+   *
+   * Marks rather than removes, on request: a voided line used to
+   * disappear outright (or, for a partial void, just quietly shrink),
+   * which left no trace on screen of what had actually happened — a
+   * cashier glancing back at the cart, or a customer watching it, had no
+   * way to tell an item had been rung up and taken back off versus never
+   * scanned at all. It stays in `lines` (struck through — see Cart.tsx)
+   * but is excluded everywhere a line counts toward the sale:
+   * calculateCart, the checkout payload, and the discount-eligibility
+   * effect above all key off CartLine.voided to leave it out.
+   *
+   * A partial void splits into two lines rather than shrinking the
+   * original in place, so the voided quantity gets its own struck-
+   * through row instead of just vanishing from the total — the cart
+   * still shows both what's left AND what was taken off it. Either way
+   * the voided line's own discount is zeroed rather than carried over:
+   * it's excluded from every total regardless (calculateCart), so a
+   * stale nonzero `discount` sitting on it would only be misleading on
+   * the struck-through row, and would wrongly make DiscountDialog's own
+   * "remove all discounts" think there was still one active to clear.
+   */
+  function applyItemVoid(line: CartLine, voidQty: number, approvedBy = '') {
+    setLines((prev) =>
+      prev.flatMap((l) => {
+        if (l.key !== line.key) return [l];
+        if (voidQty >= l.quantity) return [{ ...l, voided: true, discount: 0, discountType: null }];
+        return [
+          { ...l, quantity: Math.round((l.quantity - voidQty) * 1e6) / 1e6 },
+          { ...l, key: `${l.key}-voided-${Date.now()}`, quantity: voidQty, voided: true, discount: 0, discountType: null },
+        ];
+      })
+    );
+    const qtyLabel = formatQuantity(voidQty, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0);
+    const by = approvedBy ? ` — approved by ${approvedBy}` : '';
+    notify(`Voided ${qtyLabel} × ${line.product.name}${by}`);
+  }
+
+  /**
+   * Voids a line straight from VoidItemDialog's own "Continue", with no
+   * VoidApprovalDialog in between, for a company that doesn't require
+   * approval on an item void.
+   *
+   * This exists because that combination used to open a second dialog
+   * that, once item voids stopped collecting a reason, had nothing left
+   * to ask — no credentials (approval is off), no reason (removed
+   * entirely for item voids), nothing but the same line VoidItemDialog
+   * had just shown, asking for one more tap. "Continue" after picking a
+   * quantity already IS the confirmation in that case, so this calls
+   * the same un-gated /sales/log-void endpoint VoidApprovalDialog's own
+   * unapproved path uses and applies the result directly.
+   *
+   * The cart row's own void (⊘) icon deliberately keeps going through
+   * VoidApprovalDialog even with approval off — unlike this path, a tap
+   * on that icon hasn't confirmed anything yet, so the dialog is the
+   * only confirmation step it has.
+   */
+  async function voidItemNow(line: CartLine, voidQty: number) {
+    const totals = calculateLine(line);
+    const isPartial = voidQty < line.quantity;
+    const amount = isPartial ? totals.gross * (voidQty / line.quantity) : totals.gross;
+    try {
+      await api.post('/sales/log-void', {
+        kind: 'item',
+        product_name: line.product.name,
+        quantity: voidQty,
+        amount,
+      });
+      applyItemVoid(line, voidQty);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to void item', 'error');
+    }
   }
 
   function resetSale() {
@@ -640,16 +736,30 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   async function handleCancel() {
+    // Raw `lines`, not `activeLines`: a cart holding nothing but voided
+    // remnants still has something on screen worth clearing, even though
+    // there's nothing left to sell — see cartHasItems below for the same
+    // call.
     if (lines.length === 0) return;
 
     // Always through the dialog, whether or not a supervisor is needed:
     // it also collects the reason, and a cancellation with no recorded
     // reason is close to worthless when someone reviews the trail. The
     // company setting decides only whether credentials come with it.
-    setVoidSubject({ kind: 'cart', itemCount: lines.length, amount: totals.total });
+    // itemCount is the active count, matching `amount` (totals.total
+    // already excludes voided lines) — the confirmation should describe
+    // what's actually being given up, not count rows that were already
+    // taken back off the sale.
+    setVoidSubject({ kind: 'cart', itemCount: activeLines.length, amount: totals.total });
   }
 
-  /** Cart's void (⊘) control on a line. Same dialog either way — requireItemVoidApproval decides whether it asks for a supervisor's credentials on top of the reason. */
+  /**
+   * Cart's void (⊘) control on a line — always through VoidApprovalDialog,
+   * whether or not a supervisor is needed. Unlike VoidItemDialog's own
+   * "Continue" (see voidItemNow above), a tap on this icon hasn't
+   * confirmed anything yet, so that dialog is this path's only
+   * confirmation step even with approval off.
+   */
   const requestVoidLine = useCallback((line: CartLine) => {
     setVoidSubject({ kind: 'item', line });
   }, []);
@@ -660,6 +770,24 @@ export function PosScreen({ onOpenAdmin }: Props) {
     setHeldSales(listHeldSales(registerId));
     resetSale();
     notify('Sale held');
+  }
+
+  /**
+   * The account menu's "Log out" and the lock screen's "Log out
+   * instead" both call this rather than useAuth's own logout directly
+   * — an empty cart still logs out in exactly one click, same as
+   * before this existed, but a cart with items opens
+   * LogoutWithSaleDialog first rather than silently leaning on the
+   * draft-sale autosave to not lose it (see that dialog's own doc
+   * comment for why that mechanism isn't the right one to rely on
+   * for a deliberate sign-out).
+   */
+  function requestLogout() {
+    if (lines.length === 0) {
+      logout();
+      return;
+    }
+    setLogoutConfirmOpen(true);
   }
 
   function handleResume(held: HeldSale) {
@@ -685,7 +813,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   async function checkout(payments: Payment[]) {
-    if (!user || !storeId || !registerId || !cashSession || lines.length === 0) return;
+    if (!user || !storeId || !registerId || !cashSession || activeLines.length === 0) return;
 
     setSubmitting(true);
     setCheckoutError(null);
@@ -697,7 +825,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
         register_id: registerId,
         cash_session_id: cashSession.id,
         customer_id: customer?.id,
-        items: lines.map((l) =>
+        // Voided lines never reach the server — they were taken back off
+        // this sale (see CartLine.voided), so `activeLines` here rather
+        // than `lines` is what keeps a struck-through row from being
+        // charged for.
+        items: activeLines.map((l) =>
           l.isCustom
             ? {
                 name: l.product.name,
@@ -754,15 +886,20 @@ export function PosScreen({ onOpenAdmin }: Props) {
     Boolean(voidSubject) ||
     discountOpen ||
     reprintOpen ||
-    voidItemSearchOpen;
+    voidItemSearchOpen ||
+    logoutConfirmOpen ||
+    // The lock screen covers every one of the dialogs above too, not
+    // just the product grid/cart behind them — a function key firing
+    // through it would defeat the whole thing.
+    idleLock.locked;
   useKeyboardShortcuts({
     enabled: !blockingDialogOpen,
     search: () => document.getElementById('pos-product-search')?.focus(),
     customer: () => document.getElementById('pos-action-add-customer')?.click(),
-    // Called directly rather than DOM-clicking CartActionsRow's Hold
-    // button (unlike reprint/return/discount below): handleHold already
-    // no-ops on its own when the cart is empty, so there's no missing-
-    // element guard to lean on here the way those rely on.
+    // Called directly rather than DOM-clicking the Hold button in
+    // ReceiptPanel (unlike reprint/return/discount below): handleHold
+    // already no-ops on its own when the cart is empty, so there's no
+    // missing-element guard to lean on here the way those rely on.
     hold: handleHold,
     pay: () => document.getElementById('pos-pay-button')?.click(),
     bagger: () => document.getElementById('pos-action-bagger')?.click(),
@@ -770,17 +907,26 @@ export function PosScreen({ onOpenAdmin }: Props) {
     // Reprint and Return are DOM-clicked rather than called directly —
     // like customer/bagger above, not just for consistency. CartActionsRow
     // only renders these two buttons while the cart is empty (Cancel Sale
-    // takes their place otherwise; see that component), so a missing
-    // element is exactly the "cart has items" case, and the optional
-    // chain silently no-ops. That's one guard (the row's own render
-    // condition) instead of matching cartHasItems checks in two places.
+    // and friends take their place otherwise; see that component), so a
+    // missing element is exactly the "cart has items" case, and the
+    // optional chain silently no-ops. That's one guard (the row's own
+    // render condition) instead of matching cartHasItems checks in two
+    // places.
     //
-    // F7 specifically is also only reachable while `receipt` is null —
-    // blockingDialogOpen above disables the whole global handler the
-    // moment one is on screen, at which point F7 instead reaches
-    // ReceiptModal's own local listener (which prints). See that action's
-    // entry in posShortcuts.ts.
-    reprint: () => document.getElementById('pos-action-reprint')?.click(),
+    // F7 specifically carries two more wrinkles on top of that. It's only
+    // reachable while `receipt` is null — blockingDialogOpen above
+    // disables the whole global handler the moment one is on screen, at
+    // which point F7 instead reaches ReceiptModal's own local listener
+    // (which prints). And once the cart has items, #pos-action-reprint
+    // doesn't exist at all (CartActionsRow swaps it for Void Item in that
+    // state — F11 couldn't be spared from Pay to give Void Item a key of
+    // its own, and the two buttons are never both on screen, so sharing
+    // F7 costs nothing): the click above silently no-ops, so it falls
+    // through to #pos-action-void-item instead — the exact same
+    // single-guard trick as every other click in this block, just chained
+    // one element further. See F7's entry in posShortcuts.ts for the
+    // cashier-facing version of all three.
+    reprint: () => (document.getElementById('pos-action-reprint') ?? document.getElementById('pos-action-void-item'))?.click(),
     return: () => document.getElementById('pos-action-return')?.click(),
     // Same reasoning as reprint/return above: CartActionsRow only renders
     // this button once the cart has items, so a DOM-click silently no-ops
@@ -828,6 +974,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
       <OpenRegisterScreen
         registerId={registerId}
         registerName={`${selectedRegister.name} (${selectedRegister.code})`}
+        openingFloatMode={selectedRegister.opening_float_mode}
+        defaultOpeningFloat={selectedRegister.default_opening_float}
+        currency={user?.currency}
         onOpened={setCashSession}
       />
     );
@@ -885,36 +1034,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
             flexDirection: 'column',
           }}
         >
-          {/* Scoped to this column rather than spanning the whole app:
-              everything it shows (store, terminal, cashier, account) is
-              context for browsing/ringing up, and keeping it out of the
-              receipt column lets the cart start at the very top of the
-              screen instead of being pushed down by a full-width bar. */}
-          <PosHeader
-            storeName={(assignedStore ?? selectedStore)?.name ?? null}
-            searchSlotRef={setSearchSlot}
-            actions={
-              <AccountMenu
-                user={user}
-                stores={stores}
-                registers={registers}
-                storeId={storeId}
-                registerId={registerId}
-                onStoreChange={setStoreId}
-                onRegisterChange={setRegisterId}
-                heldSales={heldSales}
-                onResumeHeld={handleResume}
-                onDiscardHeld={handleDiscardHeld}
-                cashSession={cashSession}
-                onCloseTerminal={() => setShowCloseRegister(true)}
-                canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
-                onOpenAdmin={() => onOpenAdmin()}
-                onLogout={logout}
-                zoom={posZoom}
-              />
-            }
-          />
-
           <Box
             sx={{
               flex: 1,
@@ -934,7 +1053,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
               companyId={user.company_id}
               storeId={storeId}
               onAdd={addProduct}
-              searchPortalTarget={searchSlot}
               customer={customer}
               card={card}
               onAttachCustomer={(c, k) => {
@@ -945,7 +1063,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
               onSelectBagger={setBagger}
               cartHasItems={lines.length > 0}
               onOpenDiscount={openCartDiscount}
-              onHold={handleHold}
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
               onReprintReceipt={() => setReprintOpen(true)}
@@ -966,8 +1083,30 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }}
         >
           <ReceiptPanel
+            storeName={(assignedStore ?? selectedStore)?.name ?? null}
             cashierName={user.name}
             registerName={selectedRegister?.name ?? null}
+            actions={
+              <AccountMenu
+                user={user}
+                stores={stores}
+                registers={registers}
+                storeId={storeId}
+                registerId={registerId}
+                onStoreChange={setStoreId}
+                onRegisterChange={setRegisterId}
+                heldSales={heldSales}
+                onResumeHeld={handleResume}
+                onDiscardHeld={handleDiscardHeld}
+                cashSession={cashSession}
+                onCloseTerminal={() => setShowCloseRegister(true)}
+                canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
+                onOpenAdmin={() => onOpenAdmin()}
+                onLogout={requestLogout}
+                onLock={idleLock.lock}
+                zoom={posZoom}
+              />
+            }
             customer={customer}
             bagger={bagger}
             lines={lines}
@@ -980,10 +1119,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
             checkoutError={checkoutError}
             paymentMethods={paymentMethods}
             submitting={submitting}
-            paymentDisabled={lines.length === 0 || !registerId || !cashSession}
+            paymentDisabled={activeLines.length === 0 || !registerId || !cashSession}
             onCheckout={checkout}
             saleCounter={saleCounter}
             onPaymentDialogOpenChange={setPaymentDialogOpen}
+            onHold={handleHold}
           />
         </Box>
       </Box>
@@ -1000,6 +1140,28 @@ export function PosScreen({ onOpenAdmin }: Props) {
       )}
 
       {receipt && <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} />}
+
+      {/* Rendered last so it paints over every dialog above, not just the
+          product grid/cart underneath them — see blockingDialogOpen's own
+          note. Nothing above this point unmounts while locked; the cover
+          is the only thing that changes. */}
+      {idleLock.locked && <PosLockScreen userName={user.name} onUnlocked={idleLock.unlock} onLogout={requestLogout} />}
+
+      <LogoutWithSaleDialog
+        open={logoutConfirmOpen}
+        itemCount={lines.length}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onHoldAndLogout={() => {
+          handleHold();
+          setLogoutConfirmOpen(false);
+          logout();
+        }}
+        onDiscardAndLogout={() => {
+          resetSale();
+          setLogoutConfirmOpen(false);
+          logout();
+        }}
+      />
       <ReprintReceiptDialog
         open={reprintOpen}
         onClose={() => setReprintOpen(false)}
@@ -1022,27 +1184,19 @@ export function PosScreen({ onOpenAdmin }: Props) {
         storeId={storeId}
         onClose={() => setVoidSubject(null)}
         onApproved={(approvedBy) => {
-          // approvedBy is empty on the un-gated path (log-void), so the
-          // "approved by" clause only appears when someone actually did.
-          const by = approvedBy ? ` — approved by ${approvedBy}` : '';
           if (voidSubject?.kind === 'item') {
-            const { line } = voidSubject;
-            const voidQty = voidSubject.voidQuantity ?? line.quantity;
-            // A partial void (VoidItemDialog is the only path that can
-            // produce one — the cart row's own void button always means
-            // "all of it") reduces the line instead of dropping it, the
+            // A partial void (this dialog is only ever reached for one
+            // via the cart row's own ⊘ icon here — VoidItemDialog's own
+            // partial-void path goes through voidItemNow instead, never
+            // this dialog) reduces the line instead of dropping it, the
             // same operation the quantity stepper already does; only the
-            // full-line case removes it outright.
-            if (voidQty >= line.quantity) {
-              removeLine(line.key);
-            } else {
-              updateQuantity(line.key, line.quantity - voidQty);
-            }
-            const qtyLabel = formatQuantity(voidQty, line.unit?.abbreviation ?? null, line.unit?.decimal_places ?? 0);
-            notify(`Voided ${qtyLabel} × ${line.product.name}${by}`);
+            // full-line case removes it outright. Handled by applyItemVoid.
+            applyItemVoid(voidSubject.line, voidSubject.voidQuantity ?? voidSubject.line.quantity, approvedBy);
           } else if (voidSubject?.kind === 'cart') {
             resetSale();
-            notify(`Sale cancelled${by}`);
+            // approvedBy is empty on the un-gated path (log-void), so the
+            // "approved by" clause only appears when someone actually did.
+            notify(`Sale cancelled${approvedBy ? ` — approved by ${approvedBy}` : ''}`);
           }
           setVoidSubject(null);
         }}
@@ -1050,7 +1204,10 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
       <VoidItemDialog
         open={voidItemSearchOpen}
-        lines={lines}
+        // activeLines, not `lines` — an already-voided line has nothing
+        // left to void and shouldn't come up as a search/selection
+        // target a second time (see CartLine.voided).
+        lines={activeLines}
         initialLine={voidItemPreselect}
         onClose={() => {
           setVoidItemSearchOpen(false);
@@ -1059,13 +1216,28 @@ export function PosScreen({ onOpenAdmin }: Props) {
         onSelect={(line, quantity) => {
           setVoidItemSearchOpen(false);
           setVoidItemPreselect(null);
-          setVoidSubject({ kind: 'item', line, voidQuantity: quantity });
+          // A supervisor needs to be asked for something regardless
+          // (credentials) — that's genuinely new input, so it still
+          // routes through VoidApprovalDialog. With approval off there's
+          // nothing left for that dialog to collect, so "Continue" here
+          // — already itself a confirmation, on top of picking the item
+          // and its quantity — completes the void directly. See
+          // voidItemNow's own doc comment for the fuller reasoning.
+          if (requireItemVoidApproval) {
+            setVoidSubject({ kind: 'item', line, voidQuantity: quantity });
+          } else {
+            void voidItemNow(line, quantity);
+          }
         }}
       />
 
       <DiscountDialog
         open={discountOpen}
-        lines={lines}
+        // activeLines: a voided line has nothing left on it to discount,
+        // and including it would let it eat a share of a fixed cart-wide
+        // amount away from the lines still actually being sold — same
+        // reasoning as the isEligible guard in the recompute effect above.
+        lines={activeLines}
         requireManualApproval={requireManualDiscountApproval}
         discountDefaults={discountDefaults}
         storeId={storeId}

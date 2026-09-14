@@ -1,9 +1,11 @@
 <?php
 
 use App\Libraries\JwtService;
+use App\Models\CashSessionModel;
 use App\Models\CompanyModel;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
+use App\Models\InvoiceSeriesModel;
 use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
 use App\Models\ProductModel;
@@ -87,6 +89,26 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
             'code' => PaymentModel::METHOD_CASH,
         ]);
 
+        // SalesController::create() now draws its invoice number from the
+        // one active invoice_series row for (company, store, 'Sales
+        // Invoice') — see InvoiceSeriesModel::nextNumber() — instead of the
+        // old bare InvoiceSequenceModel counter. A fresh test company has
+        // none configured, so checkout would 422 with
+        // INVOICE_SERIES_UNAVAILABLE without this.
+        model(InvoiceSeriesModel::class)->insert([
+            'company_id' => $this->companyId,
+            'store_id' => $this->storeId,
+            'invoice_type' => 'Sales Invoice',
+            'series_code' => 'TEST',
+            'prefix' => 'INV-',
+            'starting_number' => 1,
+            'current_number' => 0,
+            'maximum_number' => 99999999,
+            'number_length' => 8,
+            'effective_from' => date('Y-m-d'),
+            'status' => 'active',
+        ]);
+
         $register = model(RegisterModel::class)->insert([
             'store_id' => $this->storeId,
             'name' => 'Integration Register',
@@ -154,6 +176,12 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
         $db->table('inventory')->where('store_id', $this->storeId)->delete();
         $db->table('tax_rates')->where('company_id', $this->companyId)->delete();
         $db->table('products')->where('company_id', $this->companyId)->delete();
+        // Explicit, unlike transaction_counters (real ON DELETE CASCADE to
+        // registers) — cash_sessions.register_id has no cascade under the
+        // SQLite test DB, so a register with any session against it (see
+        // testTransactionNoIsSequentialPerCashSessionAndResetsOnANewOne)
+        // would otherwise block the registers delete just below.
+        $db->table('cash_sessions')->where('register_id', $this->registerId)->delete();
         $db->table('registers')->where('store_id', $this->storeId)->delete();
         $db->table('stores')->where('company_id', $this->companyId)->delete();
         $db->table('users')->where('company_id', $this->companyId)->delete();
@@ -226,6 +254,180 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
         $this->assertCount(1, $receipt['payments']);
         $this->assertEqualsWithDelta(200.00, (float) $receipt['amount_paid'], 0.001);
         $this->assertEqualsWithDelta(5.00, (float) $receipt['change_due'], 0.001);
+
+        // --- Transaction No: distinct from invoice_number, and null when
+        // no cash session was attached to this sale (see
+        // testTransactionNoIsSequentialPerCashSessionAndResetsOnANewOne
+        // for the actual per-session numbering behavior). ---
+        $this->assertNull($body['data']['transaction_no']);
+        $this->assertNull($receipt['transaction_no']);
+    }
+
+    /**
+     * `transaction_no` is a plain per-shift counter, deliberately separate
+     * from the BIR invoice_number series above — and, since
+     * AddTransactionNumberSettingsToCompanies, separately configurable:
+     * companies.transaction_no_reset_rule decides which
+     * TransactionCounterModel scope a sale's number is drawn from (see
+     * SalesController::create()). A fresh test company defaults to
+     * 'per_session' (unset column default), which is what this test
+     * exercises: it climbs 1, 2, 3... for every sale rung up against ONE
+     * open cash session, and resets to 1 the moment a fresh session is
+     * opened. testTransactionNoResetRulePerRegisterNeverResetsAcrossSessions
+     * and testTransactionNoPrefixAndLengthAreApplied cover the other two
+     * rules and the cosmetic formatting fields.
+     */
+    public function testTransactionNoIsSequentialPerCashSessionAndResetsOnANewOne(): void
+    {
+        $checkout = function (int $cashSessionId) {
+            return $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+                ->withBodyFormat('json')
+                ->post('/api/v1/sales', [
+                    'company_id' => $this->companyId,
+                    'store_id' => $this->storeId,
+                    'register_id' => $this->registerId,
+                    'cash_session_id' => $cashSessionId,
+                    'items' => [
+                        ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                    ],
+                    'payments' => [
+                        ['method' => 'cash', 'amount' => 65.00],
+                    ],
+                ]);
+        };
+
+        $sessionOneId = (int) model(CashSessionModel::class)->insert([
+            'register_id' => $this->registerId,
+            'user_id' => $this->userId,
+            'opened_at' => date('Y-m-d H:i:s'),
+            'opening_balance' => 0,
+            'status' => 'open',
+        ], true);
+
+        $first = json_decode($checkout($sessionOneId)->getJSON(), true);
+        $second = json_decode($checkout($sessionOneId)->getJSON(), true);
+
+        $this->assertSame(1, (int) $first['data']['transaction_no']);
+        $this->assertSame(2, (int) $second['data']['transaction_no']);
+        // Independent of the BIR invoice series, which keeps climbing
+        // across sales the same way it always did.
+        $this->assertNotSame($first['data']['invoice_number'], $second['data']['invoice_number']);
+
+        $sessionTwoId = (int) model(CashSessionModel::class)->insert([
+            'register_id' => $this->registerId,
+            'user_id' => $this->userId,
+            'opened_at' => date('Y-m-d H:i:s'),
+            'opening_balance' => 0,
+            'status' => 'open',
+        ], true);
+
+        $third = json_decode($checkout($sessionTwoId)->getJSON(), true);
+
+        $this->assertSame(1, (int) $third['data']['transaction_no']);
+    }
+
+    /**
+     * Company-level opt into 'per_register' — the counter now lives on
+     * TransactionCounterModel's ('register') scope for this register, not
+     * on any one cash session, so opening a brand-new session must NOT
+     * reset it back to 1 the way the default 'per_session' rule does
+     * (see the test just above).
+     */
+    public function testTransactionNoResetRulePerRegisterNeverResetsAcrossSessions(): void
+    {
+        model(CompanyModel::class)->update($this->companyId, ['transaction_no_reset_rule' => 'per_register']);
+
+        $checkout = function (int $cashSessionId) {
+            return $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+                ->withBodyFormat('json')
+                ->post('/api/v1/sales', [
+                    'company_id' => $this->companyId,
+                    'store_id' => $this->storeId,
+                    'register_id' => $this->registerId,
+                    'cash_session_id' => $cashSessionId,
+                    'items' => [
+                        ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                    ],
+                    'payments' => [
+                        ['method' => 'cash', 'amount' => 65.00],
+                    ],
+                ]);
+        };
+
+        $sessionOneId = (int) model(CashSessionModel::class)->insert([
+            'register_id' => $this->registerId,
+            'user_id' => $this->userId,
+            'opened_at' => date('Y-m-d H:i:s'),
+            'opening_balance' => 0,
+            'status' => 'open',
+        ], true);
+        $first = json_decode($checkout($sessionOneId)->getJSON(), true);
+
+        $sessionTwoId = (int) model(CashSessionModel::class)->insert([
+            'register_id' => $this->registerId,
+            'user_id' => $this->userId,
+            'opened_at' => date('Y-m-d H:i:s'),
+            'opening_balance' => 0,
+            'status' => 'open',
+        ], true);
+        $second = json_decode($checkout($sessionTwoId)->getJSON(), true);
+
+        $this->assertSame(1, (int) $first['data']['transaction_no']);
+        // The new session did NOT reset it — still climbing.
+        $this->assertSame(2, (int) $second['data']['transaction_no']);
+
+        // A sale with no cash_session_id at all still gets a number under
+        // this rule (unlike 'per_session', where that's exactly what
+        // leaves it null — see testFullCheckoutPipeline) since the
+        // register itself, not the session, is what's being counted.
+        $noSession = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
+                ],
+            ]);
+        $third = json_decode($noSession->getJSON(), true);
+        $this->assertSame(3, (int) $third['data']['transaction_no']);
+    }
+
+    /**
+     * transaction_no_prefix/transaction_no_length (Add
+     * TransactionNumberSettingsToCompanies) are cosmetic formatting only —
+     * mirrors how invoice_series' own prefix/number_length work, and
+     * confirms the stored value is the fully-formatted string (matching
+     * invoice_number's own "frozen snapshot" shape), not a bare int.
+     */
+    public function testTransactionNoPrefixAndLengthAreApplied(): void
+    {
+        model(CompanyModel::class)->update($this->companyId, [
+            'transaction_no_reset_rule' => 'per_register',
+            'transaction_no_prefix' => 'TX-',
+            'transaction_no_length' => 4,
+        ]);
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
+                ],
+            ]);
+
+        $body = json_decode($response->getJSON(), true);
+        $this->assertSame('TX-0001', $body['data']['transaction_no']);
     }
 
     public function testInsufficientPaymentIsRejectedBeforeTouchingInventoryOrPayments(): void

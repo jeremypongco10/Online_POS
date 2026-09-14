@@ -46,6 +46,24 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => !(r.length === 1 && r[0].trim() === ''));
 }
 
+/**
+ * Serializes rows of arbitrary values into CSV text — quoting a field
+ * only when it actually needs it (contains a comma, quote, or newline),
+ * and doubling any quote inside one. Every existing downloadCsv() call
+ * before this built its content from a hand-typed template string with
+ * no real data in it; this is for the first export that puts actual
+ * customer names and addresses into a file, which can contain a comma
+ * or a stray quote a template never would.
+ */
+export function toCsv(headers: string[], rows: (string | number | null)[][]): string {
+  const escape = (value: string | number | null) => {
+    const s = value === null ? '' : String(value);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  return [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n') + '\n';
+}
+
 /** Triggers a browser download of `content` as a file named `filename` — used for CSV import templates. */
 export function downloadCsv(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });

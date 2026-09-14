@@ -155,8 +155,10 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
               // A soft accent wash rather than a solid accent bar: this
               // sits inside a dialog that's already competing for
               // attention, and the points block below is what should read
-              // as the loud element.
-              background: `linear-gradient(135deg, ${POS_ACCENT}1f 0%, ${POS_ACCENT}0a 100%)`,
+              // as the loud element. Flat, like every other tinted
+              // surface in the POS — the diagonal gradient this used to
+              // carry was the only one left on screen.
+              bgcolor: `${POS_ACCENT}14`,
             }}
           >
             <Avatar sx={{ width: 52, height: 52, fontWeight: 700, fontSize: 18, bgcolor: POS_ACCENT, color: '#fff' }}>

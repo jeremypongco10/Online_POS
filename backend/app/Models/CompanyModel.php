@@ -19,7 +19,8 @@ class CompanyModel extends Model
         'email', 'phone', 'address', 'currency', 'tax_system', 'timezone', 'is_active', 'loyalty_points_per_100',
         'require_item_void_approval', 'require_cancel_approval', 'require_manual_discount_approval',
         'default_regular_discount_percent', 'default_promo_discount_percent', 'default_employee_discount_percent',
-        'default_member_discount_percent', 'default_wholesale_discount_percent',
+        'default_member_discount_percent', 'default_wholesale_discount_percent', 'pos_lock_idle_minutes',
+        'transaction_no_reset_rule', 'transaction_no_prefix', 'transaction_no_length', 'is_bir_registered',
     ];
 
     protected $validationRules = [
@@ -42,6 +43,9 @@ class CompanyModel extends Model
         // "Points earned per ₱100 of a sale's total" — 0 (the default) means
         // loyalty points aren't awarded automatically at all.
         'loyalty_points_per_100' => ['label' => 'Loyalty points per 100', 'rules' => 'permit_empty|is_natural'],
+        // 0 (the default) means the POS never locks itself on its own —
+        // a cashier can still always lock it by hand regardless.
+        'pos_lock_idle_minutes' => ['label' => 'Lock POS after idle minutes', 'rules' => 'permit_empty|is_natural'],
         // Whether a supervisor must authorize before the POS drops a cart
         // line / cancels the whole sale. Separate flags because the two
         // differ sharply in frequency and risk — see the migration that
@@ -58,5 +62,16 @@ class CompanyModel extends Model
         'default_employee_discount_percent' => ['label' => 'Default Employee Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
         'default_member_discount_percent' => ['label' => 'Default Member/Loyalty Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
         'default_wholesale_discount_percent' => ['label' => 'Default Wholesale Discount %', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
+        // Separate from invoice_series configuration on purpose — see
+        // AddTransactionNumberSettingsToCompanies. Which boundary the
+        // shift counter resets on is an operational preference, not a
+        // BIR compliance rule the way invoice numbering is.
+        'transaction_no_reset_rule' => ['label' => 'Transaction number reset rule', 'rules' => 'permit_empty|in_list[per_session,per_register,per_day]'],
+        'transaction_no_prefix' => ['label' => 'Transaction number prefix', 'rules' => 'permit_empty|max_length[20]'],
+        'transaction_no_length' => ['label' => 'Transaction number length', 'rules' => 'permit_empty|is_natural|less_than_equal_to[18]'],
+        // Off = the business isn't BIR-registered yet, so no tax is
+        // charged on anything and no BIR detail prints. See
+        // AddBirRegisteredToCompanies.
+        'is_bir_registered' => ['label' => 'BIR registered', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 }

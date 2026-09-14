@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -89,6 +89,24 @@ export function PaymentPanel({ open, onClose, total, disabled, submitting, check
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [amountText, setAmountText] = useState('');
   const [reference, setReference] = useState('');
+
+  // Clear the form on every close, not on a forced remount — ReceiptPanel
+  // used to key this component on saleCounter to reset it for the next
+  // sale, but bumping that counter in the same render pass as flipping
+  // `open` false raced MUI's exit transition: the Dialog would remount
+  // fresh with open=true, then immediately receive open=false before ever
+  // finishing its enter transition, leaving an invisible, still-clickable
+  // Backdrop stuck mid-transition over the whole screen. Resetting fields
+  // via this effect instead means the Dialog itself never unmounts, so
+  // there's nothing for that race to catch.
+  useEffect(() => {
+    if (open) return;
+    setSplitMode(false);
+    setPayments([]);
+    setMethod('cash');
+    setAmountText('');
+    setReference('');
+  }, [open]);
 
   const labelFor = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
 

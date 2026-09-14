@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -12,6 +11,8 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { api } from '../api/client';
 import type { Category, ProductWithStorePrice } from '../api/types';
 import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
@@ -54,19 +55,6 @@ interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
-  /**
-   * PosHeader's search-slot DOM node — when set, the search field portals
-   * there instead of rendering inline here. All of this component's own
-   * state and handlers (query, scanner mode, the debounced lookup, Esc/
-   * Enter/arrow-key behaviour) are completely unaffected: a portal only
-   * moves *where* a subtree paints, never which component owns its state
-   * or which fiber it's part of, so the DOM id (`pos-product-search`)
-   * every focus/shortcut lookup targets still resolves the same way.
-   * Falls back to rendering inline when null/undefined — before the
-   * header's ref attaches on first paint, and for any caller that never
-   * passes one at all.
-   */
-  searchPortalTarget?: HTMLElement | null;
 }
 
 /**
@@ -79,12 +67,24 @@ interface Props {
  * dedicated scan endpoint needed — the trailing icon is a visual
  * affordance for that, not a separate integration.
  */
-export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }: Props) {
+export function ProductSearch({ companyId, storeId, onAdd }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [categories, setCategories] = useState<CategoryNode[]>([]);
+  // Narrows the rail's own chip list by name — client-side, since the
+  // category tree is small and already fully loaded (see the effect
+  // below), unlike the product search above it which has a real catalog
+  // behind it. Independent of `query`: typing here filters *categories*,
+  // not products, and doesn't touch the grid until a category is picked.
+  const [categoryFilter, setCategoryFilter] = useState('');
+  // Collapsed hands the rail's width back to the grid — a cashier who
+  // knows what they're browsing for doesn't need the picker on screen at
+  // all. Doesn't reset categoryId: collapsing is purely a visibility
+  // toggle, and a filter picked before collapsing keeps filtering the
+  // grid underneath, same as closing any other filter panel would.
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [results, setResults] = useState<ProductWithStorePrice[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -273,6 +273,15 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
     [results]
   );
 
+  // "All" isn't part of this list — CategoryPills always renders that
+  // itself, filtered or not, so it stays reachable as the one-tap reset
+  // regardless of what's typed here.
+  const filteredCategories = useMemo(() => {
+    const q = categoryFilter.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter((c) => c.name.toLowerCase().includes(q));
+  }, [categories, categoryFilter]);
+
   // A first load has nothing on screen yet, so it fills the panel with
   // placeholders; a scroll-in page only needs a few, since there are
   // already real rows above them doing the explaining.
@@ -293,6 +302,41 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
       document.getElementById('pos-product-search')?.focus();
     });
   }, []);
+
+  /**
+   * Hands focus back to this field the instant every dialog, popover and
+   * menu on screen has closed — Customer, Bagger, Help, Discount, Void,
+   * Payment, the account menu and its Store/Terminal dropdowns, all of
+   * it, with no per-dialog wiring needed.
+   *
+   * Necessary because MUI's own default on a Dialog/Popover close is to
+   * restore focus to whatever *opened* it — usually a button — not to
+   * this field, and unlike a plain blur (which handleSearchBlur already
+   * reclaims below) there's no blur event on the search field itself to
+   * react to there: it was already unfocused the moment the dialog first
+   * opened, so nothing fires when focus lands back on that button later.
+   *
+   * A MutationObserver on document.body rather than a handler on each
+   * dialog: every MUI Dialog, Popover and Menu (Autocomplete's own
+   * dropdown is a lighter Popper, not this) renders as a `.MuiModal-root`
+   * portaled directly under body — the same fact handleSearchBlur's own
+   * comment already relies on — so counting those is one general trigger
+   * that needs no changes wherever a new dialog gets added later. Fires
+   * only on the transition from "at least one open" to "none open":
+   * dialogs that can stack (an approval dialog over a void dialog, say)
+   * would otherwise get this field stolen back while one is still open
+   * behind another.
+   */
+  useEffect(() => {
+    let openCount = document.querySelectorAll('.MuiModal-root').length;
+    const observer = new MutationObserver(() => {
+      const count = document.querySelectorAll('.MuiModal-root').length;
+      if (count === 0 && openCount > 0) focusSearch();
+      openCount = count;
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [focusSearch]);
 
   /**
    * Touch only, and the piece that makes scanner mode actually work: every
@@ -544,21 +588,24 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
     tiles[target].scrollIntoView({ block: 'nearest' });
   }
 
+  // Sized to match the search field it sits beside (48) rather than
+  // MUI's `small` default (~32) — the two read as one control strip that
+  // way, and a view switch on a till is a finger target like any other.
   const toggleButtonSx = {
     gap: 0.5,
-    px: 1.5,
+    px: 1.75,
+    minWidth: 48,
+    minHeight: 48,
     textTransform: 'none',
     fontWeight: 600,
     '&.Mui-selected': { bgcolor: `${POS_ACCENT}1a`, color: POS_ACCENT, '&:hover': { bgcolor: `${POS_ACCENT}26` } },
   } as const;
 
-  // The search field + its loading spinner, as one unit — this is the part
-  // that portals into PosHeader's dark bar (see searchPortalTarget on
-  // Props). Kept as a local JSX variable rather than inline in the return
-  // below so the exact same element tree can render in either of the two
-  // spots without duplicating it.
+  // The search field + its loading spinner, as one unit — sits beside the
+  // grid/list toggle below, so it grows into whatever room that row has
+  // left rather than claiming a full row of its own above it.
   const searchFieldNode = (
-    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1, minWidth: 0 }}>
       <SearchField
         id="pos-product-search"
         value={query}
@@ -580,13 +627,21 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
         fullWidth
         sx={{
           minWidth: 0,
-          // This field now lives on PosHeader's fixed-dark bar (or falls
-          // back to sitting on a plain page background) — either way it
-          // needs to read as a solid white pill regardless of the app's
-          // own light/dark theme toggle, the same reasoning PosHeader
-          // itself is a fixed colour rather than a themed one.
+          // A solid paper surface against the page's own background, the
+          // same as the cards it sits beside (category rail, product
+          // tiles). Deliberately `background.paper` and not a hard-coded
+          // white: white was right while this field was portaled onto the
+          // old dark header bar, but on the page it left the input's
+          // theme-coloured text sitting on a forced-white box — i.e.
+          // near-white on white, unreadable, once the app was switched to
+          // dark mode.
           '& .MuiOutlinedInput-root': {
-            bgcolor: '#fff',
+            // Taller than MUI's `small` default (~40): this is the field a
+            // cashier taps to type a name and the one a scanner types
+            // into all shift, so it gets a full touch target rather than
+            // the compact height the admin toolbars use.
+            minHeight: 48,
+            bgcolor: 'background.paper',
             // Squarer than SearchField's own pill default. That full
             // round is right for the short search boxes on the admin
             // toolbars, but this field is far wider, and at this length a
@@ -595,8 +650,8 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
             // than on SearchField itself so the admin toolbars keep the
             // shape they were designed with.
             borderRadius: 2,
-            '&:hover': { bgcolor: '#fff' },
-            '&.Mui-focused': { bgcolor: '#fff', boxShadow: `0 0 0 2px ${POS_ACCENT}` },
+            '&:hover': { bgcolor: 'background.paper' },
+            '&.Mui-focused': { bgcolor: 'background.paper', boxShadow: `0 0 0 2px ${POS_ACCENT}` },
           },
         }}
         // F2 used to be spelled out in the placeholder; now shown as its
@@ -623,98 +678,199 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget }:
   );
 
   return (
-    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {searchPortalTarget ? createPortal(searchFieldNode, searchPortalTarget) : searchFieldNode}
+    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'row', gap: { xs: 1.5, md: 2 } }}>
+      {/* Category rail — a fixed-width column rather than a row above the
+          grid, so switching categories doesn't compete with the search bar
+          for the same horizontal strip. Scrolls on its own; see
+          CategoryPills' 'column' orientation for why it skips that
+          component's row-mode chevron buttons.
 
-      {/* Category pills + the grid/list toggle share a row now that the
-          toggle no longer sits with the search field above — that field
-          moved up onto PosHeader's bar, and the toggle belongs with what
-          it's actually switching the view of. */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mt: 1.25, flexShrink: 0 }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
-        </Box>
-        <ToggleButtonGroup
-          value={viewMode}
-          exclusive
-          size="small"
-          onChange={(_, v: ViewMode | null) => v && setViewMode(v)}
-          sx={{ flexShrink: 0 }}
-        >
-          <ToggleButton value="grid" sx={toggleButtonSx} aria-label="Grid view">
-            <Tooltip title="Grid view">
-              <GridViewIcon fontSize="small" />
-            </Tooltip>
-          </ToggleButton>
-          <ToggleButton value="list" sx={toggleButtonSx} aria-label="List view">
-            <Tooltip title="List view">
-              <ViewListIcon fontSize="small" />
-            </Tooltip>
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </Stack>
-
-      {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
-      {/* px/pt give a hovered card's shadow somewhere to land instead of
-          being sliced off against the scroller's edge — the card itself no
-          longer moves (see ProductCard), so this only has to accommodate
-          the shadow. */}
-      {/* One handler for both view modes: the keydown bubbles here from
-          whichever tile has focus, and productGridNav works out the row
-          width from the DOM rather than from which component rendered. */}
+          Collapsible down to a bare strip, for a cashier who already
+          knows what they're browsing for and would rather have the width
+          back for the grid — see railCollapsed. Filterable above that
+          (categoryFilter/filteredCategories): the same "narrow a long
+          list by typing" pattern as the product search itself, just
+          scoped to category names instead of the catalog. */}
       <Box
-        ref={resultsContainerRef}
-        onKeyDown={handleResultsKeyDown}
-        // A pointer press ends keyboard browsing, so clicking a card still
-        // hands focus back to the search field for the next scan.
-        onPointerDown={() => {
-          keyboardBrowsingRef.current = false;
+        sx={{
+          // Widened with the rail's own taller entries: at 176 a two-word
+          // category ellipsised almost every time, and the rail is read
+          // far more often than the 14px it costs the grid beside it.
+          // Collapsed, it shrinks to just enough for the expand button —
+          // the grid picks up the rest immediately since it's the row's
+          // one flexible sibling.
+          width: railCollapsed ? 40 : { xs: 140, md: 190 },
+          flexShrink: 0,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          pr: railCollapsed ? 0.75 : { xs: 1.5, md: 2 },
+          transition: 'width 0.15s ease',
         }}
-        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}
       >
-        {results.length === 0 && !loading ? (
-          // Without this, a search that matches nothing just leaves a
-          // blank panel, which reads as a broken screen rather than an
-          // answer to what was typed.
-          <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
-            <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
-            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-              {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
-            </Typography>
-            <Typography variant="caption">
-              {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
-            </Typography>
-          </Stack>
+        {railCollapsed ? (
+          <Tooltip title="Show categories" placement="right">
+            <IconButton
+              onClick={() => setRailCollapsed(false)}
+              aria-label="Show categories"
+              sx={{
+                position: 'relative',
+                alignSelf: 'center',
+                mt: 0.5,
+                width: 34,
+                height: 34,
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <ChevronRightIcon fontSize="small" />
+              {/* A quiet reminder that a category filter is still active
+                  underneath — collapsing hides the picker, not the filter
+                  it left behind, and without this the grid would look
+                  like it had simply lost most of its catalog for no
+                  visible reason. */}
+              {categoryId !== null && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    bgcolor: POS_ACCENT,
+                    border: '1.5px solid',
+                    borderColor: 'background.paper',
+                  }}
+                />
+              )}
+            </IconButton>
+          </Tooltip>
         ) : (
           <>
-            {/* Placeholders rather than a spinner, and rendered inside the
-                grid/table itself: on a first load they show the shape of
-                what's coming instead of a blank panel, and on a scroll-in
-                page they extend the existing columns so nothing jumps when
-                the real rows arrive. */}
-            {viewMode === 'grid' ? (
-              <ProductGrid products={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={gridSkeletons} />
-            ) : (
-              <ProductListView results={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={listSkeletons} />
-            )}
-            {/* Invisible trigger for the next page — only mounted while
-                there's actually more to fetch, so the observer has nothing
-                to watch (and loadMore never fires) once the catalog ends. */}
-            {hasMore && <Box ref={sentinelRef} sx={{ height: 1 }} />}
-            {/* Closes the loop on a paged list: without it, a cashier who
-                scrolls to the bottom can't tell whether that's the whole
-                catalog or just the next batch failing to arrive. Only
-                worth saying once more than one page has actually loaded. */}
-            {!hasMore && !loading && !loadingMore && results.length > PAGE_SIZE && (
+            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, mb: 1 }}>
               <Typography
                 variant="caption"
-                sx={{ display: 'block', textAlign: 'center', py: 2.5, color: 'text.disabled' }}
+                sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.04em', textTransform: 'uppercase' }}
               >
-                {`All ${results.length} products loaded`}
+                Categories
               </Typography>
-            )}
+              <Tooltip title="Hide categories">
+                <IconButton size="small" onClick={() => setRailCollapsed(true)} aria-label="Hide categories">
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+            <SearchField
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              placeholder="Filter categories"
+              fullWidth
+              sx={{ minWidth: 0, flexShrink: 0, mb: 1, '& .MuiOutlinedInput-root': { height: 40 } }}
+            />
+            <Box sx={{ flex: 1, minHeight: 0 }}>
+              <CategoryPills categories={filteredCategories} selected={categoryId} onSelect={setCategoryId} orientation="column" />
+            </Box>
           </>
         )}
+      </Box>
+
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* Search field and the grid/list toggle share one row — this used
+            to be two stacked rows (the field on its own above, category
+            pills sharing this one with the toggle) back when the field
+            portaled up into PosHeader's dark bar. Now that both the header
+            and the pills have moved elsewhere, the field and the toggle are
+            the only two things left here, so they share the space. */}
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+          {searchFieldNode}
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            size="small"
+            onChange={(_, v: ViewMode | null) => v && setViewMode(v)}
+            // Paper, like the search field beside it — on the page's own
+            // grey background an unfilled group read as a hole rather
+            // than a control.
+            sx={{ flexShrink: 0, bgcolor: 'background.paper' }}
+          >
+            <ToggleButton value="grid" sx={toggleButtonSx} aria-label="Grid view">
+              <Tooltip title="Grid view">
+                <GridViewIcon fontSize="small" />
+              </Tooltip>
+            </ToggleButton>
+            <ToggleButton value="list" sx={toggleButtonSx} aria-label="List view">
+              <Tooltip title="List view">
+                <ViewListIcon fontSize="small" />
+              </Tooltip>
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
+
+        {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
+        {/* px/pt give a hovered card's shadow somewhere to land instead of
+            being sliced off against the scroller's edge — the card itself no
+            longer moves (see ProductCard), so this only has to accommodate
+            the shadow. */}
+        {/* One handler for both view modes: the keydown bubbles here from
+            whichever tile has focus, and productGridNav works out the row
+            width from the DOM rather than from which component rendered. */}
+        <Box
+          ref={resultsContainerRef}
+          onKeyDown={handleResultsKeyDown}
+          // A pointer press ends keyboard browsing, so clicking a card still
+          // hands focus back to the search field for the next scan.
+          onPointerDown={() => {
+            keyboardBrowsingRef.current = false;
+          }}
+          sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}
+        >
+          {results.length === 0 && !loading ? (
+            // Without this, a search that matches nothing just leaves a
+            // blank panel, which reads as a broken screen rather than an
+            // answer to what was typed.
+            <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
+              <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
+              <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
+              </Typography>
+              <Typography variant="caption">
+                {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
+              </Typography>
+            </Stack>
+          ) : (
+            <>
+              {/* Placeholders rather than a spinner, and rendered inside the
+                  grid/table itself: on a first load they show the shape of
+                  what's coming instead of a blank panel, and on a scroll-in
+                  page they extend the existing columns so nothing jumps when
+                  the real rows arrive. */}
+              {viewMode === 'grid' ? (
+                <ProductGrid products={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={gridSkeletons} />
+              ) : (
+                <ProductListView results={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={listSkeletons} />
+              )}
+              {/* Invisible trigger for the next page — only mounted while
+                  there's actually more to fetch, so the observer has nothing
+                  to watch (and loadMore never fires) once the catalog ends. */}
+              {hasMore && <Box ref={sentinelRef} sx={{ height: 1 }} />}
+              {/* Closes the loop on a paged list: without it, a cashier who
+                  scrolls to the bottom can't tell whether that's the whole
+                  catalog or just the next batch failing to arrive. Only
+                  worth saying once more than one page has actually loaded. */}
+              {!hasMore && !loading && !loadingMore && results.length > PAGE_SIZE && (
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', textAlign: 'center', py: 2.5, color: 'text.disabled' }}
+                >
+                  {`All ${results.length} products loaded`}
+                </Typography>
+              )}
+            </>
+          )}
+        </Box>
       </Box>
 
       <AddQuantityDialog

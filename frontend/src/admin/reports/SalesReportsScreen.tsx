@@ -9,6 +9,7 @@ import type {
   PaymentMethodSales,
   ProductSales,
   SalesAggregate,
+  SalesBookRow,
   Store,
   StoreSales,
   VatSummary,
@@ -17,9 +18,12 @@ import { formatMoney } from '../../pos/format';
 import { ReportFilters } from './ReportFilters';
 import { ReportTable, type ReportColumn } from './ReportTable';
 import { SearchableSelect } from '../SearchableSelect';
+import { toCsv, downloadCsv } from '../csv';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
+import Button from '@mui/material/Button';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 type ReportType =
   | 'summary'
@@ -31,7 +35,8 @@ type ReportType =
   | 'products'
   | 'categories'
   | 'payment-methods'
-  | 'vat';
+  | 'vat'
+  | 'sales-book';
 
 const REPORT_OPTIONS: { value: ReportType; label: string }[] = [
   { value: 'summary', label: 'Summary' },
@@ -44,7 +49,43 @@ const REPORT_OPTIONS: { value: ReportType; label: string }[] = [
   { value: 'categories', label: 'By Category' },
   { value: 'payment-methods', label: 'Payment Methods' },
   { value: 'vat', label: 'VAT Summary' },
+  { value: 'sales-book', label: 'Sales Book (BIR)' },
 ];
+
+const SALES_BOOK_HEADERS = [
+  'Date',
+  'Invoice #',
+  'Customer',
+  'TIN',
+  'Address',
+  'Business Style',
+  'VATable Sales',
+  'VAT Amount',
+  'VAT-Exempt Sales',
+  'Zero-Rated Sales',
+  'Non-VAT Sales',
+  'Discount',
+  'Total',
+];
+
+/** The sales-book rows in the same column order as SALES_BOOK_HEADERS — shared by the on-screen table and the CSV export so the two can never drift apart. */
+function salesBookCsvRows(rows: SalesBookRow[]): (string | number | null)[][] {
+  return rows.map((r) => [
+    r.sale_date,
+    r.invoice_number,
+    r.customer_name,
+    r.customer_tin,
+    r.customer_address,
+    r.business_style,
+    r.vatable_sales,
+    r.vat_amount,
+    r.vat_exempt_sales,
+    r.zero_rated_sales,
+    r.non_vat_sales,
+    r.discount_total,
+    r.total,
+  ]);
+}
 
 function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -108,6 +149,7 @@ export function SalesReportsScreen() {
       categories: `/reports/category-sales?${qs}`,
       'payment-methods': `/reports/payment-methods?${qs}`,
       vat: `/reports/vat-summary?${qs}`,
+      'sales-book': `/reports/sales-book?${qs}`,
     };
 
     if (reportType === 'summary') {
@@ -151,6 +193,20 @@ export function SalesReportsScreen() {
           sx={{ minWidth: 180 }}
           options={REPORT_OPTIONS}
         />
+        {reportType === 'sales-book' && rows.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<DownloadOutlinedIcon />}
+            onClick={() =>
+              downloadCsv(
+                `sales-book_${from || 'all'}_${to || 'all'}.csv`,
+                toCsv(SALES_BOOK_HEADERS, salesBookCsvRows(rows as SalesBookRow[]))
+              )
+            }
+          >
+            Download CSV
+          </Button>
+        )}
       </ReportFilters>
 
       {reportType === 'summary' &&
@@ -285,6 +341,27 @@ export function SalesReportsScreen() {
           rows={rows as PaymentMethodSales[]}
           rowKey={(r) => r.method}
           loading={loading}
+        />
+      )}
+
+      {reportType === 'sales-book' && (
+        <ReportTable<SalesBookRow>
+          columns={[
+            { key: 'sale_date', label: 'Date', render: (r) => r.sale_date.slice(0, 16).replace('T', ' ') },
+            { key: 'invoice_number', label: 'Invoice #' },
+            { key: 'customer_name', label: 'Customer', render: (r) => r.customer_name ?? '—' },
+            { key: 'customer_tin', label: 'TIN', render: (r) => r.customer_tin ?? '—' },
+            { key: 'vatable_sales', label: 'VATable', align: 'right', render: (r) => formatMoney(r.vatable_sales) },
+            { key: 'vat_amount', label: 'VAT', align: 'right', render: (r) => formatMoney(r.vat_amount) },
+            { key: 'vat_exempt_sales', label: 'VAT-Exempt', align: 'right', render: (r) => formatMoney(r.vat_exempt_sales) },
+            { key: 'zero_rated_sales', label: 'Zero-Rated', align: 'right', render: (r) => formatMoney(r.zero_rated_sales) },
+            { key: 'discount_total', label: 'Discount', align: 'right', render: (r) => formatMoney(r.discount_total) },
+            { key: 'total', label: 'Total', align: 'right', render: (r) => formatMoney(r.total) },
+          ]}
+          rows={rows as SalesBookRow[]}
+          rowKey={(r) => r.invoice_number}
+          loading={loading}
+          emptyLabel="No invoices for this period."
         />
       )}
     </div>

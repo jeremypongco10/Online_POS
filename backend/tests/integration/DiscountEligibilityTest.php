@@ -5,6 +5,7 @@ use App\Libraries\TaxService;
 use App\Models\CategoryDiscountEligibilityModel;
 use App\Models\CategoryModel;
 use App\Models\CompanyModel;
+use App\Models\InvoiceSeriesModel;
 use App\Models\PaymentMethodModel;
 use App\Models\PaymentModel;
 use App\Models\ProductDiscountEligibilityModel;
@@ -72,6 +73,26 @@ final class DiscountEligibilityTest extends CIUnitTestCase
             'company_id' => $this->companyId,
             'name' => 'Cash',
             'code' => PaymentModel::METHOD_CASH,
+        ]);
+
+        // SalesController::create() now draws its invoice number from the
+        // one active invoice_series row for (company, store, 'Sales
+        // Invoice') — see InvoiceSeriesModel::nextNumber() — instead of
+        // the old bare InvoiceSequenceModel counter. Without this, this
+        // test's own checkout calls would 422 with
+        // INVOICE_SERIES_UNAVAILABLE.
+        model(InvoiceSeriesModel::class)->insert([
+            'company_id' => $this->companyId,
+            'store_id' => $this->storeId,
+            'invoice_type' => 'Sales Invoice',
+            'series_code' => 'TEST',
+            'prefix' => 'INV-',
+            'starting_number' => 1,
+            'current_number' => 0,
+            'maximum_number' => 99999999,
+            'number_length' => 8,
+            'effective_from' => date('Y-m-d'),
+            'status' => 'active',
         ]);
 
         $register = model(RegisterModel::class)->insert([

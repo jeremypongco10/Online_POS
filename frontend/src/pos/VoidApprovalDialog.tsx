@@ -115,11 +115,18 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
   const isPartialVoid = subject.kind === 'item' && voidQuantity! < subject.line.quantity;
   const voidAmount =
     subject.kind === 'item' ? (isPartialVoid ? lineTotals!.gross * (voidQuantity! / subject.line.quantity) : lineTotals!.gross) : null;
+  // Only Cancel Sale still asks why. An item void's own line — name,
+  // quantity, amount, already sitting right above this form — is a
+  // complete record of what left the sale on its own; a preset reason
+  // on top of that never told a reviewer anything the line data hadn't
+  // already. Cancelling the whole cart is the rarer, heavier action, so
+  // it keeps asking.
+  const needsReason = subject.kind === 'cart';
   const resolvedReason = reason === 'Other' ? otherReason.trim() : reason;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!subject || resolvedReason === '') return;
+    if (!subject || (needsReason && resolvedReason === '')) return;
 
     setSubmitting(true);
     setError(null);
@@ -130,7 +137,7 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
       if (!requireApproval) {
         await api.post('/sales/log-void', {
           kind: subject.kind,
-          reason: resolvedReason,
+          ...(needsReason && { reason: resolvedReason }),
           ...(subject.kind === 'item'
             ? { product_name: subject.line.product.name, quantity: voidQuantity, amount: voidAmount }
             : { item_count: subject.itemCount, amount: subject.amount }),
@@ -151,7 +158,6 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
               {
                 identifier: identifier.trim(),
                 password,
-                reason: resolvedReason,
                 product_name: subject.line.product.name,
                 quantity: voidQuantity,
                 amount: voidAmount,
@@ -251,23 +257,25 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
           </Stack>
 
           <Stack component="form" spacing={2} onSubmit={submit}>
-            <TextField
-              select
-              label="Reason"
-              size="small"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              fullWidth
-              required
-            >
-              {REASONS.map((r) => (
-                <MenuItem key={r} value={r}>
-                  {r}
-                </MenuItem>
-              ))}
-            </TextField>
+            {needsReason && (
+              <TextField
+                select
+                label="Reason"
+                size="small"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                fullWidth
+                required
+              >
+                {REASONS.map((r) => (
+                  <MenuItem key={r} value={r}>
+                    {r}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
-            {reason === 'Other' && (
+            {needsReason && reason === 'Other' && (
               <TextField
                 label="Specify reason"
                 size="small"
@@ -334,7 +342,7 @@ export function VoidApprovalDialog({ subject, requireApproval, storeId, onClose,
                 variant="contained"
                 color="error"
                 disableElevation
-                disabled={submitting || resolvedReason === '' || (requireApproval && (identifier.trim() === '' || password === ''))}
+                disabled={submitting || (needsReason && resolvedReason === '') || (requireApproval && (identifier.trim() === '' || password === ''))}
                 sx={(theme) => posRaisedButtonSx(theme.palette.error.main)}
               >
                 {submitting ? <CircularProgress size={20} color="inherit" /> : submitLabel}

@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\BaseApiController;
+use App\Libraries\TaxService;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
 use App\Models\SaleItemModel;
@@ -608,6 +609,81 @@ class ReportsController extends BaseApiController
      * comes from TaxService::classify() against each line's tax_rates
      * row (via sale_items.tax_rate_id) — nothing here recomputes tax.
      */
+    /**
+     * GET /api/v1/reports/sales-book?from=&to=&store_id=
+     *
+     * The per-invoice sales book BIR asks for during an audit, one row
+     * per sale with the VAT classification broken out — the detail
+     * behind vatSummary()'s totals, in the shape an examiner reconciles
+     * against the receipts and the Z-readings.
+     *
+     * Returns rows rather than a file: the client renders and downloads
+     * it (see ReportsScreen), which keeps this endpoint the same JSON
+     * shape as every other report here instead of the one that speaks
+     * CSV. Training sales are excluded — they are not sales.
+     */
+    public function salesBook()
+    {
+        $taxService = Services::taxService();
+
+        $builder = model(SaleModel::class)->builder();
+        $builder->select('sales.id, sales.invoice_number, sales.sale_date, sales.customer_name, sales.customer_tin, sales.customer_address, sales.customer_business_style, sales.discount_total, sales.total')
+            ->where('sales.is_training', 0);
+        $this->applyCompletedSalesFilters($builder);
+        $sales = $builder->orderBy('sales.sale_date', 'ASC')->get()->getResult();
+
+        if ($sales === []) {
+            return $this->ok([]);
+        }
+
+        $saleIds = array_map(static fn ($s) => (int) $s->id, $sales);
+        $lines = model(SaleItemModel::class)->builder()
+            ->select('sale_id, tax_type, tax_amount, line_total')
+            ->whereIn('sale_id', $saleIds)
+            ->get()
+            ->getResult();
+
+        $bySale = [];
+        foreach ($lines as $line) {
+            $id = (int) $line->sale_id;
+            $bySale[$id] ??= ['vatable' => 0.0, 'vat' => 0.0, 'exempt' => 0.0, 'zero' => 0.0, 'non_vat' => 0.0];
+            $net = (float) $line->line_total - (float) $line->tax_amount;
+
+            match ($line->tax_type) {
+                TaxService::TYPE_VAT => [
+                    $bySale[$id]['vatable'] += $net,
+                    $bySale[$id]['vat'] += (float) $line->tax_amount,
+                ],
+                TaxService::TYPE_VAT_EXEMPT => $bySale[$id]['exempt'] += $net,
+                TaxService::TYPE_ZERO_RATED => $bySale[$id]['zero'] += $net,
+                default => $bySale[$id]['non_vat'] += $net,
+            };
+        }
+
+        $rows = [];
+        foreach ($sales as $sale) {
+            $split = $bySale[(int) $sale->id] ?? ['vatable' => 0.0, 'vat' => 0.0, 'exempt' => 0.0, 'zero' => 0.0, 'non_vat' => 0.0];
+
+            $rows[] = [
+                'sale_date' => $sale->sale_date,
+                'invoice_number' => $sale->invoice_number,
+                'customer_name' => $sale->customer_name,
+                'customer_tin' => $sale->customer_tin,
+                'customer_address' => $sale->customer_address,
+                'business_style' => $sale->customer_business_style,
+                'vatable_sales' => round($split['vatable'], 2),
+                'vat_amount' => round($split['vat'], 2),
+                'vat_exempt_sales' => round($split['exempt'], 2),
+                'zero_rated_sales' => round($split['zero'], 2),
+                'non_vat_sales' => round($split['non_vat'], 2),
+                'discount_total' => round((float) $sale->discount_total, 2),
+                'total' => round((float) $sale->total, 2),
+            ];
+        }
+
+        return $this->ok($rows);
+    }
+
     public function vatSummary()
     {
         $taxService = Services::taxService();

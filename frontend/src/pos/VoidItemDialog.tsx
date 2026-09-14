@@ -46,9 +46,16 @@ interface Props {
  * The keyboard/scanner way to void a line, as an alternative to finding
  * the row in the cart and tapping its own void icon — useful once a cart
  * has enough items that hunting for one by eye is slower than scanning
- * it again. Two steps: find the line (by SKU, barcode, or name — a
- * second scan of the item's own barcode is the fast path), then say how
- * much of it to remove, which can be less than the full line.
+ * it again. Two steps: find the line, then say how much of it to
+ * remove, which can be less than the full line.
+ *
+ * Finding the line works two ways, and the search step shows both at
+ * once rather than making the cashier commit to one: type or scan a
+ * SKU/barcode/name (a second scan of the item's own barcode is the fast
+ * path), or just tap it from the plain list of every line still in the
+ * sale — the dialog's own backdrop dims the real cart behind it, so
+ * without this list a cashier who'd rather look than type had nothing
+ * to look at.
  *
  * Deliberately searches only `lines`, client-side, rather than calling
  * the product API the way ProductSearch or ReprintReceiptDialog do —
@@ -83,8 +90,13 @@ export function VoidItemDialog({ open, lines, initialLine, onClose, onSelect }: 
   }, [open, initialLine]);
 
   const trimmed = query.trim().toLowerCase();
+  // Every line in the sale when the field is empty, not nothing — the
+  // dialog's own backdrop dims the real cart behind it, so without this
+  // a cashier who opened Void Item to browse rather than type had no
+  // list to look at at all until they started typing. Filtered down to
+  // matches the instant they do.
   const matches = useMemo(() => {
-    if (!trimmed) return [];
+    if (!trimmed) return lines;
     return lines.filter(
       (l) =>
         l.product.sku.toLowerCase().includes(trimmed) ||
@@ -154,7 +166,7 @@ export function VoidItemDialog({ open, lines, initialLine, onClose, onSelect }: 
         {!selected ? (
           <>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Scan, or type a SKU, barcode or name, to find the item to void from this sale.
+              Scan, or type a SKU, barcode or name to find it — or tap an item straight from the list below.
             </Typography>
             <TextField
               id="void-item-search-input"
@@ -166,14 +178,38 @@ export function VoidItemDialog({ open, lines, initialLine, onClose, onSelect }: 
               size="small"
             />
 
-            {trimmed &&
-              (matches.length === 0 ? (
-                <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                  <SearchOffOutlinedIcon sx={{ fontSize: 36, opacity: 0.4, mb: 1 }} />
-                  <Typography variant="body2">No item in this cart matches "{query.trim()}"</Typography>
-                </Stack>
-              ) : (
-                <List disablePadding sx={{ mt: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+            {trimmed && matches.length === 0 ? (
+              <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                <SearchOffOutlinedIcon sx={{ fontSize: 36, opacity: 0.4, mb: 1 }} />
+                <Typography variant="body2">No item in this cart matches "{query.trim()}"</Typography>
+              </Stack>
+            ) : (
+              <>
+                {/* Only above the unfiltered list — once a query narrows
+                    it, "matching X" is already stated by the field
+                    itself sitting right above, and repeating it here
+                    would just be noise. */}
+                {!trimmed && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5, mb: 0.5, px: 0.5 }}>
+                    {lines.length} {lines.length === 1 ? 'item' : 'items'} in this sale — tap one to void it
+                  </Typography>
+                )}
+                <List
+                  disablePadding
+                  sx={{
+                    mt: trimmed ? 1.5 : 0,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    overflow: 'hidden',
+                    // The search step has no fixed height of its own —
+                    // without a cap here, a long cart made this list (and
+                    // the dialog around it) grow past the viewport with
+                    // nothing to scroll it back into view.
+                    maxHeight: 320,
+                    overflowY: 'auto',
+                  }}
+                >
                   {matches.map((l, i) => (
                     <ListItemButton key={l.key} divider={i < matches.length - 1} onClick={() => pick(l)} sx={{ py: 1 }}>
                       <ListItemText
@@ -187,7 +223,8 @@ export function VoidItemDialog({ open, lines, initialLine, onClose, onSelect }: 
                     </ListItemButton>
                   ))}
                 </List>
-              ))}
+              </>
+            )}
           </>
         ) : (
           <Stack spacing={2}>

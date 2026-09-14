@@ -48,14 +48,30 @@ class CashSessionsController extends BaseCrudController
         return array_map('intval', model(RegisterModel::class)->whereIn('store_id', $storeIds ?: [0])->findColumn('id') ?: []);
     }
 
-    /** POST /api/v1/cash-sessions/open  body: { register_id, opening_balance } */
+    /**
+     * POST /api/v1/cash-sessions/open  body: { register_id, opening_balance? }
+     *
+     * `opening_balance` is only actually used when the register itself
+     * is in manual mode (RegisterModel::OPENING_FLOAT_MANUAL, the
+     * default, and the only mode that existed before opening floats
+     * were configurable) — a cashier counting the drawer and typing what
+     * they counted. A register configured with a fixed float opens at
+     * that configured figure regardless of what the client sends here,
+     * whether that's the omitted value the frontend now sends for
+     * 'fixed'/'fixed_confirm' or, if a client sent one anyway, a
+     * mismatched number: the whole point of a fixed float is that it
+     * can't be talked into opening at a different one, cashier-typed
+     * client or otherwise. See RegisterModel's own note on the three
+     * modes, and AddOpeningFloatToRegisters for why this — not the
+     * frontend — is where that's enforced.
+     */
     public function open()
     {
         $payload = $this->request->getJSON(true) ?? [];
 
         $rules = [
             'register_id' => ['label' => 'POS Terminal', 'rules' => 'required|is_natural_no_zero'],
-            'opening_balance' => ['label' => 'Opening balance', 'rules' => 'required|decimal'],
+            'opening_balance' => ['label' => 'Opening balance', 'rules' => 'permit_empty|decimal'],
         ];
 
         if (! $this->validateData($payload, $rules)) {
@@ -64,6 +80,26 @@ class CashSessionsController extends BaseCrudController
 
         if (! in_array((int) $payload['register_id'], $this->allowedRegisterIds(), true)) {
             return $this->apiFail('You do not have access to this POS terminal', 403);
+        }
+
+        $register = model(RegisterModel::class)->find($payload['register_id']);
+        if ($register === null) {
+            return $this->notFound();
+        }
+
+        $mode = $register->opening_float_mode ?? RegisterModel::OPENING_FLOAT_MANUAL;
+        if ($mode !== RegisterModel::OPENING_FLOAT_MANUAL && $register->default_opening_float !== null) {
+            $openingBalance = (float) $register->default_opening_float;
+        } elseif (array_key_exists('opening_balance', $payload) && $payload['opening_balance'] !== null && $payload['opening_balance'] !== '') {
+            $openingBalance = (float) $payload['opening_balance'];
+        } else {
+            // Either genuinely manual mode with nothing typed, or a
+            // fixed-mode register somehow left without a configured
+            // float (RegistersController's own validation should have
+            // already ruled that out at save time, but this is the
+            // actual money-recording endpoint, so it checks again rather
+            // than trusting that upstream guard was never bypassed).
+            return $this->apiFail('Opening balance is required to open this POS terminal.', 422);
         }
 
         $alreadyOpen = $this->model
@@ -79,7 +115,7 @@ class CashSessionsController extends BaseCrudController
             'register_id' => $payload['register_id'],
             'user_id' => Services::authContext()->userId,
             'opened_at' => date('Y-m-d H:i:s'),
-            'opening_balance' => $payload['opening_balance'],
+            'opening_balance' => $openingBalance,
             'status' => 'open',
         ], true);
 

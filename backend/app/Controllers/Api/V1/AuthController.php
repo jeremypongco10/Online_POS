@@ -206,6 +206,78 @@ class AuthController extends BaseApiController
         return $this->tokenResponse($userModel->find($user->id));
     }
 
+    /**
+     * POST /api/v1/auth/verify-password — unlocks the POS screen's idle/
+     * manual lock overlay by re-checking the currently authenticated
+     * user's own password. No identifier in the body: $auth->userId
+     * (from the Bearer token this request already carries) is who gets
+     * checked, so there's no way to unlock one cashier's screen with a
+     * different account's credentials.
+     *
+     * Deliberately NOT a second call to login(). That issues a fresh
+     * token pair and, for a single-session role (isSingleSessionRole),
+     * stamps session_valid_from to the moment of the call — which would
+     * invalidate the very session this request is running on, logging
+     * the cashier straight back out on their next click. This checks the
+     * password and nothing else: no tokens, no session-validity stamp,
+     * no audit noise that reads like a second login. Found and avoided
+     * while building this, not discovered by a bug report — see
+     * PosLockTest, which asserts the original token is still accepted
+     * after a successful unlock.
+     *
+     * Lockout and failed-attempt tracking mirror login() on purpose — a
+     * lock screen sitting on a public-facing counter is exactly the kind
+     * of surface a brute-force attempt targets, and it shouldn't get a
+     * free pass past the same defence a normal login attempt is held to.
+     * A cashier who locks their own account out this way isn't stranded:
+     * the POS lock screen's own Log out link still works (it only
+     * revokes the current token, which needs no password), and they can
+     * sign back in normally once the lockout window passes.
+     */
+    public function verifyPassword()
+    {
+        $rules = [
+            'password' => ['label' => 'Password', 'rules' => 'required'],
+        ];
+
+        if (! $this->validateData($this->request->getJSON(true) ?? [], $rules)) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        $payload = $this->request->getJSON(true);
+        $auth = Services::authContext();
+        $userModel = model(UserModel::class);
+        $user = $userModel->find($auth->userId);
+        $authConfig = config(AuthConfig::class);
+
+        if (! $user) {
+            return $this->notFound('User not found');
+        }
+
+        // Checked before verifying the password, same ordering as
+        // login() and for the same reason: whether the account is
+        // locked shouldn't depend on, or leak, whether this particular
+        // password attempt was correct.
+        if ($userModel->isLocked($user)) {
+            $minutesLeft = (int) ceil((strtotime($user->locked_until) - time()) / 60);
+            Services::auditLogger()->log('unlock-failed', 'User', $user->id, $user->name, ['reason' => 'Account locked']);
+
+            return $this->apiFail("Account is locked due to too many failed attempts. Try again in {$minutesLeft} minute(s).", 423);
+        }
+
+        if (! password_verify($payload['password'], $user->password_hash)) {
+            $userModel->registerFailedLogin($user->id, $authConfig->maxLoginAttempts, $authConfig->lockoutMinutes);
+            Services::auditLogger()->log('unlock-failed', 'User', $user->id, $user->name, ['reason' => 'Incorrect password']);
+
+            return $this->apiFail('Incorrect password', 401);
+        }
+
+        $userModel->clearLoginLock($user->id);
+        Services::auditLogger()->log('unlock', 'User', $user->id, $user->name);
+
+        return $this->ok(null, 'Unlocked');
+    }
+
     public function me()
     {
         $auth = Services::authContext();
@@ -236,28 +308,31 @@ class AuthController extends BaseApiController
     }
 
     /**
-     * Currency and tax-system wording, carried on the auth payload
-     * rather than behind an endpoint of their own.
+     * Currency, tax-system wording, and the POS idle-lock timeout —
+     * carried on the auth payload rather than behind an endpoint of
+     * their own.
      *
-     * Both are needed by every signed-in user the moment the app paints
-     * — the peso sign on a discount field, whether a receipt says VAT or
-     * GST — and permissions are exactly what makes a dedicated endpoint
-     * awkward. The full company record sits behind companies.view, which
-     * a Cashier deliberately lacks; the POS-facing /sales/*-policy routes
+     * All three are needed by every signed-in user the moment the app
+     * paints — the peso sign on a discount field, whether a receipt says
+     * VAT or GST, how long the till waits before locking itself — and
+     * permissions are exactly what makes a dedicated endpoint awkward.
+     * The full company record sits behind companies.view, which a
+     * Cashier deliberately lacks; the POS-facing /sales/*-policy routes
      * sit behind sales.create, which a reports-only back-office role
-     * equally lacks. These two scalars belong to nobody's permission in
+     * equally lacks. These scalars belong to nobody's permission in
      * particular, so they ride along with the identity every role
      * already fetches.
      *
-     * Defaults rather than nulls: a company row with no currency set
-     * predates this being configurable, and PHP/vat is what the system
-     * behaved as before it was.
+     * Defaults rather than nulls: a company row predating whichever of
+     * these was added most recently reads as PHP/vat/never-auto-locks —
+     * exactly what the system did before each became configurable.
      */
     private function attachCompanyProfile(object $user): void
     {
         $company = $user->company_id !== null ? model(CompanyModel::class)->find((int) $user->company_id) : null;
         $user->currency = $company->currency ?? 'PHP';
         $user->tax_system = $company->tax_system ?? 'vat';
+        $user->pos_lock_idle_minutes = (int) ($company->pos_lock_idle_minutes ?? 0);
     }
 
     private function tokenResponse(object $user)

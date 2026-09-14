@@ -83,6 +83,11 @@ class PermissionSeeder extends Seeder
         'payment-methods.view' => ['View Payment Methods', 'Can view the payment methods offered at checkout'],
         'payment-methods.manage' => ['Manage Payment Methods', 'Can add, rename, and activate/deactivate payment methods'],
 
+        'invoice-series.view' => ['View Invoice Series', 'Can view sales invoice numbering series and their configuration'],
+        'invoice-series.manage' => ['Manage Invoice Series', 'Can create, edit, activate, and deactivate sales invoice numbering series'],
+        'readings.view' => ['View X/Z Readings', 'Can take an X-reading and view issued Z-readings'],
+        'readings.manage' => ['Generate Z-Readings', 'Can close the period and issue a Z-reading'],
+
         'returns.view' => ['View Returns', 'Can view sales returns'],
         'returns.create' => ['Create Returns', 'Can request a sales return'],
         // Deliberately separate from returns.create: approving is what

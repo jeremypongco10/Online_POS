@@ -14,7 +14,6 @@ interface Props {
   onOpenBagger: () => void;
   cartHasItems: boolean;
   onOpenDiscount: () => void;
-  onHold: () => void;
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
@@ -23,38 +22,33 @@ interface Props {
 }
 
 /**
- * A soft tile in the action's own colour, label centred over its keycap
- * — no icon. The icons went because they read as clutter at this size,
- * but plain white rectangles were duller still, so the identity they
- * carried lives in the surface itself now: each action keeps its own hue
- * (POS_ACTION_TINTS), which is what a cashier actually aims at on a
- * button pressed hundreds of times a shift.
+ * A flat tile in a light wash of the action's own colour, label centred
+ * over its keycap — no icon. The icons went because they read as clutter
+ * at this size, but plain white rectangles were duller still, so the
+ * identity they carried lives in the surface itself now: each action
+ * keeps its own hue (POS_ACTION_TINTS), which is what a cashier actually
+ * aims at on a button pressed hundreds of times a shift.
  *
- * Four things here are deliberate walk-backs from the previous version,
- * because together they were what made a row of these read as flat:
+ * Everything here is one flat fill and one hairline border — no gradient,
+ * no drop shadow, no hover lift. All three were tried and are gone: six
+ * gradient-washed tiles with coloured glows under them were the loudest
+ * thing in a screen otherwise built from hairlines, and the 1px lift made
+ * the row twitch under a finger on a touch till. The hue still steps up
+ * on hover and again on press, so the response is a colour change rather
+ * than a movement.
  *
- *   - The 4px colour bar down the left edge is gone. Flush to the edge
- *     with the label indented after it, six in a row read as a striped
- *     list — sidebar rows — rather than as controls.
- *   - The wash went from a flat 6% to a 12%-to-5% vertical gradient. At
- *     6% every button was the same off-grey whatever hue it nominally
- *     carried, so the colour coding cost a line of CSS and bought
- *     nothing.
- *   - The keycap stopped being the darkest thing on the button. A solid
- *     grey badge under a dark label put the most contrast on "F5"
- *     instead of on "Discount", which is backwards — the shortcut is a
- *     reminder, not the point.
- *   - The rest-state border is the action's hue rather than the neutral
- *     divider grey, which at this tint strength was the loudest edge on
- *     the tile and greyed the whole thing down with it.
+ * The keycap is deliberately not the darkest thing on the tile. A solid
+ * grey badge under a dark label put the most contrast on "F5" instead of
+ * on "Discount", which is backwards — the shortcut is a reminder, not the
+ * point — so it sits on paper with a hairline in the button's own hue.
  *
- * Content is centred rather than left-aligned for the same reason the
- * bar went: these stretch to share the row's width, and left-packed
- * content left a dead half-button of space on the right of each one.
- * Centred, that same width reads as padding instead.
+ * Content is centred rather than left-aligned: these stretch to share the
+ * row's width, and left-packed content left a dead half-button of space
+ * on the right of each one. Centred, that same width reads as padding.
  *
- * 50px minimum height because this is a touchscreen till — under every
- * published minimum for a finger target below about 40.
+ * 58px minimum height because this is a touchscreen till, where every
+ * published finger-target minimum starts around 44 and a label stacked
+ * over a keycap needs the room twice over.
  *
  * `attached` is Customer/Bagger's "someone is on this sale" state. The
  * labels stay fixed rather than swapping in the person's name — the
@@ -77,12 +71,16 @@ function ActionButton({
   id: string;
   label: string;
   /**
-   * Omitted only by Void Item, which claims no F-key — F1 through F11
-   * are all spoken for elsewhere on this screen (see posShortcuts.ts),
-   * and F12 is universally the browser/OS devtools key, not safe to
-   * hijack the way F11's fullscreen toggle already carefully is (see
-   * that key's own comment there). No KeyHint badge renders when this
-   * is absent, rather than a hollow keycap with nothing in it.
+   * Optional because F12 is deliberately never handed out here — it's
+   * universally the browser/OS devtools key, and unlike F11's fullscreen
+   * toggle (see that key's own comment in posShortcuts.ts),
+   * preventDefault() can't suppress it in any evergreen browser. With F1
+   * through F11 already spoken for elsewhere on this screen, Void Item
+   * shares F7 with Reprint instead of being left with no key at all —
+   * the two buttons are never on screen at the same time (see this
+   * component's own doc comment below), so one key can mean either one
+   * without ever being ambiguous in practice. No KeyHint badge renders
+   * when this is absent, rather than a hollow keycap with nothing in it.
    */
   keyLabel?: string;
   tint: string;
@@ -111,7 +109,7 @@ function ActionButton({
   // wash of its own colour, and if this one did too it would read as a
   // sixth pastel peer rather than as the one control that throws work
   // away.
-  const surface = danger ? 'transparent' : `linear-gradient(180deg, ${tint}1f 0%, ${tint}0d 100%)`;
+  const surface = danger ? 'transparent' : `${tint}14`;
 
   return (
     <Button
@@ -129,22 +127,23 @@ function ActionButton({
         // it neither grows into the leftover space nor shrinks below its
         // own fixed size as the others do.
         flex: compact ? '0 0 auto' : '1 1 120px',
-        width: compact ? 72 : undefined,
+        width: compact ? 80 : undefined,
         minWidth: 0,
-        minHeight: compact ? 44 : 50,
+        minHeight: compact ? 52 : 58,
         px: compact ? 0.75 : 1.25,
-        py: compact ? 0.625 : 0.875,
+        py: compact ? 0.75 : 1,
         borderRadius: 2.5,
         border: '1px solid',
         borderColor: filled ? tint : danger ? `${tint}5c` : `${tint}2e`,
-        background: filled ? tint : surface,
+        bgcolor: filled ? tint : surface,
+        backgroundImage: 'none',
         color: filled ? '#fff' : danger ? tint : 'text.primary',
         fontWeight: 700,
-        fontSize: compact ? 11.5 : 13.5,
+        fontSize: compact ? 12 : 14,
         lineHeight: 1.15,
         textTransform: 'none',
-        boxShadow: filled ? `0 2px 8px -3px ${tint}` : '0 1px 2px rgba(16, 24, 40, 0.04)',
-        transition: 'background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, color 0.15s ease',
+        boxShadow: 'none',
+        transition: 'background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
         // KeyHint is shared with Pay and the search field, so its neutral
         // keycap is overridden here rather than changed at the source.
         // ml:0 cancels the margin it carries for sitting inline after a
@@ -165,13 +164,10 @@ function ActionButton({
         '&:hover': {
           // Danger fills solid instead of deepening: the one button whose
           // hover should feel like a commitment rather than a highlight.
-          background: danger || filled ? tint : `linear-gradient(180deg, ${tint}3d 0%, ${tint}24 100%)`,
+          bgcolor: danger || filled ? tint : `${tint}26`,
           color: danger || filled ? '#fff' : 'text.primary',
           borderColor: tint,
-          // Tinted rather than neutral grey — the lift and the colour are
-          // the same signal, so they should come from the same hue.
-          boxShadow: `0 6px 14px -8px ${tint}`,
-          transform: 'translateY(-1px)',
+          boxShadow: 'none',
         },
         // Once Cancel fills solid, the pale keycap all but disappears
         // against it — swap to the white-on-colour treatment KeyHint
@@ -185,9 +181,9 @@ function ActionButton({
             borderColor: 'rgba(255, 255, 255, 0.35)',
           },
         }),
-        // Snaps back flat under a finger/click, so the press itself has a
-        // physical read rather than only the ripple.
-        '&:active': { transform: 'translateY(0)', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)' },
+        // One more step of the same hue under a finger, so a press still
+        // answers without the tile moving.
+        '&:active': { bgcolor: danger || filled ? tint : `${tint}38` },
       }}
     >
       {/* Label over its keycap — two lines, so each button stays narrow
@@ -219,10 +215,13 @@ function ActionButton({
  * moved down here from a bare icon in PosHeader; Search already had its
  * own visible control (the KeyHint badge on the search field itself) and
  * gained this one alongside it, so there's a tappable way back to that
- * field from anywhere in this row too. Pay is the one function key still
- * genuinely elsewhere — it sits beside the payment flow it actually
- * opens, in ReceiptPanel, rather than in this row of sale-property
- * toggles. Being reached for the least is also why Shortcuts and Search
+ * field from anywhere in this row too. Pay and Hold are the two function
+ * keys still genuinely elsewhere, both in ReceiptPanel — Pay because it
+ * sits beside the payment flow it actually opens, Hold because it's
+ * paired with Pay there rather than living among this row's sale-
+ * property toggles (it moved through here for a while; see that pair's
+ * own doc comment in ReceiptPanel for why it moved back). Being reached
+ * for the least is also why Shortcuts and Search
  * are the two `compact` tiles in the row (see ActionButton) — fixed,
  * smaller widths rather than an equal share of it, so the buttons a
  * cashier actually presses all shift get the room they give up.
@@ -235,24 +234,25 @@ function ActionButton({
  *     a sale that already happened, which is exactly the situation
  *     between customers — and Cancel Sale would have nothing to do here
  *     anyway.
- *   - Cart has items: Discount (F5), then Hold (F6), then Cancel Sale
- *     (F9) — pushed away from the routine buttons by a spacer rather
- *     than sitting flush after Hold, since it's the one destructive
- *     action in this row. Being the highest key here too means ascending
- *     order and "keep it away from everything else" land in the same
- *     place without a special case. Hold moved here from beside Pay in
- *     ReceiptPanel — it's a property of the sale being rung up (park it,
- *     don't finish it), the same category Discount is in, not something
- *     that belongs next to the payment flow the way Pay itself does.
+ *   - Cart has items: Discount (F5), then Void Item (F7 — yes, the same
+ *     key Reprint uses on an empty cart; the two are never both on
+ *     screen, so nothing actually collides), then Cancel Sale (F9) —
+ *     pushed away from the routine buttons by a spacer rather than
+ *     sitting flush after Void Item, since it's the one destructive
+ *     action in this row. Being the highest key here too means
+ *     ascending order and "keep it away from everything else" land in
+ *     the same place without a special case. Void Item shares F7 rather
+ *     than getting a key of its own because there simply isn't one
+ *     left: F1 through F11 are all claimed, and F12 is the one function
+ *     key no page can safely take over, since browsers reserve it for
+ *     DevTools regardless of preventDefault().
  *
  * Nothing here is ever hidden behind a menu — every control a cashier
  * might reach for at a given moment is a single click, just never more
- * than what's actually relevant right now. F7/F8 (Reprint/Return) and F9
- * (Cancel) are guarded the same way in PosScreen, so the keyboard
- * shortcuts can't fire a control that isn't currently on screen. F6
- * (Hold) doesn't need that guard — handleHold already no-ops on an empty
- * cart on its own, which is why it's called directly rather than
- * DOM-clicking this row's button the way those others do.
+ * than what's actually relevant right now. F7 (Reprint/Void Item, which
+ * of the two depending on whether the cart has items), F8 (Return) and
+ * F9 (Cancel) are guarded the same way in PosScreen, so the keyboard
+ * shortcuts can't fire a control that isn't currently on screen.
  *
  * No hover tooltips on any of these — deliberately removed, not an
  * oversight. Each button's KeyHint badge (the "F9" pill below) already
@@ -270,21 +270,22 @@ function ActionButton({
  * distinct refund-only path exists — so it was removed as a duplicate
  * rather than kept as a second button to the same place.)
  *
- * Customer, Bagger, Return, Reprint and Shortcuts keep stable
+ * Customer, Bagger, Return, Reprint, Void Item and Shortcuts keep stable
  * `id`s that useKeyboardShortcuts triggers via a DOM click — for the
- * first four because their dialog/navigation state isn't here
+ * first five because their dialog/navigation state isn't here
  * (Customer/Bagger's dialogs are up in ProductBrowser; Return navigates
- * away and Reprint opens PosScreen's own search dialog), and for
+ * away, and Reprint/Void Item each open one of PosScreen's own dialogs —
+ * the same `reprint` handler DOM-clicks whichever of the two actually
+ * exists, since CartActionsRow never renders both at once), and for
  * Shortcuts because its state IS here rather than in PosScreen, which
  * amounts to the same thing from the shortcut's side. Cancel doesn't
  * need that (PosScreen wires F9 straight to the same onCancel this
- * calls) but keeps one for parity and as a stable hook for tests. Hold
- * keeps one for the same reason, even though F6 also doesn't need it —
- * see the note above. Search keeps one too, though F2 reaches the search
+ * calls) but keeps one for parity and as a stable hook for tests. Search
+ * keeps one too, though F2 reaches the search
  * field directly rather than through this button (PosScreen's own
  * `search` handler focuses it by id) — the button's `id` here is purely
  * for parity with its neighbours and as a stable hook for tests, same as
- * Cancel and Hold.
+ * Cancel.
  */
 export function CartActionsRow({
   customer,
@@ -293,7 +294,6 @@ export function CartActionsRow({
   onOpenBagger,
   cartHasItems,
   onOpenDiscount,
-  onHold,
   onCancel,
   onReturn,
   onReprintReceipt,
@@ -323,7 +323,7 @@ export function CartActionsRow({
           or not there's a cart. */}
       <ActionButton
         id="pos-help-button"
-        label="Shortcuts"
+        label="Help"
         keyLabel="F1"
         tint={POS_ACTION_TINTS.shortcuts}
         onClick={() => setHelpOpen(true)}
@@ -383,20 +383,6 @@ export function CartActionsRow({
             onClick={onOpenDiscount}
           />
 
-          {/* Parks the sale rather than finishing it — a property of the
-              current sale, the same category Discount is in, not the
-              payment flow itself, which is why this moved here from
-              beside Pay in ReceiptPanel rather than staying paired with
-              it. Only while there's a cart, same as Discount: an empty
-              cart has nothing to hold. */}
-          <ActionButton
-            id="pos-action-hold"
-            label="Hold"
-            keyLabel="F6"
-            tint={POS_ACTION_TINTS.hold}
-            onClick={onHold}
-          />
-
           {/* Finds a line by SKU/barcode/name and voids some or all of
               its quantity — the keyboard/scanner alternative to hunting
               down the right row and tapping its own void icon, which
@@ -406,13 +392,21 @@ export function CartActionsRow({
               destructive action it still needs a moment's confirmation
               of *which* line before anything happens (VoidItemDialog's
               own job) rather than acting the instant it's tapped — the
-              same reasoning Discount and Hold get the neutral tinted
-              treatment while Cancel alone gets the bare/red one. No
-              F-key: every one through F11 is already claimed elsewhere
-              on this screen (see ActionButton's own `keyLabel` note). */}
+              same reasoning Discount gets the neutral tinted treatment
+              while Cancel alone gets the bare/red one.
+
+              F7, not a key of its own — F1 through F11 are all claimed
+              elsewhere on this screen, and F12 is off the table (see
+              ActionButton's own `keyLabel` note). Shared with Reprint,
+              which only ever renders on an empty cart, right where this
+              button takes its place the moment the cart has one item in
+              it — the two are never on screen together, so the same key
+              can point at either without ever being ambiguous to a
+              cashier looking at the screen. */}
           <ActionButton
             id="pos-action-void-item"
             label="Void Item"
+            keyLabel="F7"
             tint={POS_ACTION_TINTS.voidItem}
             onClick={onVoidItemSearch}
           />
@@ -444,6 +438,9 @@ export function CartActionsRow({
         </>
       ) : (
         <>
+          {/* F7 here belongs to Void Item the moment the cart has an
+              item in it — see that button's own comment above for why
+              sharing costs nothing. */}
           <ActionButton
             id="pos-action-reprint"
             label="Reprint"

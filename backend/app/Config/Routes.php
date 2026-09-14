@@ -25,6 +25,11 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
         $routes->get('me', 'AuthController::me', ['filter' => 'jwtAuth']);
         $routes->post('logout', 'AuthController::logout', ['filter' => 'jwtAuth']);
         $routes->post('change-password', 'AuthController::changePassword', ['filter' => 'jwtAuth']);
+        // Same rate-limit shape as authorize-item-void/authorize-cart-void
+        // below — a credential re-check behind an already-authenticated
+        // request, not the unauthenticated login attempt the stricter
+        // 'auth' scope above guards.
+        $routes->post('verify-password', 'AuthController::verifyPassword', ['filter' => ['rateLimit:10,300,unlock-auth', 'jwtAuth']]);
     });
 
     // --- Everything below requires a valid access token ---
@@ -210,11 +215,35 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->post('(:num)/close', 'CashSessionsController::close/$1', ['filter' => 'permission:cash-sessions.manage']);
         });
 
+        // Wiping the configuration back to a new-setup state. Gated on
+        // companies.manage — the same permission that edits the settings
+        // this clears — and refused outright once the system has issued
+        // any document (see SystemResetController).
+        $routes->group('system', static function (RouteCollection $routes) {
+            $routes->get('reset-eligibility', 'SystemResetController::eligibility', ['filter' => 'permission:companies.manage']);
+            $routes->post('reset', 'SystemResetController::reset', ['filter' => 'permission:companies.manage']);
+        });
+
+        // X/Z readings. The X is a GET because it changes nothing — a
+        // cashier can take as many as they like mid-shift; the Z is a
+        // POST because it closes the period, writes the reading
+        // permanently and advances the terminal's Z counter.
+        $routes->group('readings', static function (RouteCollection $routes) {
+            $routes->get('x', 'ReadingsController::x', ['filter' => 'permission:readings.view']);
+            $routes->get('z', 'ReadingsController::index', ['filter' => 'permission:readings.view']);
+            $routes->get('z/(:num)', 'ReadingsController::show/$1', ['filter' => 'permission:readings.view']);
+            $routes->post('z', 'ReadingsController::z', ['filter' => 'permission:readings.manage']);
+        });
+
         $routes->group('sales', static function (RouteCollection $routes) {
             $routes->get('', 'SalesController::index', ['filter' => 'permission:sales.view']);
             $routes->get('(:num)', 'SalesController::show/$1', ['filter' => 'permission:sales.view']);
             $routes->get('(:num)/items', 'SalesController::items/$1', ['filter' => 'permission:sales.view']);
             $routes->get('(:num)/receipt', 'SalesController::receipt/$1', ['filter' => 'permission:sales.view']);
+            // sales.view, not a manage permission: this only records that
+            // a receipt the caller can already read went to paper, and
+            // refusing it would just mean unmarked reprints.
+            $routes->post('(:num)/mark-printed', 'SalesController::markPrinted/$1', ['filter' => 'permission:sales.view']);
             $routes->post('', 'SalesController::create', ['filter' => 'permission:sales.create']);
             // Gated on sales.create, not sales.void: the caller is the
             // *cashier* asking for sign-off, and a cashier deliberately
@@ -262,6 +291,16 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->delete('(:num)', 'PaymentMethodsController::delete/$1', ['filter' => 'permission:payment-methods.manage']);
         });
 
+        $routes->group('invoice-series', static function (RouteCollection $routes) {
+            $routes->get('', 'InvoiceSeriesController::index', ['filter' => 'permission:invoice-series.view']);
+            $routes->get('(:num)', 'InvoiceSeriesController::show/$1', ['filter' => 'permission:invoice-series.view']);
+            $routes->post('', 'InvoiceSeriesController::create', ['filter' => 'permission:invoice-series.manage']);
+            $routes->put('(:num)', 'InvoiceSeriesController::update/$1', ['filter' => 'permission:invoice-series.manage']);
+            $routes->delete('(:num)', 'InvoiceSeriesController::delete/$1', ['filter' => 'permission:invoice-series.manage']);
+            $routes->post('(:num)/activate', 'InvoiceSeriesController::activate/$1', ['filter' => 'permission:invoice-series.manage']);
+            $routes->post('(:num)/deactivate', 'InvoiceSeriesController::deactivate/$1', ['filter' => 'permission:invoice-series.manage']);
+        });
+
         $routes->group('returns', static function (RouteCollection $routes) {
             $routes->get('', 'ReturnsController::index', ['filter' => 'permission:returns.view']);
             $routes->get('eligible-items', 'ReturnsController::eligibleItems', ['filter' => 'permission:returns.create']);
@@ -305,6 +344,9 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
             // Step 37 — VAT reports
             $routes->get('vat-summary', 'ReportsController::vatSummary', ['filter' => 'permission:reports.view']);
+            // The per-invoice detail behind vat-summary — what an examiner
+            // reconciles receipts and Z-readings against.
+            $routes->get('sales-book', 'ReportsController::salesBook', ['filter' => 'permission:reports.view']);
 
             // Discount reports. discount-details with the three government
             // types is the SC/PWD register a store must be able to produce

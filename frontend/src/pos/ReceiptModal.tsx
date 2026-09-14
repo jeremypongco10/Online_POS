@@ -13,6 +13,7 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
+import { api } from '../api/client';
 import type { PaymentMethodOption, Receipt } from '../api/types';
 import { formatMoney, posRaisedButtonSx, TAX_INDICATOR_LABELS } from './format';
 import { currencySymbol, showsBirDetail, taxLabel } from '../regional';
@@ -36,6 +37,18 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
   const methodLabel = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
 
   /**
+   * Records that this receipt went to paper, so the NEXT time it's
+   * fetched it comes back flagged as a reprint and prints the duplicate
+   * banner. Deliberately fire-and-forget: a failed count must never stop
+   * a cashier printing, and the worst case is one unmarked duplicate
+   * rather than a blocked till.
+   */
+  function print() {
+    api.post(`/sales/${receipt.sale_id}/mark-printed`, {}).catch(() => {});
+    window.print();
+  }
+
+  /**
    * F7 prints, mirroring the Print button below. Bound locally rather
    * than through useKeyboardShortcuts because PosScreen's global handler
    * is deliberately disabled the whole time a receipt is showing
@@ -50,16 +63,34 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== 'F7') return;
       e.preventDefault();
-      window.print();
+      print();
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipt.sale_id]);
 
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth slots={{ transition: PopTransition }}>
       {/* `receipt-card` retained only as the hook for pos.css's @media print rules */}
       <DialogContent className="receipt-card" sx={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5 }}>
+        {/* Both banners sit above everything, because both change what
+            the piece of paper IS. A training receipt is not an invoice at
+            all, and a reissue must be distinguishable from the original
+            it duplicates — neither can be a footnote at the bottom. */}
+        {receipt.is_training && (
+          <Box sx={{ textAlign: 'center', mb: 1.5, py: 0.75, border: '1px solid', borderColor: 'warning.main', fontWeight: 700 }}>
+            *** TRAINING MODE ***
+            <br />
+            NOT A VALID INVOICE
+          </Box>
+        )}
+        {receipt.is_reprint && !receipt.is_training && (
+          <Box sx={{ textAlign: 'center', mb: 1.5, py: 0.75, border: '1px dashed', borderColor: 'text.secondary', fontWeight: 700 }}>
+            *** REPRINT ***
+          </Box>
+        )}
+
         <Box sx={{ textAlign: 'center', mb: 1.5, pb: 1.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
           <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{receipt.company.name}</Typography>
           {receipt.company.tin && <Typography variant="inherit">TIN: {receipt.company.tin}</Typography>}
@@ -71,6 +102,7 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
           {receipt.store.vat_reg_tin && <Typography variant="inherit">VAT REG TIN: {receipt.store.vat_reg_tin}</Typography>}
           {receipt.store.min_no && <Typography variant="inherit">MIN: {receipt.store.min_no}</Typography>}
           {receipt.store.pos_serial_no && <Typography variant="inherit">S/N: {receipt.store.pos_serial_no}</Typography>}
+          {receipt.store.ptu_number && <Typography variant="inherit">PTU No: {receipt.store.ptu_number}</Typography>}
         </Box>
 
         <Stack spacing={0.25} sx={{ mb: 1.5, pb: 1.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
@@ -78,6 +110,12 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
             <span>Invoice #</span>
             <span>{receipt.invoice_number}</span>
           </Stack>
+          {receipt.transaction_no !== null && (
+            <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+              <span>Transaction #</span>
+              <span>{receipt.transaction_no}</span>
+            </Stack>
+          )}
           <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
             <span>Date</span>
             <span>{receipt.date}</span>
@@ -120,6 +158,43 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
             </Stack>
           )}
         </Stack>
+
+        {/* Sold To — what a VAT invoice has to carry when the buyer is a
+            business claiming the input tax. Only rendered when there's
+            something registered to name: a walk-in customer has no TIN or
+            business style, and printing four blank labels on every
+            receipt would just be noise. */}
+        {(receipt.buyer.address || receipt.buyer.tin || receipt.buyer.business_style) && (
+          <Stack spacing={0.25} sx={{ mb: 1.5, pb: 1.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
+            <Typography variant="inherit" sx={{ fontWeight: 700 }}>
+              SOLD TO
+            </Typography>
+            {receipt.buyer.name && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                <span>Name</span>
+                <span>{receipt.buyer.name}</span>
+              </Stack>
+            )}
+            {receipt.buyer.address && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                <span>Address</span>
+                <span>{receipt.buyer.address}</span>
+              </Stack>
+            )}
+            {receipt.buyer.tin && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                <span>TIN</span>
+                <span>{receipt.buyer.tin}</span>
+              </Stack>
+            )}
+            {receipt.buyer.business_style && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                <span>Business Style</span>
+                <span>{receipt.buyer.business_style}</span>
+              </Stack>
+            )}
+          </Stack>
+        )}
 
         <Table
           size="small"
@@ -194,6 +269,16 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
             whether they're rendered. */}
         {receipt.show_bir_details && (
           <>
+            {/* The taxed base, printed above the tax itself. BIR wants
+                both lines: "VATable Sales" is what was taxed, "VAT" is
+                what came off it, and the tax alone doesn't show the
+                first. */}
+            {receipt.vatable_sales > 0 && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
+                <span>{tax}able Sales</span>
+                <span>{formatMoney(receipt.vatable_sales)}</span>
+              </Stack>
+            )}
             {receipt.vat_amount > 0 && (
               <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.25 }}>
                 <span>{tax}</span>
@@ -255,7 +340,7 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
         <Button
           variant="contained"
           startIcon={<PrintIcon />}
-          onClick={() => window.print()}
+          onClick={print}
           sx={(theme) => posRaisedButtonSx(theme.palette.primary.main)}
         >
           Print

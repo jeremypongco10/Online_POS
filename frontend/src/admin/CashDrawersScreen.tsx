@@ -22,6 +22,10 @@ import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 import { useList } from './useList';
 import { formatDateTime } from '../regional';
+import { SectionTabs } from './SectionTabs';
+import { ReadingsTab } from './ReadingsTab';
+import { useRouteState } from '../routing';
+import Tab from '@mui/material/Tab';
 
 const money = (v: string | number | null | undefined) => (v === null || v === undefined ? '—' : formatMoney(Number(v)));
 
@@ -42,7 +46,36 @@ const money = (v: string | number | null | undefined) => (v === null || v === un
  * screen mirrors that rule up front rather than letting the user find it
  * out by submitting.
  */
+type CashTab = 'sessions' | 'readings';
+const CASH_TABS: CashTab[] = ['sessions', 'readings'];
+const CASH_TAB_LABELS: Record<CashTab, string> = { sessions: 'Drawer Sessions', readings: 'X/Z Readings' };
+
+/**
+ * Two halves of the same job: reconciling a drawer's cash, and producing
+ * the X/Z readings BIR expects at close. They share this section because
+ * a cashier does them in one sitting at the end of a shift — the count
+ * and the reading are the same ritual.
+ */
 export function CashDrawersScreen() {
+  const { hasPermission } = useAuth();
+  const tabs = CASH_TABS.filter((t) => hasPermission(t === 'readings' ? 'readings.view' : 'cash-sessions.view'));
+  const [tab, setTab] = useRouteState<CashTab>(2, CASH_TABS, tabs[0] ?? 'sessions', (t) => `/admin/cash/${t}`);
+
+  return (
+    <div>
+      <SectionTabs value={tab} onChange={setTab}>
+        {tabs.map((t) => (
+          <Tab key={t} value={t} label={CASH_TAB_LABELS[t]} />
+        ))}
+      </SectionTabs>
+
+      {tab === 'sessions' && hasPermission('cash-sessions.view') && <CashDrawersBody />}
+      {tab === 'readings' && hasPermission('readings.view') && <ReadingsTab />}
+    </div>
+  );
+}
+
+function CashDrawersBody() {
   const { user, hasPermission } = useAuth();
   const canManage = hasPermission('cash-sessions.manage');
 

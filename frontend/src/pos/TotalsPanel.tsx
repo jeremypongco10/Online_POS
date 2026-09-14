@@ -19,7 +19,7 @@ export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCou
   const { user } = useAuth();
 
   return (
-    <Stack spacing={0.75}>
+    <Stack spacing={1}>
       <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
         {/* Line count, not summed quantity: a cart mixing whole pieces
             with a weighed item would otherwise read "2.5 items", which
@@ -58,7 +58,10 @@ export function TotalsPanel({ totals, itemCount }: { totals: CartTotals; itemCou
           {totals.discountTotal > 0 ? `-${formatMoney(totals.discountTotal)}` : formatMoney(0)}
         </Typography>
       </Stack>
-      <Divider sx={{ borderColor: 'rgba(15, 23, 42, 0.12)' }} />
+      {/* The theme's own hairline, not a hand-mixed rgba — one divider
+          weight across the whole POS is most of what "flat, bordered
+          surfaces" amounts to in practice. */}
+      <Divider />
 
       {/* The one number the cashier reads out loud — the largest thing on
           this side of the screen, and the only one in the accent colour. */}

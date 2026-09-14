@@ -25,6 +25,7 @@ import AddShoppingCartOutlinedIcon from '@mui/icons-material/AddShoppingCartOutl
 import KeyboardReturnOutlinedIcon from '@mui/icons-material/KeyboardReturnOutlined';
 import TouchAppOutlinedIcon from '@mui/icons-material/TouchAppOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import { POS_SHORTCUTS, type PosShortcutGroup } from './posShortcuts';
 import { POS_ACCENT, POS_ACTION_TINTS } from './format';
 import { IS_TOUCH } from '../isTouch';
@@ -38,15 +39,18 @@ const GROUP_LABELS: Record<PosShortcutGroup, string> = {
 
 /**
  * The two columns, split by row count rather than by meaning — Finding
- * and This sale are six rows each, so each takes a side and the two
- * short lists are dealt out to balance them (Past sales' two rows on the
- * left, Terminal's one on the right, where the scanning note below it
- * makes up the difference). Same reasoning, and the same shape, as
- * DiscountDialog's CATEGORY_COLUMNS.
+ * (6 rows) takes the left along with Past sales (2), and This sale (9,
+ * since Void Item joined it as its own row) takes the right along with
+ * Terminal (1): 8 rows a side versus 10. Not perfectly even — This sale
+ * genuinely has more in it than Finding does — but close enough that
+ * neither column runs meaningfully longer than the other on a normal
+ * till screen. Same reasoning, and the same shape, as DiscountDialog's
+ * CATEGORY_COLUMNS.
  *
- * Getting this even is the whole point of the two columns: uneven ones
- * put the last group past the bottom of the dialog on a short screen,
- * which is exactly the scrolling this layout replaced.
+ * Getting this reasonably even is the whole point of the two columns:
+ * a badly uneven split puts the last group past the bottom of the
+ * dialog on a short screen, which is exactly the scrolling this layout
+ * replaced.
  */
 const GROUP_COLUMNS: PosShortcutGroup[][] = [
   ['finding', 'past'],
@@ -54,35 +58,46 @@ const GROUP_COLUMNS: PosShortcutGroup[][] = [
 ];
 
 /**
- * The face each shortcut wears, keyed by its key rather than its action —
- * the arrows, Enter, Esc and Hold have no action at all, and still want an
- * icon. Presentation only, so it lives here rather than in
- * posShortcuts.ts, which stays the data/behaviour source both this and
+ * The face each shortcut wears, keyed by its on-screen label rather than
+ * its key or its action. Label, not key, because F7 now names two
+ * entries in POS_SHORTCUTS — Reprint receipt and Void Item, filed under
+ * different groups since they're genuinely different controls that
+ * happen to share a key (see that key's own comment in posShortcuts.ts)
+ * — and a plain `Record<string, Face>` keyed by "F7" could only ever
+ * hold one face for both. Label, not action, because the arrows, Enter,
+ * Esc and Hold have no action at all, and still want an icon.
+ * Presentation only, so it lives here rather than in posShortcuts.ts,
+ * which stays the data/behaviour source both this and
  * useKeyboardShortcuts read.
  *
- * Every key that drives a real control borrows that control's own icon and
- * POS_ACTION_TINTS colour, so what a cashier reads here is literally what
- * they'll then look for on screen. The focus-dependent keys share the
+ * Every entry that drives a real control borrows that control's own icon
+ * and POS_ACTION_TINTS colour, so what a cashier reads here is literally
+ * what they'll then look for on screen — which is exactly why Reprint
+ * receipt and Void Item need their own faces despite sharing a key: one
+ * button is teal with a receipt, the other is voidItem's own hue with a
+ * block icon, and conflating them under one shared "F7" face would have
+ * shown the wrong one half the time. The focus-dependent keys share the
  * neutral `keys` slate, since they aren't an action to go find.
  */
 const KEY_FACE: Record<string, { icon: ReactNode; color: string }> = {
-  F1: { icon: <HelpOutlineIcon />, color: POS_ACTION_TINTS.shortcuts },
-  F2: { icon: <SearchIcon />, color: POS_ACTION_TINTS.search },
-  F3: { icon: <PersonAddAlt1OutlinedIcon />, color: POS_ACTION_TINTS.customer },
-  F4: { icon: <Inventory2OutlinedIcon />, color: POS_ACTION_TINTS.bagger },
-  F5: { icon: <SellOutlinedIcon />, color: POS_ACTION_TINTS.discount },
-  F6: { icon: <PauseCircleOutlineIcon />, color: POS_ACTION_TINTS.hold },
-  F7: { icon: <ReceiptLongOutlinedIcon />, color: POS_ACTION_TINTS.reprint },
-  F8: { icon: <AssignmentReturnOutlinedIcon />, color: POS_ACTION_TINTS.return },
-  F9: { icon: <CancelOutlinedIcon />, color: POS_ACTION_TINTS.cancel },
-  F10: { icon: <ShoppingCartOutlinedIcon />, color: POS_ACTION_TINTS.cart },
-  F11: { icon: <CreditCardOutlinedIcon />, color: POS_ACTION_TINTS.pay },
-  '↓': { icon: <KeyboardArrowDownIcon />, color: POS_ACTION_TINTS.keys },
-  '↑ ↓ ← →': { icon: <OpenWithOutlinedIcon />, color: POS_ACTION_TINTS.keys },
-  Enter: { icon: <AddShoppingCartOutlinedIcon />, color: POS_ACTION_TINTS.keys },
-  Esc: { icon: <KeyboardReturnOutlinedIcon />, color: POS_ACTION_TINTS.keys },
-  Hold: { icon: <TouchAppOutlinedIcon />, color: POS_ACTION_TINTS.keys },
-  Delete: { icon: <DeleteOutlineOutlinedIcon />, color: POS_ACTION_TINTS.voidItem },
+  Help: { icon: <HelpOutlineIcon />, color: POS_ACTION_TINTS.shortcuts },
+  'Search products': { icon: <SearchIcon />, color: POS_ACTION_TINTS.search },
+  Customer: { icon: <PersonAddAlt1OutlinedIcon />, color: POS_ACTION_TINTS.customer },
+  Bagger: { icon: <Inventory2OutlinedIcon />, color: POS_ACTION_TINTS.bagger },
+  Discount: { icon: <SellOutlinedIcon />, color: POS_ACTION_TINTS.discount },
+  Hold: { icon: <PauseCircleOutlineIcon />, color: POS_ACTION_TINTS.hold },
+  'Void Item': { icon: <BlockOutlinedIcon />, color: POS_ACTION_TINTS.voidItem },
+  'Reprint receipt': { icon: <ReceiptLongOutlinedIcon />, color: POS_ACTION_TINTS.reprint },
+  Return: { icon: <AssignmentReturnOutlinedIcon />, color: POS_ACTION_TINTS.return },
+  'Cancel Sale': { icon: <CancelOutlinedIcon />, color: POS_ACTION_TINTS.cancel },
+  'Select cart line': { icon: <ShoppingCartOutlinedIcon />, color: POS_ACTION_TINTS.cart },
+  Pay: { icon: <CreditCardOutlinedIcon />, color: POS_ACTION_TINTS.pay },
+  'Browse products': { icon: <KeyboardArrowDownIcon />, color: POS_ACTION_TINTS.keys },
+  'Move between products': { icon: <OpenWithOutlinedIcon />, color: POS_ACTION_TINTS.keys },
+  'Add to cart': { icon: <AddShoppingCartOutlinedIcon />, color: POS_ACTION_TINTS.keys },
+  'Back to search': { icon: <KeyboardReturnOutlinedIcon />, color: POS_ACTION_TINTS.keys },
+  'Add a quantity': { icon: <TouchAppOutlinedIcon />, color: POS_ACTION_TINTS.keys },
+  'Void selected line': { icon: <DeleteOutlineOutlinedIcon />, color: POS_ACTION_TINTS.voidItem },
 };
 
 /**
@@ -140,6 +155,25 @@ export function PosHelpDialog({ open, onClose }: { open: boolean; onClose: () =>
       </DialogTitle>
 
       <DialogContent dividers sx={{ p: 1.5 }}>
+        {/* Full-width, ahead of the two columns rather than tucked under
+            the shorter one at the bottom — scanning is how most items
+            reach the cart at all, so a cashier who opened this dialog to
+            check that behaviour shouldn't have to scroll past sixteen
+            keyboard rows to find it. */}
+        <Alert severity="info" icon={false} sx={{ py: 1, mb: 1.5, bgcolor: `${POS_ACCENT}0f` }}>
+          <Typography variant="caption" sx={{ display: 'block' }}>
+            <Box component="span" sx={{ fontWeight: 700 }}>
+              Scanning:
+            </Box>{' '}
+            a barcode scanner types into the search box and presses Enter — an exact barcode or SKU match is added to the cart
+            straight away. Prefix a quantity to add several at once, e.g.{' '}
+            <Box component="span" sx={{ fontWeight: 700 }}>
+              5*4800000000011
+            </Box>
+            .
+          </Typography>
+        </Alert>
+
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={{ xs: 1.5, md: 2 }} sx={{ alignItems: 'flex-start' }}>
           {GROUP_COLUMNS.map((columnGroups, columnIndex) => (
             <Stack key={columnIndex} spacing={1.5} sx={{ flex: 1, minWidth: 0, width: '100%' }}>
@@ -162,7 +196,7 @@ export function PosHelpDialog({ open, onClose }: { open: boolean; onClose: () =>
 
                   <Stack spacing={1}>
                     {POS_SHORTCUTS.filter((s) => s.group === group).map((s) => {
-                      const face = KEY_FACE[s.key];
+                      const face = KEY_FACE[s.label];
                       return (
                         <Stack
                           key={`${s.key}-${s.label}`}
@@ -240,24 +274,6 @@ export function PosHelpDialog({ open, onClose }: { open: boolean; onClose: () =>
                 </Box>
               ))}
 
-              {/* Sits under the shorter column so it fills space that would
-                  otherwise be blank, rather than adding a full-width band
-                  below both and pushing the dialog taller. */}
-              {columnIndex === 1 && (
-                <Alert severity="info" icon={false} sx={{ py: 1, bgcolor: `${POS_ACCENT}0f` }}>
-                  <Typography variant="caption" sx={{ display: 'block' }}>
-                    <Box component="span" sx={{ fontWeight: 700 }}>
-                      Scanning:
-                    </Box>{' '}
-                    a barcode scanner types into the search box and presses Enter — an exact barcode or SKU match is added to the cart
-                    straight away. Prefix a quantity to add several at once, e.g.{' '}
-                    <Box component="span" sx={{ fontWeight: 700 }}>
-                      5*4800000000011
-                    </Box>
-                    .
-                  </Typography>
-                </Alert>
-              )}
             </Stack>
           ))}
         </Stack>
