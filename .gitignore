@@ -36,3 +36,11 @@ backups/*
 # by restoring into an empty database and asserting users, customers and
 # audit_logs all come back at zero rows.
 !backups/pos_system-baseline.sql
+
+# A FULL data dump, pushed at the user's explicit, repeated request after
+# being told plainly what it contains: bcrypt password hashes (incl. the
+# owner's own login), a customer record, and the full audit trail — all
+# permanently public in this repo's history from this point on. Verified
+# restorable (38/38 tables, row counts matching the live database) before
+# pushing.
+!backups/pos_system-20260917-012952.sql
