@@ -21,5 +21,18 @@ backend/writable/backups/
 backend/writable/tests.db
 
 # Local database dumps — contain password hashes, customer records and
-# the full audit trail. Never belong in the repo.
-backups/
+# the full audit trail. Never belong in the repo, which is PUBLIC.
+#
+# `backups/*` rather than `backups/`: git will not re-include a file
+# inside a directory it has already excluded, so excluding the directory
+# itself would make the one negation below silently do nothing.
+backups/*
+
+# The one exception — a sanitized baseline anyone can restore to stand the
+# system up: structure for all tables, plus reference and catalog data
+# (companies, stores, registers, categories, products, units, roles,
+# permissions, payment methods). Every table holding a person, a
+# credential, money or an audit record is structure-only in it. Verified
+# by restoring into an empty database and asserting users, customers and
+# audit_logs all come back at zero rows.
+!backups/pos_system-baseline.sql
