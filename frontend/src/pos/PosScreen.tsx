@@ -993,6 +993,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        bgcolor: 'background.default',
+        backgroundImage:
+          'radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--mui-palette-primary-main) 7%, transparent), transparent 34%)',
       }}
     >
       <Box
@@ -1006,7 +1009,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
           // they butt straight together — the receipt panel's own left
           // border is the divider, so a gutter there just reads as a
           // stripe of dead background between two panels.
-          gap: { xs: 1.5, md: 0 },
+          gap: { xs: 1.25, md: 2 },
+          p: { xs: 1, md: 2 },
           // Deliberately no maxWidth here — the receipt column already
           // caps its own width via clamp() below, so letting this row run
           // edge-to-edge just gives the product grid more columns on a
@@ -1038,11 +1042,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
             sx={{
               flex: 1,
               minHeight: 0,
-              pl: { xs: 1.5, md: 3 },
+              pl: { xs: 0.5, md: 1 },
               // Now that the row has no gap on md+, this is what keeps the
               // product grid off the receipt panel's edge.
-              pr: { xs: 1.5, md: 2.5 },
-              py: { xs: 1, md: 1.5 },
+              pr: { xs: 0.5, md: 0 },
+              py: { xs: 0.5, md: 0 },
               // No overflow here — ProductBrowser is hard-bounded to exactly
               // this box's height; its own internal results-grid scroll is
               // the only thing that ever scrolls, so the search bar, category
@@ -1073,8 +1077,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
 
         <Box
           sx={{
-            flex: { xs: '2 1 0', md: '0 1 clamp(340px, 32vw, 480px)' },
-            minWidth: { xs: 0, md: 320 },
+            flex: { xs: '2 1 0', md: '0 1 clamp(380px, 32vw, 500px)' },
+            minWidth: { xs: 0, md: 360 },
             minHeight: 0,
             // No overflow here — ReceiptPanel is hard-bounded to exactly
             // this box's height, and its own internal Cart scroll is the

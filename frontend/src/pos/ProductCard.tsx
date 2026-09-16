@@ -65,8 +65,8 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
         // shadow. Twenty of these sit side by side, and at that count even
         // a hairline shadow each adds up to a grid that looks dusty; the
         // outlined variant's own 1px border is the entire edge now.
-        borderRadius: 3,
-        boxShadow: 'none',
+        borderRadius: 2,
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
         height: '100%',
         overflow: 'hidden',
         transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
@@ -89,7 +89,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               // untouched — a mismatched two-tone hover.
               '&:hover': {
                 borderColor: POS_ACCENT,
-                boxShadow: `inset 0 0 0 1px ${POS_ACCENT}`,
+                boxShadow: `inset 0 0 0 1px ${POS_ACCENT}, 0 8px 20px rgba(37, 99, 235, 0.12)`,
               },
             }),
       }}

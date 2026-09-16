@@ -67,7 +67,18 @@ export function ProductBrowser({
         {/* A rule instead of an "ACTIONS" caption — self-describing
             buttons don't need a header, and dropping it buys back a row
             of vertical space for the product grid. */}
-        <Box sx={{ flexShrink: 0, mt: 1.25, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+        <Box
+          sx={{
+            flexShrink: 0,
+            mt: 1.25,
+            p: 1,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2.5,
+            bgcolor: 'background.paper',
+            boxShadow: '0 4px 16px rgba(15, 23, 42, 0.05)',
+          }}
+        >
           <CartActionsRow
             customer={customer}
             onOpenCustomer={() => setCustomerDialogOpen(true)}

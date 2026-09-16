@@ -13,6 +13,7 @@ import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import type { CartTotals, CartLine } from './posTypes';
 import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
 import { POS_ACCENT, POS_ACTION_TINTS, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
@@ -177,6 +178,7 @@ export function ReceiptPanel({
   onHold,
 }: Props) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const activeItemCount = lines.filter((line) => !line.voided).length;
   // A successful checkout (or a Hold) resets the sale and bumps saleCounter
   // — close the dialog along with it rather than leaving it open over an
   // empty cart. A failed checkout doesn't bump saleCounter, so the dialog
@@ -239,7 +241,7 @@ export function ReceiptPanel({
       // overrides needed in Cart/TotalsPanel/PaymentPanel.
       className="light"
       sx={{
-        borderRadius: 0,
+        borderRadius: 2.5,
         overflow: 'hidden',
         minWidth: 0,
         // No shadow at all — the outlined variant's own 1px left border is
@@ -250,7 +252,7 @@ export function ReceiptPanel({
         // edge left on screen read as a smudge rather than depth. The
         // panel is already unmistakably a separate surface: it's white
         // against the page's grey, full-height, and bordered.
-        boxShadow: 'none',
+        boxShadow: '0 12px 32px rgba(15, 23, 42, 0.09)',
         // Hard-bounded to the column's exact height, always — the header
         // and footer (Totals/Payment/Pay) must never be pushed out of
         // view. The cart item list below is the only flex
@@ -268,16 +270,41 @@ export function ReceiptPanel({
           part of this panel's own masthead just as well, and doing it this
           way gives the product grid the full column height instead of
           losing a bar's worth of it. */}
-      <Box sx={{ position: 'relative', px: 2.5, pt: 1.75, pb: 1.25, flexShrink: 0 }}>
+      <Box sx={{ position: 'relative', px: 2.5, pt: 2, pb: 1.5, flexShrink: 0 }}>
         {actions && (
           <Box sx={{ position: 'absolute', top: 10, right: 12 }}>{actions}</Box>
         )}
-        <Stack sx={{ alignItems: 'center', gap: 1 }}>
+        <Stack sx={{ alignItems: 'flex-start', gap: 0.75, pr: 5 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1.5,
+                display: 'grid',
+                placeItems: 'center',
+                bgcolor: `${POS_ACCENT}12`,
+                color: POS_ACCENT,
+              }}
+            >
+              <ShoppingBagOutlinedIcon fontSize="small" />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.2, letterSpacing: '-0.02em' }}>
+                Current order
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                {activeItemCount === 0
+                  ? 'Ready for the first item'
+                  : `${activeItemCount} item${activeItemCount === 1 ? '' : 's'} in this sale`}
+              </Typography>
+            </Box>
+          </Stack>
           {/* The store's own name — a letterhead, like a printed receipt's
               masthead, so it takes the top of this panel's type scale
               rather than matching the caption line under it. */}
           {storeName && (
-            <Typography sx={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em', color: 'text.primary' }} noWrap>
+            <Typography sx={{ mt: 0.5, fontWeight: 700, fontSize: 13, letterSpacing: '-0.01em', color: 'text.primary' }} noWrap>
               {storeName}
             </Typography>
           )}
@@ -286,7 +313,7 @@ export function ReceiptPanel({
               session line sits after the payment section. Moved back up
               here on request instead, right under the heading it used to
               sit under originally. */}
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
             <ConnectionStatus />
             <Typography variant="caption" sx={{ color: 'text.disabled' }}>
               ·
@@ -422,7 +449,7 @@ export function ReceiptPanel({
           // summary zone, but both left a visible seam against the rest
           // of this all-white card. The top border below is enough on
           // its own to mark where the totals band starts.
-          bgcolor: '#fff',
+          bgcolor: '#f8fafc',
           borderTop: '1px solid',
           borderColor: 'divider',
         }}
@@ -431,7 +458,7 @@ export function ReceiptPanel({
             through (see Cart.tsx / CartLine.voided), but `totals` already
             excludes it from Subtotal, so the item count next to it has to
             match or the two would visibly disagree. */}
-        <TotalsPanel totals={totals} itemCount={lines.filter((l) => !l.voided).length} />
+        <TotalsPanel totals={totals} itemCount={activeItemCount} />
 
         {/* Hold and Pay side by side, Hold on the left — back here after
             a stretch spent in CartActionsRow among the other sale-
@@ -494,7 +521,7 @@ export function ReceiptPanel({
               // started, but it lives in format.ts so the other primary
               // buttons across the POS share it rather than each carrying
               // a near-miss copy.
-              ...posRaisedButtonSx(POS_ACCENT),
+              ...posRaisedButtonSx(POS_ACTION_TINTS.pay),
             }}
           >
             Pay

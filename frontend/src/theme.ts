@@ -5,24 +5,24 @@ export const theme = createTheme({
   colorSchemes: {
     light: {
       palette: {
-        primary: { main: '#4f46e5', light: '#818cf8', dark: '#4338ca', contrastText: '#ffffff' },
+        primary: { main: '#2563eb', light: '#60a5fa', dark: '#1d4ed8', contrastText: '#ffffff' },
         error: { main: '#dc2626' },
         success: { main: '#10b981' },
         warning: { main: '#b45309' },
-        background: { default: '#f6f7fb', paper: '#ffffff' },
-        text: { primary: '#171923', secondary: '#6b7280' },
-        divider: '#e4e7ef',
+        background: { default: '#f3f6fb', paper: '#ffffff' },
+        text: { primary: '#142033', secondary: '#64748b' },
+        divider: '#dfe6ef',
       },
     },
     dark: {
       palette: {
-        primary: { main: '#818cf8', light: '#9ca3f9', dark: '#4f46e5', contrastText: '#0b0c14' },
+        primary: { main: '#60a5fa', light: '#93c5fd', dark: '#2563eb', contrastText: '#071426' },
         error: { main: '#f87171' },
         success: { main: '#34d399' },
         warning: { main: '#fbbf24' },
-        background: { default: '#101116', paper: '#1a1c24' },
-        text: { primary: '#edeef2', secondary: '#9aa1b1' },
-        divider: '#2a2d38',
+        background: { default: '#0b1220', paper: '#121c2d' },
+        text: { primary: '#f1f5f9', secondary: '#94a3b8' },
+        divider: '#25324a',
       },
     },
   },
@@ -31,7 +31,7 @@ export const theme = createTheme({
   // this one value — trimming it here scales all of them down together
   // instead of hunting down each component's own hardcoded radius.
   shape: {
-    borderRadius: 4,
+    borderRadius: 10,
   },
   typography: {
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -67,7 +67,7 @@ export const theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 4,
+          borderRadius: 10,
         },
       },
     },
@@ -81,7 +81,7 @@ export const theme = createTheme({
           // underneath is just enough to lift a card off the page background
           // without reintroducing the heavier drop-shadow look this was
           // deliberately moved away from.
-          boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
         },
       },
     },
@@ -114,7 +114,7 @@ export const theme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 10,
         },
         notchedOutline: {
           // No label ever sits on the border line anymore, so the notch
@@ -194,7 +194,7 @@ export const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          borderRadius: 10,
+          borderRadius: 16,
           boxShadow: '0 24px 48px -12px rgba(16, 24, 40, 0.25), 0 4px 16px rgba(16, 24, 40, 0.1)',
         },
       },

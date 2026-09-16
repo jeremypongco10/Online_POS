@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Popover from '@mui/material/Popover';
 import IconButton from '@mui/material/IconButton';
@@ -28,7 +28,7 @@ import type { AuthUser, CashSession, Register, Store } from '../api/types';
 import { POS_ACCENT } from './format';
 import { formatDateTime, formatTime } from '../regional';
 import type { HeldSale } from './holdSale';
-import { readPosZoom, type PosZoomControl } from './usePosZoom';
+import type { PosZoomControl } from './usePosZoom';
 
 interface Props {
   user: AuthUser;
@@ -82,27 +82,26 @@ export function AccountMenu({
   const close = () => setAnchor(null);
 
   /**
-   * Where this panel sits, in LAYOUT pixels — i.e. the space an inline
-   * top/right is written in, which is not the space a measured rect comes
-   * back in whenever usePosZoom has a zoom applied. See readPosZoom.
+   * Where this panel sits, in the same pixel space `getBoundingClientRect`
+   * and `window.innerWidth`/`innerHeight` already report in — no zoom
+   * conversion. An earlier version of this divided by the page's CSS
+   * `zoom` (see usePosZoom) to convert a "visual pixel" measurement into
+   * "layout pixels" before writing it into `top`/`right`, on the theory
+   * that those are two different spaces here the way they are for
+   * Popover's own anchor math. They aren't, for a plain sibling element
+   * positioned within the same zoomed root: at 89% zoom that conversion
+   * pushed the panel roughly 200px further left than the avatar it's
+   * meant to sit under. Every number below is read from and written into
+   * that one shared space, unconverted.
    *
-   * Popover does this sum itself normally, and gets it wrong under zoom:
-   * it takes the anchor's position from getBoundingClientRect (visual
-   * pixels) and writes the result straight into `left` (layout pixels),
-   * which the browser then scales by the zoom a second time. The error is
-   * proportional to how far right the anchor sits, and this anchor is the
-   * avatar in the very top-right corner of the screen — measured at 55px
-   * off-screen at 105% and 340px at 125%, i.e. most of the panel cut off.
-   * Popover's own keep-it-on-screen clamp can't save it either, since it
-   * compares the same mismatched units (and its right-overflow branch
-   * can't be switched off via marginThreshold).
-   *
-   * So: `anchorReference="none"`, which makes Popover write no position
-   * at all, and the panel is placed below with its own fixed offsets.
-   * Both are small differences measured off the viewport edge rather than
-   * absolute coordinates, so converting them costs a pixel of rounding
-   * instead of a few hundred. Right-aligned to the avatar, which is what
-   * the anchorOrigin/transformOrigin pair used to express.
+   * Popover does its own version of this sum, and gets it wrong under
+   * zoom in a different way: it takes the anchor's position from
+   * getBoundingClientRect and hands it to `marginThreshold`'s
+   * keep-it-on-screen clamp, whose own right-overflow branch can't be
+   * switched off. `anchorReference="none"` stops Popover from writing any
+   * position at all, leaving the panel to the two effects below —
+   * one placing it from the avatar, the other correcting it against
+   * what actually rendered.
    */
   const [panel, setPanel] = useState({ top: 0, right: 0, maxHeight: 0 });
 
@@ -114,26 +113,56 @@ export function AccountMenu({
     if (!anchor) return;
 
     const measure = () => {
-      const pageZoom = readPosZoom();
       const rect = anchor.getBoundingClientRect();
       // 6px below the avatar rather than flush against it, matching the
       // gap Popover's own anchorOrigin used to leave.
-      const top = (rect.bottom + 6) / pageZoom;
+      const top = rect.bottom + 6;
       setPanel({
         top,
-        right: (window.innerWidth - rect.right) / pageZoom,
+        right: window.innerWidth - rect.right,
         // Held sales make this panel arbitrarily tall, and nothing else
         // stops it now that Popover isn't clamping — so it scrolls at
         // whatever room is left below the avatar instead of running off
         // the bottom of a short screen.
-        maxHeight: window.innerHeight / pageZoom - top - 8,
+        maxHeight: window.innerHeight - top - 8,
       });
     };
 
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
+    // zoom.percent: the Display size control that changes it lives inside
+    // this panel, so a click there has to re-measure the ground it just
+    // moved out from under itself, not just wait for a resize.
   }, [anchor, zoom.percent]);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * A second pass, against the panel's own actually-painted position
+   * rather than a formula. `measure()` above places the panel from the
+   * avatar alone, which is right almost always — this only earns its
+   * keep on the rare layout where that guess still lands the panel
+   * partly off the right edge (a very narrow window, say). Checks the
+   * real, rendered result and nudges it back on screen by exactly the
+   * overflow found, in the same unconverted pixel space as `measure()`.
+   *
+   * Runs after every reposition (open, resize, zoom change) and
+   * converges in one correction — the 1px epsilon exists only to stop a
+   * fresh measurement from re-triggering itself over floating-point noise
+   * once it has.
+   */
+  useEffect(() => {
+    if (!anchor) return;
+    const el = panelRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const overflow = rect.right - (window.innerWidth - 8);
+    if (overflow > 1) {
+      setPanel((p) => ({ ...p, right: p.right + overflow }));
+    }
+  }, [anchor, panel.top, panel.right]);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -185,7 +214,7 @@ export function AccountMenu({
           },
         }}
       >
-        <Box sx={{ width: 300, p: 2 }}>
+        <Box ref={panelRef} sx={{ width: 300, p: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
             {user.name}
           </Typography>

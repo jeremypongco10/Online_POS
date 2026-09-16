@@ -716,9 +716,11 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid',
+          border: '1px solid',
           borderColor: 'divider',
-          pr: railCollapsed ? 0.75 : { xs: 1.5, md: 2 },
+          borderRadius: 2.5,
+          bgcolor: 'background.paper',
+          p: railCollapsed ? 0.5 : { xs: 1.25, md: 1.5 },
           transition: 'width 0.15s ease',
         }}
       >
@@ -790,6 +792,35 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'flex-end', justifyContent: 'space-between', gap: 2, mb: 1.25, flexShrink: 0 }}
+        >
+          <Box>
+            <Typography sx={{ fontSize: 20, lineHeight: 1.2, fontWeight: 800, letterSpacing: '-0.025em' }}>
+              Products
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Select an item or scan its barcode
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              px: 1.25,
+              py: 0.5,
+              borderRadius: 999,
+              bgcolor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider',
+              color: 'text.secondary',
+              fontSize: 12,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {loading && results.length === 0 ? 'Loading products' : `${results.length} shown`}
+          </Box>
+        </Stack>
         {/* Search field and the grid/list toggle share one row — this used
             to be two stacked rows (the field on its own above, category
             pills sharing this one with the toggle) back when the field
@@ -843,7 +874,7 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
           onPointerDown={() => {
             keyboardBrowsingRef.current = false;
           }}
-          sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, ...THIN_SCROLLBAR_SX }}
+          sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, pb: 0.5, ...THIN_SCROLLBAR_SX }}
         >
           {results.length === 0 && !loading ? (
             // Without this, a search that matches nothing just leaves a
