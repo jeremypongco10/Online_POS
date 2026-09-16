@@ -415,7 +415,18 @@ class SalesController extends BaseCrudController
 
             $requiredQtyByProduct[$item['product_id']] = ($requiredQtyByProduct[$item['product_id']] ?? 0) + $quantity;
 
-            $unitPrice = (float) $item['unit_price'];
+            // A catalog line's price may legitimately be zero (a giveaway,
+            // a bundled component) where a custom item's may not, so this is
+            // `< 0` rather than the `<= 0` the custom branch above uses.
+            // A negative one was already refused before this — but only as a
+            // side effect of isValidDiscount(), whose "Discount must be
+            // between 0 and the line subtotal" told the cashier nothing
+            // about the actual problem. Say it here, where it is true.
+            $unitPrice = (float) ($item['unit_price'] ?? 0);
+            if ($unitPrice < 0) {
+                return $this->apiFail("unit_price cannot be negative for product: {$product->name}", 422);
+            }
+
             $taxRate = $taxEnabled ? $taxService->resolveRate($item['tax_rate_id'] ?? null) : null;
             $discountType = $item['discount_type'] ?? null;
             $result = $this->resolveLineDiscount(

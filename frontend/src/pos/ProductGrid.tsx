@@ -43,7 +43,14 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
         // "make the product list bigger" / "bigger touch targets"
         // requests: fewer, larger tiles, easier to read and to hit on a
         // touch till at a glance across the store.
-        gridTemplateColumns: 'repeat(auto-fill, minmax(164px, 1fr))',
+        // 164 is the till figure the notes above arrived at and stays the
+        // figure everywhere there's room for it. On a phone it produced
+        // exactly ONE column — the usable grid there is about 310px, and
+        // two 164s plus the gap need 340 — so a single enormous tile
+        // filled the screen and browsing meant scrolling one product at a
+        // time. 140 clears two columns at 390px without shrinking the
+        // tile anywhere it wasn't already the only one.
+        gridTemplateColumns: { xs: 'repeat(auto-fill, minmax(140px, 1fr))', sm: 'repeat(auto-fill, minmax(164px, 1fr))' },
         // Deliberately a FIXED row height, not `minmax(…, 1fr)`: fr rows
         // share out whatever vertical space is left over, so the very
         // same card came out tall under a one-row category filter and
@@ -55,7 +62,10 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
         // with ProductCard's own larger type/padding — a wider card at
         // the old row height would have come out squat rather than simply
         // bigger.
-        gridAutoRows: 214,
+        // Shorter on a phone in step with the narrower column above — at
+        // 214 a two-column phone grid showed barely one row in the space
+        // left over once the action row and cart had taken theirs.
+        gridAutoRows: { xs: 186, sm: 214 },
         gap: 1.5,
         // Keeps a short list packed at the top rather than letting the
         // rows drift apart to fill the panel.

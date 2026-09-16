@@ -126,10 +126,17 @@ function ActionButton({
         // screen) — unless `compact` opts this one tile out entirely, so
         // it neither grows into the leftover space nor shrinks below its
         // own fixed size as the others do.
-        flex: compact ? '0 0 auto' : '1 1 120px',
+        // A narrower basis on a phone so these wrap to two rows instead of
+        // three. At 120px only three fit across a 390px screen, and six
+        // actions then took roughly 260px of height — more than the
+        // product grid above them had left. The till keeps 120.
+        flex: compact ? '0 0 auto' : { xs: '1 1 88px', sm: '1 1 120px' },
         width: compact ? 80 : undefined,
         minWidth: 0,
-        minHeight: compact ? 52 : 58,
+        // 58 is the touchscreen-till minimum the note above sets out; 48
+        // on a phone is still comfortably past the ~44px touch guideline
+        // and buys back another ~30px of grid per row.
+        minHeight: compact ? 52 : { xs: 48, sm: 58 },
         px: compact ? 0.75 : 1.25,
         py: compact ? 0.75 : 1,
         borderRadius: 2.5,

@@ -27,9 +27,26 @@ class TaxRateModel extends Model
         'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
         'name' => ['label' => 'Name', 'rules' => 'required|max_length[100]'],
         'tax_system' => ['label' => 'Tax system', 'rules' => 'permit_empty|in_list[vat,gst]'],
-        'rate' => ['label' => 'Rate', 'rules' => 'required|decimal'],
+        // A rate is a PERCENTAGE, so it has to sit in 0–100. `decimal`
+        // alone let through both -5 and 150 — neither is a tax rate, and
+        // either one silently corrupts the VAT on every sale computed
+        // against it (and, through the sale_items snapshot, every receipt
+        // and BIR reading built from those sales afterwards). Bounded here
+        // rather than in the controller so the POS, the importer and the
+        // seeders are all held to it, not just the settings form.
+        'rate' => ['label' => 'Rate', 'rules' => 'required|decimal|greater_than_equal_to[0]|less_than_equal_to[100]'],
         'is_default' => ['label' => 'Default', 'rules' => 'permit_empty|in_list[0,1]'],
         'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
+    ];
+
+    /** CI4's stock wording for the two bounds above ("must be greater than
+     *  or equal to 0") reads as a generic number complaint; this says what
+     *  a rate actually is. */
+    protected $validationMessages = [
+        'rate' => [
+            'greater_than_equal_to' => 'Rate must be a percentage between 0 and 100.',
+            'less_than_equal_to'    => 'Rate must be a percentage between 0 and 100.',
+        ],
     ];
 
     /**

@@ -32,6 +32,7 @@ import Tab from '@mui/material/Tab';
 import { SectionTabs } from './SectionTabs';
 import { InvoiceSeriesTab } from './InvoiceSeriesTab';
 import { SetupGuideTab } from './SetupGuideTab';
+import type { SetupSection } from './SetupGuideTab';
 import { InlineSelectFilter } from './InlineSelectFilter';
 import { SearchableSelect } from './SearchableSelect';
 import Grid from '@mui/material/Grid';
@@ -132,7 +133,10 @@ const TAB_PERMISSIONS: Partial<Record<Tab, string[]>> = {
   invoicing: ['invoice-series.view'],
 };
 
-export function SettingsScreen() {
+/** `onNavigateSection` is how the Setup Guide reaches its two steps that
+ *  finish outside Settings (pricing and opening stock) — optional, so this
+ *  screen still renders standalone. */
+export function SettingsScreen({ onNavigateSection }: { onNavigateSection?: (target: SetupSection) => void } = {}) {
   const { hasPermission } = useAuth();
   // A role can hold e.g. registers.view without stores.view — the tab
   // list (and the default landing tab) has to reflect whichever of the
@@ -181,7 +185,7 @@ export function SettingsScreen() {
         ))}
       </SectionTabs>
 
-      {tab === 'guide' && <SetupGuideTab onNavigate={(t) => setTab(t as Tab)} />}
+      {tab === 'guide' && <SetupGuideTab onNavigate={(t) => setTab(t as Tab)} onNavigateSection={onNavigateSection} />}
       {tab === 'stores' && hasPermission('stores.view') && <StoresTab />}
       {tab === 'registers' && hasPermission('registers.view') && <RegistersTab />}
       {tab === 'payment-methods' && hasPermission('payment-methods.view') && <PaymentMethodsTab />}

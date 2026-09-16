@@ -5,6 +5,7 @@ namespace App\Controllers\Api;
 use App\Controllers\BaseApiController;
 use App\Models\StoreModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
+use CodeIgniter\Database\Exceptions\DataException;
 use CodeIgniter\Model;
 use Config\Services;
 
@@ -138,10 +139,25 @@ abstract class BaseCrudController extends BaseApiController
             $payload[$this->companyColumn] = Services::authContext()->companyId;
         }
 
+        // CI4 throws DataException("There is no data to insert") straight out
+        // of insert() when nothing writable is left — BEFORE it ever runs the
+        // model's own rules — so a body that is empty, or made entirely of
+        // fields that aren't in $allowedFields, used to surface as an
+        // uncaught 500 (complete with a stack trace and server file paths)
+        // rather than the 422 every other bad request gets. Most resources
+        // never hit it only because create() injects company_id above, which
+        // leaves the array non-empty by accident; a tenant-less one (Units)
+        // has no such accident. Answer it the same way validation would.
+        if ($payload === []) {
+            return $this->emptyPayloadFail('create');
+        }
+
         try {
             $id = $this->model->insert($payload, true);
         } catch (DatabaseException $e) {
             return $this->duplicateKeyFail($e);
+        } catch (DataException $e) {
+            return $this->emptyPayloadFail('create');
         }
 
         if ($id === false) {
@@ -182,6 +198,11 @@ abstract class BaseCrudController extends BaseApiController
             $ok = $this->model->update($id, $payload);
         } catch (DatabaseException $e) {
             return $this->duplicateKeyFail($e);
+        } catch (DataException $e) {
+            // Same DataException path as create() — here it fires when the
+            // body carries nothing the model actually allows, since the `id`
+            // stamped above is itself stripped by $allowedFields.
+            return $this->emptyPayloadFail('update');
         }
 
         if (! $ok) {
@@ -276,6 +297,50 @@ abstract class BaseCrudController extends BaseApiController
      * genuinely unexpected DatabaseExceptions are re-thrown as-is so
      * they aren't mistaken for validation failures.
      */
+    /**
+     * The 422 that stands in for the validation pass CI4 skipped.
+     *
+     * Rather than a bare "no fields were provided", this reads the model's
+     * own `required` rules back and returns one error per required field —
+     * so an empty create answers exactly as a create missing those same
+     * fields one at a time would, and the frontend's existing field-level
+     * error rendering lights up the right inputs with no special casing.
+     */
+    protected function emptyPayloadFail(string $operation)
+    {
+        // Only a create is genuinely "missing required fields". The row an
+        // update targets already has all of them filled in — telling its
+        // caller that Name is required would be plainly wrong — so an empty
+        // update says what actually happened instead.
+        if ($operation !== 'create') {
+            return $this->apiFail('No changes were provided to update this record.', 422);
+        }
+
+        $errors = [];
+
+        foreach ($this->model->getValidationRules() as $field => $rule) {
+            if ($field === 'id') {
+                continue;
+            }
+
+            $raw   = is_array($rule) ? ($rule['rules'] ?? '') : $rule;
+            $rules = is_array($raw) ? $raw : explode('|', (string) $raw);
+
+            if (! in_array('required', $rules, true)) {
+                continue;
+            }
+
+            $label         = is_array($rule) ? ($rule['label'] ?? $field) : $field;
+            $errors[$field] = 'The ' . $label . ' field is required.';
+        }
+
+        if ($errors !== []) {
+            return $this->validationFail($errors);
+        }
+
+        return $this->apiFail('No fields were provided to create this record.', 422);
+    }
+
     protected function duplicateKeyFail(DatabaseException $e)
     {
         if (! str_contains($e->getMessage(), 'Duplicate entry')) {

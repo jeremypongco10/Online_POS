@@ -12,6 +12,10 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import Skeleton from '@mui/material/Skeleton';
+import Box from '@mui/material/Box';
+import Divider from '@mui/material/Divider';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import type { ApiEnvelope } from '../api/types';
 
@@ -67,6 +71,22 @@ export function DataTable<T>({
   const colSpan = columns.length + (rowActions ? 1 : 0);
   const activeSortKey = sort?.replace(/^-/, '');
   const activeSortDir: 'asc' | 'desc' = sort?.startsWith('-') ? 'desc' : 'asc';
+  const theme = useTheme();
+  /**
+   * Below `sm` every list turns into stacked cards instead of a table.
+   *
+   * A nine-column table on a 390px phone showed about three and a half
+   * columns and hid the rest — including the Actions column, so the only
+   * way to reach Edit was to scroll sideways and hope. Worse, the empty
+   * state was a single cell spanning all nine columns and centred across
+   * the table's full ~1300px width, which put "No records found" off the
+   * right of the screen and left the phone showing a blank white void.
+   *
+   * Cards also let the row keep its real content: each column's own
+   * render() is reused verbatim, so chips, tinted tiles and formatted
+   * money look the same in both layouts rather than degrading to text.
+   */
+  const stacked = useMediaQuery(theme.breakpoints.down('sm'));
 
   function toggleSort(key: string) {
     if (!onSortChange) return;
@@ -101,6 +121,70 @@ export function DataTable<T>({
           {error}
         </Alert>
       )}
+
+      {stacked ? (
+        <Stack spacing={1.5} sx={{ py: 1 }}>
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <Paper key={i} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Skeleton variant="text" sx={{ fontSize: 18, width: '60%' }} />
+                <Skeleton variant="text" sx={{ fontSize: 14 }} />
+                <Skeleton variant="text" sx={{ fontSize: 14, width: '40%' }} />
+              </Paper>
+            ))
+          ) : rows.length === 0 ? (
+            <Stack sx={{ alignItems: 'center', gap: 1, py: 6 }}>
+              <InboxOutlinedIcon sx={{ fontSize: 32, color: 'text.disabled' }} />
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', px: 2 }}>
+                {emptyLabel}
+              </Typography>
+            </Stack>
+          ) : (
+            rows.map((row) => {
+              // The first column is the row's identity (a name, a code) —
+              // it becomes the card's heading, and the rest become
+              // label/value pairs underneath.
+              const [primary, ...rest] = columns;
+              return (
+                <Paper key={rowKey(row)} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Box sx={{ fontWeight: 700, fontSize: 15, minWidth: 0 }}>
+                    {primary.render ? primary.render(row) : String((row as Record<string, unknown>)[primary.key] ?? '')}
+                  </Box>
+
+                  {rest.length > 0 && (
+                    <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+                      {rest.map((col) => (
+                        <Stack
+                          key={col.key}
+                          direction="row"
+                          spacing={2}
+                          sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1 }}
+                        >
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                            {col.label}
+                          </Typography>
+                          <Box sx={{ fontSize: 14, textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere' }}>
+                            {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? '')}
+                          </Box>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+
+                  {rowActions && (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        {rowActions(row)}
+                      </Stack>
+                    </>
+                  )}
+                </Paper>
+              );
+            })
+          )}
+        </Stack>
+      ) : (
       <TableContainer>
         {/* Default (comfortable) density, not `size="small"` — the dense
             variant was what made every list in the app read as cramped
@@ -228,6 +312,7 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </TableContainer>
+      )}
 
       {meta && (
         <TablePagination
@@ -238,8 +323,14 @@ export function DataTable<T>({
           rowsPerPage={perPage}
           onRowsPerPageChange={(e) => onPerPageChange(Number(e.target.value))}
           rowsPerPageOptions={[10, 20, 50, 100]}
-          showFirstButton
-          showLastButton
+          // First/last only where there's room for six controls in a row.
+          // On a phone they pushed next/previous off the right edge, so
+          // the page you could actually reach was whichever one fitted.
+          showFirstButton={!stacked}
+          showLastButton={!stacked}
+          // "Rows per page" is the first thing to go when space is tight:
+          // it's the least-used control here and the longest label.
+          labelRowsPerPage={stacked ? '' : 'Rows per page:'}
           sx={{
             borderTop: '1px solid',
             borderColor: 'divider',
@@ -247,7 +338,16 @@ export function DataTable<T>({
             // the one shaded strip in this table, and a second one down here
             // boxed the rows in on both sides.
             minHeight: 56,
-            '& .MuiToolbar-root': { minHeight: 56, pl: 2.5, pr: 1.5 },
+            // Wraps to a second line on a phone instead of overflowing —
+            // the toolbar is a flex row that does not wrap by default.
+            '& .MuiToolbar-root': {
+              minHeight: 56,
+              pl: { xs: 1, sm: 2.5 },
+              pr: { xs: 0.5, sm: 1.5 },
+              flexWrap: { xs: 'wrap', sm: 'nowrap' },
+              rowGap: 0.5,
+            },
+            '& .MuiTablePagination-spacer': { flex: { xs: '0 0 0px', sm: '1 1 100%' } },
             '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: 13.5 },
           }}
         />

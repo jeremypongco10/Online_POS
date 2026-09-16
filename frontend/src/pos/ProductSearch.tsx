@@ -18,6 +18,8 @@ import type { Category, ProductWithStorePrice } from '../api/types';
 import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
 import { useSnackbar } from '../Snackbar';
 import { SearchField } from '../SearchField';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import { KeyHint } from './KeyHint';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
@@ -79,12 +81,22 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
   // behind it. Independent of `query`: typing here filters *categories*,
   // not products, and doesn't touch the grid until a category is picked.
   const [categoryFilter, setCategoryFilter] = useState('');
-  // Collapsed hands the rail's width back to the grid — a cashier who
-  // knows what they're browsing for doesn't need the picker on screen at
-  // all. Doesn't reset categoryId: collapsing is purely a visibility
-  // toggle, and a filter picked before collapsing keeps filtering the
-  // grid underneath, same as closing any other filter panel would.
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  /**
+   * Collapsed hands the rail's width back to the grid — a cashier who
+   * knows what they're browsing for doesn't need the picker on screen at
+   * all. Doesn't reset categoryId: collapsing is purely a visibility
+   * toggle, and a filter picked before collapsing keeps filtering the
+   * grid underneath, same as closing any other filter panel would.
+   *
+   * Starts collapsed on a phone, where expanded it took 140px of a 390px
+   * screen — over a third of the width — leaving the grid a single narrow
+   * column and squeezing the search box down to roughly its own icon.
+   * Collapsed still keeps the filter one tap away and still shows its
+   * active-filter dot, so nothing is lost but the width. Initial value
+   * only: open it on a phone and it stays open.
+   */
+  const phone = useMediaQuery(useTheme().breakpoints.down('sm'));
+  const [railCollapsed, setRailCollapsed] = useState(phone);
   const [results, setResults] = useState<ProductWithStorePrice[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -794,7 +806,13 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
             // Paper, like the search field beside it — on the page's own
             // grey background an unfilled group read as a hole rather
             // than a control.
-            sx={{ flexShrink: 0, bgcolor: 'background.paper' }}
+            // Hidden on a phone. Grid-versus-list is a preference; the
+            // search field is the control a cashier actually works
+            // through, and sharing the row with this left it 84px wide
+            // showing "Search by p…" — unusable for reading back a typed
+            // SKU or a scan. The grid is the sensible phone default and
+            // the toggle returns as soon as there's room for both.
+            sx={{ flexShrink: 0, bgcolor: 'background.paper', display: { xs: 'none', sm: 'inline-flex' } }}
           >
             <ToggleButton value="grid" sx={toggleButtonSx} aria-label="Grid view">
               <Tooltip title="Grid view">

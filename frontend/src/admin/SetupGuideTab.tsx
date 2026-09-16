@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { Company, InvoiceSeries, PaymentMethodOption, Register, Store, TaxRate, Unit } from '../api/types';
+import type { Company, Inventory, InvoiceSeries, PaymentMethodOption, ProductWithStorePrice, Register, Store, TaxRate, Unit } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
@@ -18,6 +18,20 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 
 /** The Settings tabs this guide can send someone to — kept as a loose string so SettingsScreen owns the real Tab union. */
 export type SetupTarget = 'stores' | 'registers' | 'payment-methods' | 'invoicing' | 'tax' | 'discounts' | 'units' | 'security';
+
+/**
+ * The last two steps finish outside Settings entirely — a configured
+ * system still can't sell anything until its products carry a price at a
+ * branch and some stock to sell. Kept as their own union rather than
+ * folded into SetupTarget so the two navigation paths stay distinct:
+ * these change the whole admin section, SetupTarget only swaps a tab.
+ */
+export type SetupSection = { section: 'products' | 'inventory'; tab: string };
+
+const SECTION_TARGETS: Record<'prices' | 'stock', SetupSection> = {
+  prices: { section: 'products', tab: 'prices' },
+  stock: { section: 'inventory', tab: 'stock' },
+};
 
 /**
  * Any-of permissions per target, mirroring SettingsScreen's own
@@ -41,7 +55,11 @@ interface Step {
   title: string;
   /** Why this step exists, in terms of what breaks without it. */
   detail: string;
-  target: SetupTarget;
+  /** Exactly one of these — a Settings tab, or another admin section entirely. */
+  target?: SetupTarget;
+  sectionTarget?: SetupSection;
+  /** Permissions (any-of) the Go button needs; defaults to the target's own. */
+  permissions?: string[];
   /** A sale cannot be rung up at all until every required step is done. */
   required: boolean;
   /**
@@ -56,6 +74,12 @@ interface Step {
   warning?: string;
 }
 
+/** A step's own `permissions` if it declared any, else its Settings tab's. */
+function stepPermissions(step: Step): string[] {
+  if (step.permissions) return step.permissions;
+  return step.target ? TARGET_PERMISSIONS[step.target] : [];
+}
+
 /**
  * Settings → Setup Guide. The configuration order for a new deployment,
  * with each step's real state read from the API rather than ticked off by
@@ -65,10 +89,25 @@ interface Step {
  * branch to belong to, an invoice series needs a branch to be registered
  * against, and a sale needs all of a branch, a terminal, a payment
  * method, a tax rate and an ACTIVE invoice series before the register
- * will accept it. Working down this list is the shortest path to a till
- * that can actually take money.
+ * will accept it.
+ *
+ * The last two required steps deliberately leave Settings behind. A system
+ * whose Settings are perfect still cannot sell anything: every product
+ * shows "No price" until it is priced AT A BRANCH, and a stock-tracked one
+ * is refused at the till until it has been counted in. Those were the two
+ * states this system was actually sitting in after a configuration reset —
+ * nine green ticks and a register that couldn't ring up a single item — so
+ * the guide now carries them through to a till that takes money rather
+ * than stopping at the last settings form.
  */
-export function SetupGuideTab({ onNavigate }: { onNavigate: (target: SetupTarget) => void }) {
+export function SetupGuideTab({
+  onNavigate,
+  onNavigateSection,
+}: {
+  onNavigate: (target: SetupTarget) => void;
+  /** Optional so SettingsScreen can still be rendered standalone; the two out-of-Settings steps simply don't navigate without it. */
+  onNavigateSection?: (target: SetupSection) => void;
+}) {
   const { user, hasPermission } = useAuth();
   const [steps, setSteps] = useState<Step[] | null>(null);
 
@@ -88,8 +127,24 @@ export function SetupGuideTab({ onNavigate }: { onNavigate: (target: SetupTarget
       safe(api.get<TaxRate[]>('/taxes?per_page=200')),
       safe(api.get<InvoiceSeries[]>('/invoice-series?status=active&per_page=200')),
       safe(api.get<Unit[]>('/units?per_page=200')),
-    ]).then(([company, stores, registers, methods, taxes, series, units]) => {
+      // Pricing and stock are per-branch, so "is anything priced at all"
+      // can only be asked of one branch at a time. The first branch is a
+      // fair proxy: a company that has priced its catalog anywhere has
+      // priced it here, and the step's job is to catch the zero state (a
+      // fresh install or a configuration reset), not to audit coverage
+      // branch by branch.
+      safe(api.getPaged<Inventory>('/inventory?per_page=1')),
+    ]).then(async ([company, stores, registers, methods, taxes, series, units, stock]) => {
       const branchesMissingBir = (stores ?? []).filter((s) => !s.vat_reg_tin || !s.min_no || !s.pos_serial_no || !s.ptu_number);
+
+      // Deliberately sequenced after the batch above rather than joined
+      // into it: `store_id` is required to resolve a price at all, and it
+      // isn't known until /stores has answered.
+      const firstStore = stores?.[0];
+      const pricedSample = firstStore
+        ? await safe(api.get<ProductWithStorePrice[]>(`/products?store_id=${firstStore.id}&per_page=50`))
+        : null;
+      const anyPriced = pricedSample === null ? null : pricedSample.some((p) => p.selling_price !== null);
 
       setSteps([
         {
@@ -149,6 +204,24 @@ export function SetupGuideTab({ onNavigate }: { onNavigate: (target: SetupTarget
           target: 'units',
           required: true,
           done: units === null ? null : units.length > 0,
+        },
+        {
+          title: 'Product prices',
+          detail:
+            'Prices are per branch, not per product — a product with no price at the branch a cashier is on shows as "No price" on the till and cannot be added to a cart. Use Bulk Update Prices to set a whole category at once.',
+          sectionTarget: SECTION_TARGETS.prices,
+          permissions: ['products.update'],
+          required: true,
+          done: anyPriced,
+        },
+        {
+          title: 'Opening stock',
+          detail:
+            'What is actually on the shelf right now. Stock-tracked products block a sale once they hit zero, so a catalog that has never been counted in stops the till the first time someone rings one up.',
+          sectionTarget: SECTION_TARGETS.stock,
+          permissions: ['inventory.view'],
+          required: true,
+          done: stock === null ? null : (stock.meta?.total ?? 0) > 0,
         },
         {
           title: 'Discounts and loyalty',
@@ -267,9 +340,9 @@ export function SetupGuideTab({ onNavigate }: { onNavigate: (target: SetupTarget
             <Button
               variant={step.done === true ? 'text' : 'contained'}
               endIcon={<ArrowForwardIcon />}
-              onClick={() => onNavigate(step.target)}
+              onClick={() => (step.sectionTarget ? onNavigateSection?.(step.sectionTarget) : step.target && onNavigate(step.target))}
               sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-              disabled={!TARGET_PERMISSIONS[step.target].some((p) => hasPermission(p))}
+              disabled={stepPermissions(step).length > 0 && !stepPermissions(step).some((p) => hasPermission(p))}
             >
               {step.done === true ? 'Review' : 'Set up'}
             </Button>
