@@ -22,12 +22,17 @@ interface Props {
   bagger: Bagger | null;
   onSelectBagger: (bagger: Bagger | null) => void;
   cartHasItems: boolean;
+  /** True once a transaction is under way — items rung up, OR a customer/bagger attached with none yet. Shows Cancel Sale, which applies to both. See PosScreen's saleStarted. */
+  saleStarted: boolean;
   /** The Discount button — one discount chosen for the whole sale, which is the normal workflow (see DiscountDialog). */
   onOpenDiscount: () => void;
   onCancel: () => void;
   onReturn: () => void;
   onReprintReceipt: () => void;
   onVoidItemSearch: () => void;
+  /** Forwarded straight through to ProductSearch, which portals its search field and category/view controls into PosHeader. See that component for why the state stays put while only the DOM moves. */
+  searchPortalTarget?: HTMLElement | null;
+  controlsPortalTarget?: HTMLElement | null;
 }
 
 /** Left panel: category/search-driven product browsing. Session-level chrome (store/register context, the account menu) lives in ReceiptPanel's letterhead instead, leaving this panel to do one job. Customer, Bagger, and the cart-state-dependent actions sit in the Actions row pinned below the product list — see CartActionsRow. */
@@ -41,11 +46,14 @@ export function ProductBrowser({
   bagger,
   onSelectBagger,
   cartHasItems,
+  saleStarted,
   onOpenDiscount,
   onCancel,
   onReturn,
   onReprintReceipt,
   onVoidItemSearch,
+  searchPortalTarget,
+  controlsPortalTarget,
 }: Props) {
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [baggerDialogOpen, setBaggerDialogOpen] = useState(false);
@@ -61,30 +69,31 @@ export function ProductBrowser({
           middle of the column instead of a wide one across the row. */}
       <Stack sx={{ height: '100%', minHeight: 0 }}>
         <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-          <ProductSearch companyId={companyId} storeId={storeId} onAdd={onAdd} />
+          <ProductSearch
+            companyId={companyId}
+            storeId={storeId}
+            onAdd={onAdd}
+            searchPortalTarget={searchPortalTarget}
+            controlsPortalTarget={controlsPortalTarget}
+          />
         </Box>
 
-        {/* A rule instead of an "ACTIONS" caption — self-describing
-            buttons don't need a header, and dropping it buys back a row
-            of vertical space for the product grid. */}
-        <Box
-          sx={{
-            flexShrink: 0,
-            mt: 1.25,
-            p: 1,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2.5,
-            bgcolor: 'background.paper',
-            boxShadow: '0 4px 16px rgba(15, 23, 42, 0.05)',
-          }}
-        >
+        {/* A bare layout container — no border, no fill, no shadow. It
+            used to be a white card wrapping the whole row, which made
+            sense when the buttons inside were flat tinted washes that
+            needed a surface to sit on. Now that each one is its own white
+            card with an icon disc, the wrapper was a second card drawn
+            around six cards — a visible box behind the buttons that
+            framed them for no reason and took padding off the grid above.
+            No caption either: self-describing buttons don't need a header. */}
+        <Box sx={{ flexShrink: 0, mt: 1.25 }}>
           <CartActionsRow
             customer={customer}
             onOpenCustomer={() => setCustomerDialogOpen(true)}
             bagger={bagger}
             onOpenBagger={() => setBaggerDialogOpen(true)}
             cartHasItems={cartHasItems}
+            saleStarted={saleStarted}
             onOpenDiscount={onOpenDiscount}
             onCancel={onCancel}
             onReturn={onReturn}

@@ -13,36 +13,17 @@ import LoyaltyOutlinedIcon from '@mui/icons-material/LoyaltyOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
+import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { CartTotals, CartLine } from './posTypes';
 import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
 import { POS_ACCENT, POS_ACTION_TINTS, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
-import { useAuth } from '../auth/AuthContext';
-import { formatDateTime } from '../regional';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
 import { PaymentPanel, type Payment } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
 
 interface Props {
-  /**
-   * The store this terminal is ringing up on — the receipt letterhead's
-   * masthead line. Optional only for the instant before the stores list
-   * has loaded.
-   */
-  storeName?: string | null;
-  /** Who's ringing up, and on which terminal — shown under the store name. */
-  cashierName: string;
-  registerName: string | null;
-  /**
-   * The account avatar/menu — composed by PosScreen, which owns the ~13
-   * props AccountMenu needs. Rendered in this panel's top-right corner
-   * rather than a dedicated header bar, since store/register context,
-   * held sales, lock/logout and Back Office are all session-level chrome
-   * that belongs with the rest of this letterhead, not competing with the
-   * product grid for space on its own bar.
-   */
-  actions?: ReactNode;
   /** Shown here only while attached — these are the same two facts the printed receipt carries, so the cashier can confirm them before taking payment rather than after. */
   customer: Customer | null;
   bagger: Bagger | null;
@@ -64,6 +45,10 @@ interface Props {
   saleCounter: number;
   /** So PosScreen's keyboard shortcuts know to stay disabled while this dialog is up — its open state lives here, not in PosScreen. */
   onPaymentDialogOpenChange?: (open: boolean) => void;
+  /** True once a transaction is under way — items in the cart, OR a customer/bagger attached with none yet. Gates Hold and the header's clear button, which both apply to an attributed-but-empty sale; Pay deliberately still needs real lines. See PosScreen's saleStarted. */
+  saleStarted: boolean;
+  /** Empties the cart from its own header's bin button. Optional so this panel still renders without one; it is wired to the same handler the Cancel action uses, approval rule included. */
+  onCancel?: () => void;
   /** Parks the sale rather than finishing it — see the Hold/Pay pair's own doc comment below for why this sits here rather than among CartActionsRow's sale-property toggles. */
   onHold: () => void;
 }
@@ -88,77 +73,8 @@ function InlineFact({ icon, value, trailing }: { icon: ReactNode; value: string;
   );
 }
 
-/**
- * Deliberately lopsided: online is the boring, expected state, so it's a
- * bare dot with the wording left to a tooltip; offline is the state a
- * cashier has to act on, so it spells itself out in red. Reflects
- * navigator.onLine only — there is no backend heartbeat, and inventing
- * one here would claim more than the browser actually knows.
- */
-function ConnectionStatus() {
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-  }, []);
-
-  return (
-    <Tooltip title={online ? 'Online' : 'No connection — sales cannot be completed'}>
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
-        <Box
-          sx={{
-            width: 7,
-            height: 7,
-            borderRadius: '50%',
-            bgcolor: online ? 'success.main' : 'error.main',
-            flexShrink: 0,
-          }}
-        />
-        {!online && (
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'error.main' }}>
-            Offline
-          </Typography>
-        )}
-      </Stack>
-    </Tooltip>
-  );
-}
-
-/**
- * Its own component purely so the clock's per-second tick re-renders one
- * text node instead of the whole ReceiptPanel — the cart, totals and
- * payment panel all sit under that, and none of them have any reason to
- * re-render on a tick.
- */
-function SessionClock() {
-  const { user } = useAuth();
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    // tabular-nums keeps every digit the same width, so the line doesn't
-    // shift sideways each second as the digits change.
-    <Typography variant="caption" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-      {formatDateTime(now, user?.currency)}
-    </Typography>
-  );
-}
-
 /** Right panel: one continuous card styled like a printed receipt — a store letterhead, cashier/terminal/time, customer/bagger (when attached), item list, totals, payment, and the Hold/Pay pair, all inside a single border. Return/Cancellation live in the product panel's Actions row instead — see CartActionsRow. */
 export function ReceiptPanel({
-  storeName,
-  cashierName,
-  registerName,
-  actions,
   customer,
   bagger,
   lines,
@@ -175,6 +91,8 @@ export function ReceiptPanel({
   onCheckout,
   saleCounter,
   onPaymentDialogOpenChange,
+  onCancel,
+  saleStarted,
   onHold,
 }: Props) {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -191,10 +109,10 @@ export function ReceiptPanel({
   }, [paymentDialogOpen, onPaymentDialogOpenChange]);
 
   // Up/down scroll controls for the item list — same reasoning as
-  // CategoryPills' left/right chevrons: a long cart (a big grocery run,
+  // a horizontal strip's left/right chevrons: a long cart (a big grocery run,
   // easily 20+ lines) otherwise leans entirely on a thin native scrollbar
   // with no visible affordance, which is easy to miss on a touch terminal
-  // and fiddly to grab precisely with a mouse. Mirrors that component's
+  // and fiddly to grab precisely with a mouse. Mirrors that pattern's
   // own show-only-when-there's-somewhere-to-go approach rather than
   // always rendering both.
   const cartScrollRef = useRef<HTMLDivElement>(null);
@@ -241,18 +159,21 @@ export function ReceiptPanel({
       // overrides needed in Cart/TotalsPanel/PaymentPanel.
       className="light"
       sx={{
-        borderRadius: 2.5,
+        // A rounded floating card again. This was squared off and docked
+        // hard against the window edge for a while, which is the right
+        // call when the panel is the only surface on its side of the
+        // screen — but the product grid beside it is now a field of
+        // rounded cards under a rounded pill strip, and a single
+        // square-cornered slab against all of that read as the one
+        // element that had missed the restyle. Its column supplies the
+        // margin the corners need (see PosScreen).
+        borderRadius: 3,
         overflow: 'hidden',
         minWidth: 0,
-        // No shadow at all — the outlined variant's own 1px left border is
-        // the entire seam between this panel and the product grid. A soft
-        // shadow used to be cast leftward over the grid to lift this
-        // column off the page; it went with the rest of the POS's shadows
-        // in the move to a flat surface language, where the one blurred
-        // edge left on screen read as a smudge rather than depth. The
-        // panel is already unmistakably a separate surface: it's white
-        // against the page's grey, full-height, and bordered.
-        boxShadow: '0 12px 32px rgba(15, 23, 42, 0.09)',
+        // A soft lift rather than the flat, borders-only treatment this
+        // carried while it was docked: floating, it needs to sit above
+        // the page rather than be cut out of it.
+        boxShadow: '0 6px 24px rgba(15, 23, 42, 0.07)',
         // Hard-bounded to the column's exact height, always — the header
         // and footer (Totals/Payment/Pay) must never be pushed out of
         // view. The cart item list below is the only flex
@@ -263,77 +184,50 @@ export function ReceiptPanel({
         flexDirection: 'column',
       }}
     >
-      {/* The letterhead, plus the account menu button tucked in its
-          top-right corner — this used to be a separate dark header bar
-          above the whole left column (PosHeader), but session-level chrome
-          (store/register, held sales, lock/logout, Back Office) reads as
-          part of this panel's own masthead just as well, and doing it this
-          way gives the product grid the full column height instead of
-          losing a bar's worth of it. */}
-      <Box sx={{ position: 'relative', px: 2.5, pt: 2, pb: 1.5, flexShrink: 0 }}>
-        {actions && (
-          <Box sx={{ position: 'absolute', top: 10, right: 12 }}>{actions}</Box>
+      {/* The cart's own masthead. This used to be the receipt letterhead
+          — store name over a cashier/terminal/clock line — but all of
+          that identity moved up to PosHeader, which spans both columns
+          and says it once for the whole screen instead of once per panel.
+          What's left here is what this panel alone can answer: what it is,
+          how much is in it, and how to empty it.
+
+          The count is deliberately `activeItemCount`, not lines.length: a
+          voided line stays in the cart struck through, and counting it
+          would disagree with the totals directly below, which already
+          exclude it. */}
+      <Stack
+        direction="row"
+        sx={{ alignItems: 'center', gap: 1.25, px: 2.5, py: 1.75, flexShrink: 0 }}
+      >
+        <ShoppingCartOutlinedIcon sx={{ color: POS_ACCENT, fontSize: 24 }} />
+        <Typography sx={{ fontWeight: 800, fontSize: 19, letterSpacing: '-0.02em', flex: 1, minWidth: 0 }}>
+          Cart
+        </Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, whiteSpace: 'nowrap' }}>
+          {activeItemCount} {activeItemCount === 1 ? 'item' : 'items'}
+        </Typography>
+        {/* Clearing the cart IS cancelling the sale — same action, same
+            supervisor-approval rule (see PosScreen's handleCancel), rather
+            than a second quieter path that empties a till's cart without
+            the sign-off the Cancel button would have required. Disabled on
+            an already-empty cart so it can't fire a void approval for
+            nothing. */}
+        {onCancel && (
+          <Tooltip title={saleStarted ? 'Clear cart' : 'Nothing to clear'}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={onCancel}
+                disabled={!saleStarted}
+                aria-label="Clear cart"
+                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main', bgcolor: 'rgba(220,38,38,0.08)' } }}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         )}
-        <Stack sx={{ alignItems: 'flex-start', gap: 0.75, pr: 5 }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: 1.5,
-                display: 'grid',
-                placeItems: 'center',
-                bgcolor: `${POS_ACCENT}12`,
-                color: POS_ACCENT,
-              }}
-            >
-              <ShoppingBagOutlinedIcon fontSize="small" />
-            </Box>
-            <Box>
-              <Typography sx={{ fontWeight: 800, fontSize: 18, lineHeight: 1.2, letterSpacing: '-0.02em' }}>
-                Current order
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {activeItemCount === 0
-                  ? 'Ready for the first item'
-                  : `${activeItemCount} item${activeItemCount === 1 ? '' : 's'} in this sale`}
-              </Typography>
-            </Box>
-          </Stack>
-          {/* The store's own name — a letterhead, like a printed receipt's
-              masthead, so it takes the top of this panel's type scale
-              rather than matching the caption line under it. */}
-          {storeName && (
-            <Typography sx={{ mt: 0.5, fontWeight: 700, fontSize: 13, letterSpacing: '-0.01em', color: 'text.primary' }} noWrap>
-              {storeName}
-            </Typography>
-          )}
-          {/* Cashier, terminal, the clock and connectivity — tried living
-              below Pay as a closing footer, the way a printed receipt's own
-              session line sits after the payment section. Moved back up
-              here on request instead, right under the heading it used to
-              sit under originally. */}
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
-            <ConnectionStatus />
-            <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-              ·
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }} noWrap title={cashierName}>
-              {cashierName}
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-              ·
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', minWidth: 0 }} noWrap>
-              {registerName ?? '—'}
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-              ·
-            </Typography>
-            <SessionClock />
-          </Stack>
-        </Stack>
-      </Box>
+      </Stack>
       <SectionDivider />
 
       {/* Customer/Bagger only — the cashier is named in the letterhead
@@ -478,7 +372,7 @@ export function ReceiptPanel({
             variant="outlined"
             size="large"
             startIcon={<PauseCircleOutlineIcon />}
-            disabled={lines.length === 0}
+            disabled={!saleStarted}
             onClick={onHold}
             sx={{
               flex: '0 0 auto',

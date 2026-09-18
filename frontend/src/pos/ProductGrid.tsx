@@ -65,7 +65,7 @@ export const ProductGrid = memo(function ProductGrid({ products, onAdd, onLongPr
         // Shorter on a phone in step with the narrower column above — at
         // 214 a two-column phone grid showed barely one row in the space
         // left over once the action row and cart had taken theirs.
-        gridAutoRows: { xs: 186, sm: 214 },
+        gridAutoRows: { xs: 214, sm: 246 },
         gap: 1.5,
         // Keeps a short list packed at the top rather than letting the
         // rows drift apart to fill the panel.

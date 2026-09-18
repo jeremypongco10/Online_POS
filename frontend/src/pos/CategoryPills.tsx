@@ -1,68 +1,82 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import Stack from '@mui/material/Stack';
-import Chip from '@mui/material/Chip';
+import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
 import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AppsIcon from '@mui/icons-material/Apps';
+import GrassOutlinedIcon from '@mui/icons-material/GrassOutlined';
+import SetMealOutlinedIcon from '@mui/icons-material/SetMealOutlined';
+import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined';
+import CookieOutlinedIcon from '@mui/icons-material/CookieOutlined';
+import FaceRetouchingNaturalOutlinedIcon from '@mui/icons-material/FaceRetouchingNaturalOutlined';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
+import BakeryDiningOutlinedIcon from '@mui/icons-material/BakeryDiningOutlined';
+import AcUnitOutlinedIcon from '@mui/icons-material/AcUnitOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import LiquorOutlinedIcon from '@mui/icons-material/LiquorOutlined';
+import CleaningServicesOutlinedIcon from '@mui/icons-material/CleaningServicesOutlined';
+import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined';
 import type { Category } from '../api/types';
-import { HIDDEN_SCROLLBAR_SX, THIN_SCROLLBAR_SX, POS_ACCENT } from './format';
+import { HIDDEN_SCROLLBAR_SX, POS_ACCENT } from './format';
 
 interface Props {
   categories: Category[];
   selected: number | null;
   onSelect: (categoryId: number | null) => void;
-  /**
-   * 'row' (default) is the original horizontal strip, with its own
-   * chevron scroll buttons since horizontal space is tight. 'column'
-   * is the left-sidebar layout — a plain vertical list that scrolls on
-   * its own; a sidebar has no equivalent space pressure, so it skips the
-   * chevron/ResizeObserver machinery entirely rather than reimplementing
-   * it sideways.
-   */
-  orientation?: 'row' | 'column';
 }
 
 /**
- * Root-level category picker — "All" plus one chip per top-level category.
- * The selected pill is forced to a solid fill via sx (not the `color`
- * prop) because the app's global MuiChip override turns any colored chip
- * into a soft 16%-tint badge — right for status badges elsewhere, but not
- * the solid pill this mockup wants.
+ * Keyword → icon, matched against the category's own name.
+ *
+ * A category has no icon column, and adding one would mean a migration
+ * plus an icon picker in Back Office for something a cashier reads as
+ * decoration — so the name earns the glyph instead. Ordered most specific
+ * first: "Grocery & Canned Goods" has to match before a bare "can", and
+ * "Personal Care" before "care". Anything unmatched keeps a neutral tag
+ * rather than a wrong-but-confident picture.
  */
-export function CategoryPills({ categories, selected, onSelect, orientation = 'row' }: Props) {
+// Component types rather than rendered elements: a table of live JSX also
+// trips the jsx-key lint rule, which can't tell a lookup table from a
+// rendered list, and storing the type lets each call site size its own
+// instance.
+const ICON_RULES: Array<[RegExp, typeof LabelOutlinedIcon]> = [
+  [/bakery|bread|pastr/i, BakeryDiningOutlinedIcon],
+  [/frozen|chilled|ice/i, AcUnitOutlinedIcon],
+  [/meat|seafood|fish|poultry/i, SetMealOutlinedIcon],
+  [/beverage|drink|juice|coffee|water/i, LocalCafeOutlinedIcon],
+  [/snack|chip|candy|biscuit/i, CookieOutlinedIcon],
+  [/personal care|hygiene|beauty|cosmetic/i, FaceRetouchingNaturalOutlinedIcon],
+  [/household|cleaning|laundry/i, CleaningServicesOutlinedIcon],
+  [/grocery|canned|grain|staple|rice|noodle/i, GrassOutlinedIcon],
+  [/school|office|paper|supplies/i, EditOutlinedIcon],
+  [/tobacco|alcohol|liquor|beer|wine/i, LiquorOutlinedIcon],
+  [/home|furnish/i, HomeOutlinedIcon],
+];
+
+function iconForCategory(name: string): ReactElement {
+  for (const [pattern, Icon] of ICON_RULES) {
+    if (pattern.test(name)) return <Icon fontSize="small" />;
+  }
+  return <LabelOutlinedIcon fontSize="small" />;
+}
+
+/**
+ * The category strip under the top bar — "All" plus one pill per
+ * top-level category, each with an icon so the row can be aimed at rather
+ * than read.
+ *
+ * Horizontal with its own chevron scrollers rather than a wrapping row:
+ * wrapping would make this band grow a line taller every time a category
+ * is added, silently taking that height from the product grid. Scrolling
+ * keeps the cost fixed at exactly one row however long the catalog's
+ * category list gets.
+ */
+export function CategoryPills({ categories, selected, onSelect }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-
-  // MUI's default "medium" Chip (32px tall, 13px label) reads small next
-  // to everything else on this screen sized for a touch till — bumped up
-  // via sx rather than a bigger size prop (MUI Chip only has small/medium
-  // to choose from, and medium is already the larger of the two).
-  // Column mode goes full-width with a left-aligned label — a nav-list
-  // shape rather than a centered pill, since a pill only reads right
-  // sitting loose in a horizontal row, not stacked in a narrow rail. 48
-  // tall rather than the row's 38: a rail entry is a primary touch target
-  // on a till, where a chip in a horizontal strip is a filter tapped once
-  // in a while.
-  const sizeSx =
-    orientation === 'column'
-      ? { height: 48, fontSize: 15, width: '100%', justifyContent: 'flex-start', px: 1 }
-      : { height: 38, fontSize: 14.5, px: 0.5 };
-  const selectedSx = { ...sizeSx, bgcolor: POS_ACCENT, color: '#fff', '&:hover': { bgcolor: POS_ACCENT } };
-  // A crisp white-with-border rest state, not a soft grey fill — this
-  // reads as a row of distinct pills sitting on the page rather than a
-  // row of tinted chips blending into it. The one solid-blue "All"/
-  // selected pill is then the only filled shape in the row, which is what
-  // makes it read as "the current filter" at a glance.
-  const unselectedSx = {
-    ...sizeSx,
-    bgcolor: '#fff',
-    border: '1px solid',
-    borderColor: 'divider',
-    color: 'text.secondary',
-    '&:hover': { borderColor: POS_ACCENT, color: POS_ACCENT, bgcolor: `${POS_ACCENT}0a` },
-  };
 
   function updateScrollButtons() {
     const el = scrollerRef.current;
@@ -75,10 +89,9 @@ export function CategoryPills({ categories, selected, onSelect, orientation = 'r
     updateScrollButtons();
     const el = scrollerRef.current;
     if (!el) return;
-
-    // Content width changes with the category list (loaded once) and with
-    // the column's own width (viewport resize, right panel collapsing) —
-    // both can flip whether there's anything left/right to scroll to.
+    // Content width changes with the category list and with this row's own
+    // width (viewport resize, the cart column growing) — either can flip
+    // whether there's anything left to scroll to.
     const resizeObserver = new ResizeObserver(updateScrollButtons);
     resizeObserver.observe(el);
     el.addEventListener('scroll', updateScrollButtons);
@@ -93,82 +106,69 @@ export function CategoryPills({ categories, selected, onSelect, orientation = 'r
     scrollerRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
   }
 
-  if (orientation === 'column') {
+  function pill(key: string, label: string, icon: ReactElement, isSelected: boolean, onClick: () => void) {
     return (
-      <Stack spacing={0.75} sx={{ overflowY: 'auto', height: '100%', pr: 0.5, ...THIN_SCROLLBAR_SX }}>
-        <Chip
-          label="All"
-          clickable
-          variant={selected === null ? 'filled' : 'outlined'}
-          onClick={() => onSelect(null)}
-          // flexShrink:0 is load-bearing here, not decorative: this Stack
-          // is a column flex container, so without it a long category list
-          // that doesn't fit the rail's height gets its chips squeezed
-          // shorter to cram everything in instead of overflowing — the
-          // exact "looks small" a scrollbar is supposed to prevent.
-          sx={{ flexShrink: 0, fontWeight: 700, borderRadius: 2, '& .MuiChip-label': { pl: 0.5 }, ...(selected === null ? selectedSx : unselectedSx) }}
-        />
-        {categories.map((c) => (
-          // A long name is what the fixed rail width truncates with an
-          // ellipsis in the first place — the tooltip is how the full
-          // name stays reachable without widening the rail for the rare
-          // long one at the cost of the grid next to it.
-          <Tooltip key={c.id} title={c.name} placement="right">
-            <Chip
-              label={c.name}
-              clickable
-              variant={selected === c.id ? 'filled' : 'outlined'}
-              onClick={() => onSelect(c.id)}
-              sx={{ flexShrink: 0, fontWeight: 700, borderRadius: 2, '& .MuiChip-label': { pl: 0.5 }, ...(selected === c.id ? selectedSx : unselectedSx) }}
-            />
-          </Tooltip>
-        ))}
-      </Stack>
+      <ButtonBase
+        key={key}
+        onClick={onClick}
+        sx={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.875,
+          height: 44,
+          px: 2,
+          borderRadius: 999,
+          fontWeight: 700,
+          fontSize: 14,
+          whiteSpace: 'nowrap',
+          border: '1px solid',
+          borderColor: isSelected ? POS_ACCENT : 'divider',
+          bgcolor: isSelected ? POS_ACCENT : 'background.paper',
+          color: isSelected ? '#fff' : 'text.primary',
+          // Colour only — no lift, no shadow growth. This row sits
+          // directly above a grid of cards that already carry their own
+          // elevation, and a second moving surface above them read as
+          // restless on a screen a cashier stares at all shift.
+          transition: 'background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+          '&:hover': isSelected
+            ? { bgcolor: POS_ACCENT }
+            : { borderColor: POS_ACCENT, color: POS_ACCENT, bgcolor: `${POS_ACCENT}0a` },
+        }}
+      >
+        <Box sx={{ display: 'flex', color: isSelected ? '#fff' : POS_ACCENT }}>{icon}</Box>
+        {label}
+      </ButtonBase>
     );
   }
 
   return (
-    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
       {canScrollLeft && (
         <IconButton
-          onClick={() => scrollBy(-220)}
+          onClick={() => scrollBy(-260)}
           aria-label="Show previous categories"
-          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider' }}
+          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
         >
-          <ChevronLeftIcon />
+          <ChevronLeftIcon fontSize="small" />
         </IconButton>
       )}
       <Stack
         ref={scrollerRef}
         direction="row"
-        spacing={1}
-        sx={{ overflowX: 'auto', pb: 0.5, scrollBehavior: 'smooth', ...HIDDEN_SCROLLBAR_SX }}
+        spacing={1.25}
+        sx={{ overflowX: 'auto', minWidth: 0, py: 0.25, scrollBehavior: 'smooth', ...HIDDEN_SCROLLBAR_SX }}
       >
-        <Chip
-          label="All"
-          clickable
-          variant={selected === null ? 'filled' : 'outlined'}
-          onClick={() => onSelect(null)}
-          sx={{ flexShrink: 0, fontWeight: 700, ...(selected === null ? selectedSx : unselectedSx) }}
-        />
-        {categories.map((c) => (
-          <Chip
-            key={c.id}
-            label={c.name}
-            clickable
-            variant={selected === c.id ? 'filled' : 'outlined'}
-            onClick={() => onSelect(c.id)}
-            sx={{ flexShrink: 0, fontWeight: 700, ...(selected === c.id ? selectedSx : unselectedSx) }}
-          />
-        ))}
+        {pill('all', 'All', <AppsIcon fontSize="small" />, selected === null, () => onSelect(null))}
+        {categories.map((c) => pill(String(c.id), c.name, iconForCategory(c.name), selected === c.id, () => onSelect(c.id)))}
       </Stack>
       {canScrollRight && (
         <IconButton
-          onClick={() => scrollBy(220)}
+          onClick={() => scrollBy(260)}
           aria-label="Show more categories"
-          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider' }}
+          sx={{ flexShrink: 0, width: 38, height: 38, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
         >
-          <ChevronRightIcon />
+          <ChevronRightIcon fontSize="small" />
         </IconButton>
       )}
     </Stack>

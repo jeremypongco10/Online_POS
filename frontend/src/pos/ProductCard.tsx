@@ -222,7 +222,7 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
               // faintest text on a card whose loudest element was a
               // decorative dot. Medium weight and full-strength text
               // colour put the emphasis back on the words.
-              fontWeight: 500,
+              fontWeight: 700,
               fontSize: 14.5,
               lineHeight: 1.3,
               color: 'text.primary',
@@ -230,70 +230,88 @@ export const ProductCard = memo(function ProductCard({ product, onAdd, onLongPre
           >
             {product.name}
           </Typography>
-          <Stack direction="row" sx={{ alignItems: 'baseline', justifyContent: 'space-between', mt: 0.35, gap: 0.5 }}>
-            {/* A non-breaking-space placeholder rather than omitting this
-                Typography entirely when there's nothing to show — that
-                would let the price on the right jump left/right depending
-                on whether a stock figure is present on any given card.
+          {/* The price gets its own line directly under the name, rather
+              than sharing a row with the stock badge as it used to. It is
+              the figure a cashier scans this grid for, and on a row shared
+              with a badge it was competing for width with it — at 7+
+              columns that meant one or the other truncating. */}
+          <Typography
+            sx={{
+              mt: 0.35,
+              fontWeight: 800,
+              // "No price" is a label, not a figure to scan at a glance,
+              // so it doesn't get the same size as a real one.
+              fontSize: unpriced ? 13 : 17.5,
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap',
+              color: unpriced ? 'error.main' : POS_ACCENT,
+            }}
+          >
+            {unpriced ? 'No price' : formatMoney(parseFloat(product.selling_price as string))}
+          </Typography>
 
-                "on hand" used to be spelled out inline here, but a
-                three-digit count plus that suffix didn't fit next to a
-                real price once the grid got dense enough (7+ columns) —
-                "135 on hand" truncated to "135 on h…", reading like a
-                cut-off word rather than a number. Bare, the same as
-                ProductListView's own stock column, so it stays legible at
-                any column count; the full phrase moves to a hover
-                tooltip (title) instead of disappearing outright. */}
+          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 1, gap: 0.5 }}>
+            {/* Says "In Stock" rather than the bare count it used to. The
+                number is still one hover away (title), but a lone "135"
+                sitting under a price read as an ID or a second figure,
+                where the words answer the only question being asked of
+                this badge at a glance: can I sell it right now. */}
             {canViewStock && stock !== null ? (
-              // A badge rather than bare grey text. Stripped of its "on
-              // hand" suffix (which didn't fit beside a price once the
-              // grid got dense), a lone "135" sitting next to "175.00"
-              // read as an ID or a second price — a tinted pill says
-              // "this is a count" without spending any width on the word.
               <Box
                 component="span"
                 title={outOfStock ? 'Out of stock' : `${trimStock(stock)} on hand`}
                 sx={{
                   fontSize: 11.5,
                   fontWeight: 700,
-                  lineHeight: 1.6,
-                  px: 0.75,
-                  borderRadius: 0.75,
+                  lineHeight: 1.7,
+                  px: 1,
+                  borderRadius: 999,
                   minWidth: 0,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  color: outOfStock ? 'error.main' : 'text.secondary',
-                  bgcolor: outOfStock ? 'rgba(220, 38, 38, 0.1)' : 'action.hover',
+                  color: outOfStock ? '#b91c1c' : '#15803d',
+                  bgcolor: outOfStock ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.12)',
                 }}
               >
-                {outOfStock ? 'Out of stock' : trimStock(stock)}
+                {outOfStock ? 'Out of stock' : 'In Stock'}
               </Box>
             ) : (
               // An empty flex child, not nothing: this row is
-              // space-between, so with the price as its only child the
-              // price would sit hard left on exactly the cards that have
-              // no stock figure to show.
+              // space-between, so without it the add affordance would sit
+              // hard left on exactly the cards with no stock to show.
               <Box />
             )}
-            {/* The largest thing on the card, ahead of the tinted
-                initials block above it. The colour tile is decoration —
-                the price is what a cashier actually scans this grid
-                for, so it gets the weight rather than the other way
-                round. */}
-            <Typography
-              sx={{
-                fontWeight: 800,
-                // "No price" is a label, not a figure to scan at a
-                // glance, so it doesn't get the same size as a real one.
-                fontSize: unpriced ? 13 : 17.5,
-                letterSpacing: '-0.01em',
-                whiteSpace: 'nowrap',
-                color: unpriced ? 'error.main' : POS_ACCENT,
-              }}
-            >
-              {unpriced ? 'No price' : formatMoney(parseFloat(product.selling_price as string))}
-            </Typography>
+
+            {/* Deliberately a Box, NOT a button. The whole card is already
+                one big CardActionArea — the correct touch target on a till
+                — and a <button> nested inside another button is invalid
+                HTML that React warns about and screen readers mis-announce.
+                This is the affordance for the tap the card already
+                handles, not a second control: it shows a cashier where to
+                aim without splitting one action across two hit areas.
+                aria-hidden for the same reason — the card's own accessible
+                name already describes what activating it does. */}
+            {!unpriced && (
+              <Box
+                aria-hidden
+                sx={{
+                  flexShrink: 0,
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: POS_ACCENT,
+                  color: '#fff',
+                  fontSize: 19,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                +
+              </Box>
+            )}
           </Stack>
         </Box>
       </CardActionArea>

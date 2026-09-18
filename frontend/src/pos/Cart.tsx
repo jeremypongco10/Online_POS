@@ -140,16 +140,26 @@ export function Cart({ lines, lastAddedKey, selectedKey, onSelectLine, scrollCon
 
   if (lines.length === 0) {
     return (
+      // height:100% + centered, not flex-start with a fixed pt/pb: this
+      // renders inside cartScrollRef, which is itself `height: 100%` of
+      // whatever room the panel has left after the header and the totals
+      // footer — on a short cart list that's most of the panel. Pinned to
+      // the top, the empty state left a blank void below it that grew
+      // every time this panel gained height elsewhere (the flush-docking
+      // fix, then the header trim), until it was most of the visible
+      // right column on a normal desktop screen. Centered, the icon and
+      // its two lines sit in the middle of whatever space is actually
+      // there instead of floating at the top of an empty room.
       <Box
         sx={{
+          height: '100%',
+          minHeight: 160,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'flex-start',
+          justifyContent: 'center',
           textAlign: 'center',
           color: 'text.secondary',
-          pt: 3,
-          pb: 5,
           gap: 0.75,
         }}
       >
@@ -343,7 +353,7 @@ const CartRow = memo(function CartRow({
           {/* The explicit tag, not just the strikethrough on the amount
               next to it — strikethrough alone is easy to miss at a glance
               on a busy cart, and this is the one thing on the row that
-              has to be unmissable. Same shape as CategoryPills'/
+              has to be unmissable. Same shape as
               CartActionsRow's own tinted badges, in error red rather than
               the accent blue everything else here uses, since this is the
               one label on a cart row that means "this no longer counts",

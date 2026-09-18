@@ -21,9 +21,22 @@ export function colorForName(name: string): string {
   return PALETTE[hash % PALETTE.length];
 }
 
-/** "MK" for "Milk", "CB" for "Coca Cola" — up to two letters for a photo-less product's fallback tile. */
+/**
+ * "MK" for "Milk", "CB" for "Coca Cola" — up to two letters for a
+ * photo-less product's fallback tile, or a category tile in the POS's
+ * category picker.
+ *
+ * Connector words that carry no letters or digits ("&", "-", "+") are
+ * skipped rather than counted: taking the first two words literally made
+ * "Snacks & Chips" and "School & Office Supplies" BOTH come out as "S&",
+ * which is worse than useless on a picker whose whole job is telling
+ * similar names apart at a glance. Skipping them gives "SC" and "SO".
+ */
 export function initialsForName(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter((w) => /[a-z0-9]/i.test(w));
   if (words.length === 0) return '?';
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();

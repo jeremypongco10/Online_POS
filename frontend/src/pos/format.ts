@@ -8,6 +8,15 @@
 export const POS_ACCENT = '#2563eb';
 
 /**
+ * The top bar's navy. Deliberately a fixed hex rather than a theme token,
+ * for the same reason POS_ACCENT is: the bar is a constant dark surface
+ * whatever the app-wide light/dark setting says, so everything sitting on
+ * it (the search pill, the icons, the store name) can be coloured against
+ * a known background instead of against whichever palette is live.
+ */
+export const POS_HEADER_BG = '#0f2137';
+
+/**
  * One tint per POS action, carried by that action's icon chip wherever it
  * appears — the buttons in CartActionsRow and the same actions listed in
  * PosHelpDialog.
@@ -115,7 +124,7 @@ export const THIN_SCROLLBAR_SX = {
   },
 } as const;
 
-/** Used only where a horizontal scroller already has its own visible affordance (e.g. CategoryPills' "more" chevron) — a second scrollbar under it would be redundant. */
+/** Used only where a horizontal scroller already has its own visible affordance (e.g. a "more" chevron) — a second scrollbar under it would be redundant. */
 export const HIDDEN_SCROLLBAR_SX = {
   scrollbarWidth: 'none',
   msOverflowStyle: 'none',

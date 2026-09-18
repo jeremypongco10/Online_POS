@@ -20,6 +20,7 @@ import type {
 import { ProductBrowser } from './ProductBrowser';
 import { ReceiptPanel } from './ReceiptPanel';
 import { AccountMenu } from './AccountMenu';
+import { PosHeader } from './PosHeader';
 import type { Payment } from './PaymentPanel';
 import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
@@ -72,6 +73,15 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [cashSession, setCashSession] = useState<CashSession | null>(null);
   const [cashSessionLoading, setCashSessionLoading] = useState(true);
   const [showCloseRegister, setShowCloseRegister] = useState(false);
+  /**
+   * PosHeader's two portal anchors, held as state rather than refs: a ref
+   * mutation doesn't re-render, and these nodes have to reach
+   * ProductSearch as props on the very render after the bar mounts, or
+   * the search field has nowhere to portal into and silently falls back
+   * to rendering inline.
+   */
+  const [searchSlot, setSearchSlot] = useState<HTMLDivElement | null>(null);
+  const [controlsSlot, setControlsSlot] = useState<HTMLDivElement | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const [lines, setLines] = useState<CartLine[]>([]);
@@ -188,6 +198,23 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * for calculateCart, which already excludes voided lines on its own.
    */
   const activeLines = useMemo(() => lines.filter((l) => !l.voided), [lines]);
+
+  /**
+   * Whether a transaction is under way — which is NOT the same question
+   * as "does the cart have items".
+   *
+   * Attaching a customer or a bagger is the cashier starting to build a
+   * sale: the loyalty card is scanned, the bagger is assigned, and only
+   * then do the items go through. Treating an empty-but-attributed cart
+   * as "nothing happening" meant that work could be lost silently — a
+   * logout took it with no warning, and Hold refused to park it — even
+   * though the cashier had already done something the till was the only
+   * record of.
+   *
+   * `lines`, not `activeLines`: a cart holding nothing but voided
+   * remnants still has something on screen worth clearing.
+   */
+  const saleStarted = lines.length > 0 || customer !== null || bagger !== null;
 
   /**
    * Drives the cart selection with the arrow keys while it's active,
@@ -736,11 +763,21 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }
 
   async function handleCancel() {
-    // Raw `lines`, not `activeLines`: a cart holding nothing but voided
-    // remnants still has something on screen worth clearing, even though
-    // there's nothing left to sell — see cartHasItems below for the same
-    // call.
-    if (lines.length === 0) return;
+    if (!saleStarted) return;
+
+    // A sale that has been started but has no lines yet — a customer
+    // and/or bagger attached, nothing rung up — is cleared outright
+    // rather than sent through the approval dialog. There is nothing to
+    // approve: no money, no stock, no line to account for, and the
+    // dialog would ask a supervisor to sign off on "0 items, ₱0.00"
+    // while describing an amount that was never in play. Detaching a
+    // customer is already a one-tap action inside its own dialog, so
+    // requiring a sign-off here would be stricter than the route the
+    // cashier could take anyway.
+    if (lines.length === 0) {
+      resetSale();
+      return;
+    }
 
     // Always through the dialog, whether or not a supervisor is needed:
     // it also collects the reason, and a cancellation with no recorded
@@ -765,7 +802,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
   }, []);
 
   function handleHold() {
-    if (!registerId || lines.length === 0) return;
+    // saleStarted, not lines.length: a scanned loyalty card and an
+    // assigned bagger are work worth parking even before the first item
+    // goes through — that is exactly the moment a cashier gets told to
+    // take the next customer first.
+    if (!registerId || !saleStarted) return;
     holdSale(registerId, { lines, customer, card, bagger, discountHolderName, discountIdNumber, activeDiscount });
     setHeldSales(listHeldSales(registerId));
     resetSale();
@@ -783,7 +824,11 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * for a deliberate sign-out).
    */
   function requestLogout() {
-    if (lines.length === 0) {
+    // saleStarted, not lines.length. An attached customer or bagger is
+    // the start of a transaction, and logging out silently discarded it —
+    // the cashier had already scanned a card or assigned someone, and the
+    // till was the only record that it happened.
+    if (!saleStarted) {
       logout();
       return;
     }
@@ -998,6 +1043,41 @@ export function PosScreen({ onOpenAdmin }: Props) {
           'radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--mui-palette-primary-main) 7%, transparent), transparent 34%)',
       }}
     >
+      {/* The dark top bar, spanning both columns. The search field and the
+          category/view controls are portaled into it from ProductSearch
+          (see the two slot refs) rather than reimplemented here, so there
+          is still exactly one search field in the app with one set of
+          scanner and focus rules. The account menu moved up here too, out
+          of the receipt panel's corner — it is session chrome, and the bar
+          is where the rest of the session identity (branch, online) now
+          lives. */}
+      <PosHeader
+        storeName={(assignedStore ?? selectedStore)?.name ?? null}
+        searchSlotRef={setSearchSlot}
+        controlsSlotRef={setControlsSlot}
+        actions={
+          <AccountMenu
+            user={user}
+            stores={stores}
+            registers={registers}
+            storeId={storeId}
+            registerId={registerId}
+            onStoreChange={setStoreId}
+            onRegisterChange={setRegisterId}
+            heldSales={heldSales}
+            onResumeHeld={handleResume}
+            onDiscardHeld={handleDiscardHeld}
+            cashSession={cashSession}
+            onCloseTerminal={() => setShowCloseRegister(true)}
+            canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
+            onOpenAdmin={() => onOpenAdmin()}
+            onLogout={requestLogout}
+            onLock={idleLock.lock}
+            zoom={posZoom}
+          />
+        }
+      />
+
       <Box
         sx={{
           flex: 1,
@@ -1010,7 +1090,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
           // border is the divider, so a gutter there just reads as a
           // stripe of dead background between two panels.
           gap: { xs: 1.25, md: 2 },
-          p: { xs: 1, md: 2 },
           // Deliberately no maxWidth here — the receipt column already
           // caps its own width via clamp() below, so letting this row run
           // edge-to-edge just gives the product grid more columns on a
@@ -1020,7 +1099,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
           // No padding on this row at all: the product column supplies its
           // own left padding internally (so its header sits flush at the
           // top), and the receipt panel is meant to dock hard against the
-          // right edge rather than float with a gutter beside it.
+          // right edge rather than float with a gutter beside it. A `p: 2`
+          // briefly landed here and put a 12px gap on every side of the
+          // panel — square corners plus a stray gap read as an oversized
+          // margin rather than a docked column, and it shrank the panel's
+          // actual height by 24px for no gain.
+          p: { xs: 1, md: 0 },
           overflow: 'hidden',
         }}
       >
@@ -1046,7 +1130,20 @@ export function PosScreen({ onOpenAdmin }: Props) {
               // Now that the row has no gap on md+, this is what keeps the
               // product grid off the receipt panel's edge.
               pr: { xs: 0.5, md: 0 },
-              py: { xs: 0.5, md: 0 },
+              // The outer row this column sits in used to be the thing
+              // giving it top/bottom breathing room — until that row's own
+              // padding was zeroed out on md+ so the CART panel on the
+              // other side of it could dock flush against the window
+              // edge. That panel is a bordered white card, so sitting flush
+              // reads as intentional; this column is bare content directly
+              // on the page background, with no such surface to explain
+              // zero margin, and lost the only padding it had along with
+              // the row's. The search field ended up touching the actual
+              // top of the browser window. This column now sources its own
+              // vertical margin instead of depending on its parent's,
+              // independent of whatever that parent needs for the panel
+              // beside it.
+              py: { xs: 0.5, md: 2 },
               // No overflow here — ProductBrowser is hard-bounded to exactly
               // this box's height; its own internal results-grid scroll is
               // the only thing that ever scrolls, so the search bar, category
@@ -1066,11 +1163,14 @@ export function PosScreen({ onOpenAdmin }: Props) {
               bagger={bagger}
               onSelectBagger={setBagger}
               cartHasItems={lines.length > 0}
+              saleStarted={saleStarted}
               onOpenDiscount={openCartDiscount}
               onCancel={handleCancel}
               onReturn={() => onOpenAdmin('/admin/customers/returns')}
               onReprintReceipt={() => setReprintOpen(true)}
               onVoidItemSearch={() => setVoidItemSearchOpen(true)}
+              searchPortalTarget={searchSlot}
+              controlsPortalTarget={controlsSlot}
             />
           </Box>
         </Box>
@@ -1080,6 +1180,16 @@ export function PosScreen({ onOpenAdmin }: Props) {
             flex: { xs: '2 1 0', md: '0 1 clamp(380px, 32vw, 500px)' },
             minWidth: { xs: 0, md: 360 },
             minHeight: 0,
+            // Its own margin, sourced locally for the same reason the
+            // product column's is: the row between them carries no padding
+            // (that was zeroed so this panel could dock flush once), so
+            // each column now states what it needs rather than inheriting
+            // it from a parent that has to serve both. The panel inside is
+            // a rounded card again, which needs the page to show past its
+            // corners — flush against the window, those corners just
+            // clipped a white box.
+            py: { xs: 0.5, md: 2 },
+            pr: { xs: 0.5, md: 2 },
             // No overflow here — ReceiptPanel is hard-bounded to exactly
             // this box's height, and its own internal Cart scroll is the
             // only thing that ever scrolls, so header/footer are always
@@ -1087,30 +1197,6 @@ export function PosScreen({ onOpenAdmin }: Props) {
           }}
         >
           <ReceiptPanel
-            storeName={(assignedStore ?? selectedStore)?.name ?? null}
-            cashierName={user.name}
-            registerName={selectedRegister?.name ?? null}
-            actions={
-              <AccountMenu
-                user={user}
-                stores={stores}
-                registers={registers}
-                storeId={storeId}
-                registerId={registerId}
-                onStoreChange={setStoreId}
-                onRegisterChange={setRegisterId}
-                heldSales={heldSales}
-                onResumeHeld={handleResume}
-                onDiscardHeld={handleDiscardHeld}
-                cashSession={cashSession}
-                onCloseTerminal={() => setShowCloseRegister(true)}
-                canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
-                onOpenAdmin={() => onOpenAdmin()}
-                onLogout={requestLogout}
-                onLock={idleLock.lock}
-                zoom={posZoom}
-              />
-            }
             customer={customer}
             bagger={bagger}
             lines={lines}
@@ -1127,6 +1213,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
             onCheckout={checkout}
             saleCounter={saleCounter}
             onPaymentDialogOpenChange={setPaymentDialogOpen}
+            onCancel={handleCancel}
+            saleStarted={saleStarted}
             onHold={handleHold}
           />
         </Box>

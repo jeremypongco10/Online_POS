@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -6,21 +7,20 @@ import Typography from '@mui/material/Typography';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ToggleButton from '@mui/material/ToggleButton';
 import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AppsIcon from '@mui/icons-material/Apps';
 import { api } from '../api/client';
 import type { Category, ProductWithStorePrice } from '../api/types';
 import { POS_ACCENT, THIN_SCROLLBAR_SX } from './format';
 import { useSnackbar } from '../Snackbar';
 import { SearchField } from '../SearchField';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
 import { KeyHint } from './KeyHint';
+import { CategoryDialog } from './CategoryDialog';
 import { CategoryPills } from './CategoryPills';
 import { ProductGrid } from './ProductGrid';
 import { ProductListView } from './ProductListView';
@@ -57,6 +57,21 @@ interface Props {
   companyId: number;
   storeId: number | null;
   onAdd: (product: ProductWithStorePrice, quantity?: number) => void;
+  /**
+   * PosHeader's slots for the search field and for the Category/view
+   * controls. When set, those pieces render into the dark top bar via a
+   * portal instead of at the top of this column.
+   *
+   * A portal rather than lifting the state: the query, its debounce,
+   * scanner mode, the Enter-to-add handling, the arrow-key grid
+   * navigation and the focus juggling that keeps a wedge scanner fed all
+   * live here and are tightly coupled. Moving the DOM costs nothing;
+   * moving the state would mean threading a dozen values through
+   * PosScreen for a purely visual relocation. Both stay optional so this
+   * component still renders standalone with its controls in place.
+   */
+  searchPortalTarget?: HTMLElement | null;
+  controlsPortalTarget?: HTMLElement | null;
 }
 
 /**
@@ -69,34 +84,13 @@ interface Props {
  * dedicated scan endpoint needed — the trailing icon is a visual
  * affordance for that, not a separate integration.
  */
-export function ProductSearch({ companyId, storeId, onAdd }: Props) {
+export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, controlsPortalTarget }: Props) {
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [categories, setCategories] = useState<CategoryNode[]>([]);
-  // Narrows the rail's own chip list by name — client-side, since the
-  // category tree is small and already fully loaded (see the effect
-  // below), unlike the product search above it which has a real catalog
-  // behind it. Independent of `query`: typing here filters *categories*,
-  // not products, and doesn't touch the grid until a category is picked.
-  const [categoryFilter, setCategoryFilter] = useState('');
-  /**
-   * Collapsed hands the rail's width back to the grid — a cashier who
-   * knows what they're browsing for doesn't need the picker on screen at
-   * all. Doesn't reset categoryId: collapsing is purely a visibility
-   * toggle, and a filter picked before collapsing keeps filtering the
-   * grid underneath, same as closing any other filter panel would.
-   *
-   * Starts collapsed on a phone, where expanded it took 140px of a 390px
-   * screen — over a third of the width — leaving the grid a single narrow
-   * column and squeezing the search box down to roughly its own icon.
-   * Collapsed still keeps the filter one tap away and still shows its
-   * active-filter dot, so nothing is lost but the width. Initial value
-   * only: open it on a phone and it stays open.
-   */
-  const phone = useMediaQuery(useTheme().breakpoints.down('sm'));
-  const [railCollapsed, setRailCollapsed] = useState(phone);
   const [results, setResults] = useState<ProductWithStorePrice[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -285,18 +279,15 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
     [results]
   );
 
-  // "All" isn't part of this list — CategoryPills always renders that
-  // itself, filtered or not, so it stays reachable as the one-tap reset
-  // regardless of what's typed here.
-  const filteredCategories = useMemo(() => {
-    const q = categoryFilter.trim().toLowerCase();
-    if (!q) return categories;
-    return categories.filter((c) => c.name.toLowerCase().includes(q));
-  }, [categories, categoryFilter]);
-
   // A first load has nothing on screen yet, so it fills the panel with
   // placeholders; a scroll-in page only needs a few, since there are
   // already real rows above them doing the explaining.
+  // Falls back to "Category" rather than an id if the selected category
+  // somehow isn't in the list (deleted in Back Office while the till is
+  // open, say) — a stale name is a cosmetic problem, a raw "#25" on the
+  // button is a confusing one.
+  const selectedCategoryName = categories.find((c) => c.id === categoryId)?.name ?? 'Category';
+
   const initialLoading = loading && results.length === 0;
   const gridSkeletons = initialLoading ? 12 : loadingMore ? 4 : 0;
   const listSkeletons = initialLoading ? 8 : loadingMore ? 3 : 0;
@@ -603,14 +594,26 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
   // Sized to match the search field it sits beside (48) rather than
   // MUI's `small` default (~32) — the two read as one control strip that
   // way, and a view switch on a till is a finger target like any other.
+  // Coloured for PosHeader's fixed navy rather than for the page: the
+  // unselected segment is a muted white so it reads as available without
+  // competing, and the selected one takes a solid accent fill, which is
+  // the only state that needs to carry at a glance across a counter.
   const toggleButtonSx = {
     gap: 0.5,
     px: 1.75,
-    minWidth: 48,
-    minHeight: 48,
+    minWidth: 46,
+    minHeight: 46,
     textTransform: 'none',
     fontWeight: 600,
-    '&.Mui-selected': { bgcolor: `${POS_ACCENT}1a`, color: POS_ACCENT, '&:hover': { bgcolor: `${POS_ACCENT}26` } },
+    color: 'rgba(255,255,255,0.65)',
+    borderColor: 'rgba(255,255,255,0.22)',
+    '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' },
+    '&.Mui-selected': {
+      bgcolor: POS_ACCENT,
+      color: '#fff',
+      borderColor: POS_ACCENT,
+      '&:hover': { bgcolor: POS_ACCENT, color: '#fff' },
+    },
   } as const;
 
   // The search field + its loading spinner, as one unit — sits beside the
@@ -652,18 +655,26 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
             // cashier taps to type a name and the one a scanner types
             // into all shift, so it gets a full touch target rather than
             // the compact height the admin toolbars use.
-            minHeight: 48,
-            bgcolor: 'background.paper',
-            // Squarer than SearchField's own pill default. That full
-            // round is right for the short search boxes on the admin
-            // toolbars, but this field is far wider, and at this length a
-            // 999px radius turns the ends into big empty caps that push
-            // the icon and the F2 badge inwards. Overridden here rather
-            // than on SearchField itself so the admin toolbars keep the
-            // shape they were designed with.
-            borderRadius: 2,
-            '&:hover': { bgcolor: 'background.paper' },
-            '&.Mui-focused': { bgcolor: 'background.paper', boxShadow: `0 0 0 2px ${POS_ACCENT}` },
+            minHeight: 46,
+            // Forced white rather than `background.paper`: this field now
+            // sits on PosHeader's fixed navy, which does not follow the
+            // app's light/dark setting, so a theme-driven surface would
+            // turn near-black on a dark-mode terminal and swallow both the
+            // placeholder and anything typed into it.
+            bgcolor: '#fff',
+            // A full pill here, unlike the squarer radius this carried
+            // while it sat on the page: against a flat dark bar the
+            // rounded ends are what separate the field from the band
+            // behind it, and there is no neighbouring card for it to
+            // match corners with any more.
+            borderRadius: 999,
+            '& input': { color: '#0f172a' },
+            '& fieldset': { border: 'none' },
+            '&:hover': { bgcolor: '#fff' },
+            // A white ring, not the accent blue: on navy, blue-on-navy is
+            // nearly invisible, so focus is shown by lifting the field off
+            // the bar instead of tinting its edge.
+            '&.Mui-focused': { bgcolor: '#fff', boxShadow: '0 0 0 3px rgba(255,255,255,0.25)' },
           },
         }}
         // F2 used to be spelled out in the placeholder; now shown as its
@@ -689,238 +700,210 @@ export function ProductSearch({ companyId, storeId, onAdd }: Props) {
     </Stack>
   );
 
-  return (
-    <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'row', gap: { xs: 1.5, md: 2 } }}>
-      {/* Category rail — a fixed-width column rather than a row above the
-          grid, so switching categories doesn't compete with the search bar
-          for the same horizontal strip. Scrolls on its own; see
-          CategoryPills' 'column' orientation for why it skips that
-          component's row-mode chevron buttons.
+  // The Category button and the grid/list toggle, as one unit — portaled
+  // into PosHeader's dark bar when it supplies a slot (see the props), or
+  // rendered inline above the grid when nothing does. Extracted into a
+  // variable for exactly that reason: the same markup has to be able to
+  // land in either place without being written twice.
+  const controlsNode = (
+    <>
+        {/* The whole category picker, in one button. There is no strip of
+            pills under this row any more: every product in this catalog
+            carries a barcode, so a category is a fallback a cashier
+            reaches for when a barcode won't read or a customer asks what
+            is stocked — not the way items are normally found. A permanent
+            row of chips charged the grid ~50px of height on every screen
+            for that, where a button on a row that already exists charges
+            nothing.
 
-          Collapsible down to a bare strip, for a cashier who already
-          knows what they're browsing for and would rather have the width
-          back for the grid — see railCollapsed. Filterable above that
-          (categoryFilter/filteredCategories): the same "narrow a long
-          list by typing" pattern as the product search itself, just
-          scoped to category names instead of the catalog. */}
-      <Box
-        sx={{
-          // Widened with the rail's own taller entries: at 176 a two-word
-          // category ellipsised almost every time, and the rail is read
-          // far more often than the 14px it costs the grid beside it.
-          // Collapsed, it shrinks to just enough for the expand button —
-          // the grid picks up the rest immediately since it's the row's
-          // one flexible sibling.
-          width: railCollapsed ? 40 : { xs: 140, md: 190 },
-          flexShrink: 0,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 2.5,
-          bgcolor: 'background.paper',
-          p: railCollapsed ? 0.5 : { xs: 1.25, md: 1.5 },
-          transition: 'width 0.15s ease',
-        }}
-      >
-        {railCollapsed ? (
-          <Tooltip title="Show categories" placement="right">
-            <IconButton
-              onClick={() => setRailCollapsed(false)}
-              aria-label="Show categories"
+            The pill strip below the bar is now the primary way in, so
+            this is the "see them all at once" escape hatch rather than
+            the only door — but it keeps showing the active category's
+            NAME, because on a narrow screen where the strip has scrolled
+            the current filter off the side, this is the one place still
+            saying which slice of the catalog the grid is showing. */}
+        {categories.length > 0 && (
+          <Tooltip title={categoryId === null ? 'Filter by category' : `Category: ${selectedCategoryName}. Click to change.`}>
+            <Button
+              onClick={() => setCategoryDialogOpen(true)}
+              startIcon={<AppsIcon />}
+              aria-label={categoryId === null ? 'Filter by category' : `Category: ${selectedCategoryName}`}
               sx={{
-                position: 'relative',
-                alignSelf: 'center',
-                mt: 0.5,
-                width: 34,
-                height: 34,
+                flexShrink: 0,
+                height: 46,
+                px: { xs: 1.25, sm: 2 },
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: 14.5,
+                whiteSpace: 'nowrap',
                 border: '1px solid',
-                borderColor: 'divider',
+                // White-on-navy rather than the page's own divider/text
+                // tokens: this button sits on PosHeader's fixed dark band,
+                // which ignores the app's light/dark setting, so theme
+                // colours here would be styled against the wrong surface.
+                borderColor: categoryId === null ? 'rgba(255,255,255,0.22)' : POS_ACCENT,
+                // Transparent at rest, not paper — a solid white pill sat
+                // in the same row as the equally white search field and
+                // grid/list toggle, and the three together read as
+                // separate cards rather than one toolbar. The border
+                // already does the job of reading as a button rather than
+                // dead space; only the ACTIVE state (a category picked)
+                // still gets a solid fill, since that's the one moment
+                // this button needs to stand out as "a filter is on".
+                bgcolor: categoryId === null ? 'rgba(255,255,255,0.07)' : POS_ACCENT,
+                color: '#fff',
+                '&:hover': {
+                  bgcolor: categoryId === null ? 'rgba(255,255,255,0.14)' : POS_ACCENT,
+                  borderColor: categoryId === null ? 'rgba(255,255,255,0.35)' : POS_ACCENT,
+                  color: '#fff',
+                },
+                // The icon alone on a phone. At 390px the search field is
+                // the control that has to stay readable for a typed SKU,
+                // and a category name as long as "Grocery & Canned Goods"
+                // would take most of the row off it.
+                '& .MuiButton-startIcon': { mr: { xs: 0, sm: 1 } },
               }}
             >
-              <ChevronRightIcon fontSize="small" />
-              {/* A quiet reminder that a category filter is still active
-                  underneath — collapsing hides the picker, not the filter
-                  it left behind, and without this the grid would look
-                  like it had simply lost most of its catalog for no
-                  visible reason. */}
-              {categoryId !== null && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 2,
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    bgcolor: POS_ACCENT,
-                    border: '1.5px solid',
-                    borderColor: 'background.paper',
-                  }}
-                />
-              )}
-            </IconButton>
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                {categoryId === null ? 'Category' : selectedCategoryName}
+              </Box>
+            </Button>
           </Tooltip>
+        )}
+        <ToggleButtonGroup
+          value={viewMode}
+          exclusive
+          size="small"
+          onChange={(_, v: ViewMode | null) => v && setViewMode(v)}
+          // Transparent, not paper: a solid white pill next to the equally
+          // white search field and the equally white Category button made
+          // this row read as three separate cards glued together rather
+          // than one toolbar. The 1px border every segment already carries
+          // is what keeps this legible as a control rather than empty
+          // space — matches the bordered-not-filled treatment the Category
+          // button uses for its own resting state.
+          // Hidden on a phone. Grid-versus-list is a preference; the
+          // search field is the control a cashier actually works
+          // through, and sharing the row with this left it 84px wide
+          // showing "Search by p…" — unusable for reading back a typed
+          // SKU or a scan. The grid is the sensible phone default and
+          // the toggle returns as soon as there's room for both.
+          sx={{ flexShrink: 0, display: { xs: 'none', sm: 'inline-flex' } }}
+        >
+          <ToggleButton value="grid" sx={toggleButtonSx} aria-label="Grid view">
+            <Tooltip title="Grid view">
+              <GridViewIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+          <ToggleButton value="list" sx={toggleButtonSx} aria-label="List view">
+            <Tooltip title="List view">
+              <ViewListIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+        </ToggleButtonGroup>
+    </>
+  );
+
+  return (
+    <Box sx={{ height: '100%', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Search field and controls render into PosHeader's dark bar when
+          it offers a slot, and fall back to a row of their own here when
+          it doesn't. createPortal moves only the DOM — every piece of
+          state and every handler stays in this component, so the scanner,
+          the debounce and the arrow-key navigation behave identically
+          whichever side of the portal the markup is painted on. */}
+      {searchPortalTarget ? createPortal(searchFieldNode, searchPortalTarget) : null}
+      {controlsPortalTarget ? createPortal(controlsNode, controlsPortalTarget) : null}
+      {(!searchPortalTarget || !controlsPortalTarget) && (
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexShrink: 0, mb: 1.25 }}>
+          {!searchPortalTarget && searchFieldNode}
+          {!controlsPortalTarget && controlsNode}
+        </Stack>
+      )}
+
+      {/* The category strip. Back as a full row of labelled pills rather
+          than the single Category button it was compressed into: with the
+          search field and the view toggle both moved up to the top bar,
+          this row's height is no longer competing with them for the same
+          band, so the catalog's own sections can be on screen and one tap
+          away instead of two taps behind a dialog. */}
+      {categories.length > 0 && (
+        <Box sx={{ flexShrink: 0, mb: 1.25, minWidth: 0 }}>
+          <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
+        </Box>
+      )}
+
+      {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
+      {/* px/pt give a hovered card's shadow somewhere to land instead of
+          being sliced off against the scroller's edge — the card itself no
+          longer moves (see ProductCard), so this only has to accommodate
+          the shadow. */}
+      {/* One handler for both view modes: the keydown bubbles here from
+          whichever tile has focus, and productGridNav works out the row
+          width from the DOM rather than from which component rendered. */}
+      <Box
+        ref={resultsContainerRef}
+        onKeyDown={handleResultsKeyDown}
+        // A pointer press ends keyboard browsing, so clicking a card still
+        // hands focus back to the search field for the next scan.
+        onPointerDown={() => {
+          keyboardBrowsingRef.current = false;
+        }}
+        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, pb: 0.5, ...THIN_SCROLLBAR_SX }}
+      >
+        {results.length === 0 && !loading ? (
+          // Without this, a search that matches nothing just leaves a
+          // blank panel, which reads as a broken screen rather than an
+          // answer to what was typed.
+          <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
+            <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
+            </Typography>
+            <Typography variant="caption">
+              {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
+            </Typography>
+          </Stack>
         ) : (
           <>
-            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, mb: 1 }}>
+            {/* Placeholders rather than a spinner, and rendered inside the
+                grid/table itself: on a first load they show the shape of
+                what's coming instead of a blank panel, and on a scroll-in
+                page they extend the existing columns so nothing jumps when
+                the real rows arrive. */}
+            {viewMode === 'grid' ? (
+              <ProductGrid products={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={gridSkeletons} />
+            ) : (
+              <ProductListView results={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={listSkeletons} />
+            )}
+            {/* Invisible trigger for the next page — only mounted while
+                there's actually more to fetch, so the observer has nothing
+                to watch (and loadMore never fires) once the catalog ends. */}
+            {hasMore && <Box ref={sentinelRef} sx={{ height: 1 }} />}
+            {/* Closes the loop on a paged list: without it, a cashier who
+                scrolls to the bottom can't tell whether that's the whole
+                catalog or just the next batch failing to arrive. Only
+                worth saying once more than one page has actually loaded. */}
+            {!hasMore && !loading && !loadingMore && results.length > PAGE_SIZE && (
               <Typography
                 variant="caption"
-                sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                sx={{ display: 'block', textAlign: 'center', py: 2.5, color: 'text.disabled' }}
               >
-                Categories
+                {`All ${results.length} products loaded`}
               </Typography>
-              <Tooltip title="Hide categories">
-                <IconButton size="small" onClick={() => setRailCollapsed(true)} aria-label="Hide categories">
-                  <ChevronLeftIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-            <SearchField
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              placeholder="Filter categories"
-              fullWidth
-              sx={{ minWidth: 0, flexShrink: 0, mb: 1, '& .MuiOutlinedInput-root': { height: 40 } }}
-            />
-            <Box sx={{ flex: 1, minHeight: 0 }}>
-              <CategoryPills categories={filteredCategories} selected={categoryId} onSelect={setCategoryId} orientation="column" />
-            </Box>
+            )}
           </>
         )}
       </Box>
 
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <Stack
-          direction="row"
-          sx={{ alignItems: 'flex-end', justifyContent: 'space-between', gap: 2, mb: 1.25, flexShrink: 0 }}
-        >
-          <Box>
-            <Typography sx={{ fontSize: 20, lineHeight: 1.2, fontWeight: 800, letterSpacing: '-0.025em' }}>
-              Products
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Select an item or scan its barcode
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              px: 1.25,
-              py: 0.5,
-              borderRadius: 999,
-              bgcolor: 'background.paper',
-              border: '1px solid',
-              borderColor: 'divider',
-              color: 'text.secondary',
-              fontSize: 12,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {loading && results.length === 0 ? 'Loading products' : `${results.length} shown`}
-          </Box>
-        </Stack>
-        {/* Search field and the grid/list toggle share one row — this used
-            to be two stacked rows (the field on its own above, category
-            pills sharing this one with the toggle) back when the field
-            portaled up into PosHeader's dark bar. Now that both the header
-            and the pills have moved elsewhere, the field and the toggle are
-            the only two things left here, so they share the space. */}
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
-          {searchFieldNode}
-          <ToggleButtonGroup
-            value={viewMode}
-            exclusive
-            size="small"
-            onChange={(_, v: ViewMode | null) => v && setViewMode(v)}
-            // Paper, like the search field beside it — on the page's own
-            // grey background an unfilled group read as a hole rather
-            // than a control.
-            // Hidden on a phone. Grid-versus-list is a preference; the
-            // search field is the control a cashier actually works
-            // through, and sharing the row with this left it 84px wide
-            // showing "Search by p…" — unusable for reading back a typed
-            // SKU or a scan. The grid is the sensible phone default and
-            // the toggle returns as soon as there's room for both.
-            sx={{ flexShrink: 0, bgcolor: 'background.paper', display: { xs: 'none', sm: 'inline-flex' } }}
-          >
-            <ToggleButton value="grid" sx={toggleButtonSx} aria-label="Grid view">
-              <Tooltip title="Grid view">
-                <GridViewIcon fontSize="small" />
-              </Tooltip>
-            </ToggleButton>
-            <ToggleButton value="list" sx={toggleButtonSx} aria-label="List view">
-              <Tooltip title="List view">
-                <ViewListIcon fontSize="small" />
-              </Tooltip>
-            </ToggleButton>
-          </ToggleButtonGroup>
-        </Stack>
-
-        {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
-        {/* px/pt give a hovered card's shadow somewhere to land instead of
-            being sliced off against the scroller's edge — the card itself no
-            longer moves (see ProductCard), so this only has to accommodate
-            the shadow. */}
-        {/* One handler for both view modes: the keydown bubbles here from
-            whichever tile has focus, and productGridNav works out the row
-            width from the DOM rather than from which component rendered. */}
-        <Box
-          ref={resultsContainerRef}
-          onKeyDown={handleResultsKeyDown}
-          // A pointer press ends keyboard browsing, so clicking a card still
-          // hands focus back to the search field for the next scan.
-          onPointerDown={() => {
-            keyboardBrowsingRef.current = false;
-          }}
-          sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1.25, pt: 0.5, px: 0.5, pb: 0.5, ...THIN_SCROLLBAR_SX }}
-        >
-          {results.length === 0 && !loading ? (
-            // Without this, a search that matches nothing just leaves a
-            // blank panel, which reads as a broken screen rather than an
-            // answer to what was typed.
-            <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
-              <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
-              <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
-              </Typography>
-              <Typography variant="caption">
-                {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
-              </Typography>
-            </Stack>
-          ) : (
-            <>
-              {/* Placeholders rather than a spinner, and rendered inside the
-                  grid/table itself: on a first load they show the shape of
-                  what's coming instead of a blank panel, and on a scroll-in
-                  page they extend the existing columns so nothing jumps when
-                  the real rows arrive. */}
-              {viewMode === 'grid' ? (
-                <ProductGrid products={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={gridSkeletons} />
-              ) : (
-                <ProductListView results={orderedResults} onAdd={handleAdd} onLongPress={handleLongPress} skeletonCount={listSkeletons} />
-              )}
-              {/* Invisible trigger for the next page — only mounted while
-                  there's actually more to fetch, so the observer has nothing
-                  to watch (and loadMore never fires) once the catalog ends. */}
-              {hasMore && <Box ref={sentinelRef} sx={{ height: 1 }} />}
-              {/* Closes the loop on a paged list: without it, a cashier who
-                  scrolls to the bottom can't tell whether that's the whole
-                  catalog or just the next batch failing to arrive. Only
-                  worth saying once more than one page has actually loaded. */}
-              {!hasMore && !loading && !loadingMore && results.length > PAGE_SIZE && (
-                <Typography
-                  variant="caption"
-                  sx={{ display: 'block', textAlign: 'center', py: 2.5, color: 'text.disabled' }}
-                >
-                  {`All ${results.length} products loaded`}
-                </Typography>
-              )}
-            </>
-          )}
-        </Box>
-      </Box>
+      <CategoryDialog
+        open={categoryDialogOpen}
+        onClose={() => setCategoryDialogOpen(false)}
+        categories={categories}
+        selected={categoryId}
+        onSelect={setCategoryId}
+      />
 
       <AddQuantityDialog
         product={quantifyProduct}
