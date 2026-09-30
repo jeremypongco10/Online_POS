@@ -21,6 +21,8 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import BluetoothOutlinedIcon from '@mui/icons-material/BluetoothOutlined';
+import BluetoothConnectedOutlinedIcon from '@mui/icons-material/BluetoothConnectedOutlined';
 import { SearchableSelect } from '../admin/SearchableSelect';
 import { ThemeToggle } from '../ThemeToggle';
 import { ChangePasswordButton } from '../ChangePasswordModal';
@@ -29,6 +31,13 @@ import { POS_ACCENT } from './format';
 import { formatDateTime, formatTime } from '../regional';
 import type { HeldSale } from './holdSale';
 import type { PosZoomControl } from './usePosZoom';
+import {
+  connectBluetoothPrinter,
+  disconnectBluetoothPrinter,
+  isWebBluetoothSupported,
+  subscribeBluetoothPrinter,
+  type BluetoothPrinterState,
+} from './bluetoothPrinter';
 
 interface Props {
   user: AuthUser;
@@ -335,6 +344,7 @@ export function AccountMenu({
                 Back Office
               </Button>
             )}
+            <PrinterConnectControl />
           </Stack>
 
           <Divider sx={{ my: 1.5 }} />
@@ -444,5 +454,63 @@ export function AccountMenu({
         </Box>
       </Popover>
     </>
+  );
+}
+
+/**
+ * Connect/disconnect a Bluetooth thermal printer for this terminal — a
+ * once-per-shift (really once-per-browser-install, since Chrome remembers
+ * the grant) action, in the same group as Lock Screen/Close Terminal/Back
+ * Office rather than anywhere a cashier would look at every sale.
+ *
+ * Hidden entirely, not shown-but-disabled, when Web Bluetooth isn't
+ * reachable at all (a plain http:// origin on Android without the
+ * chrome://flags override, or any desktop browser) — a button that's
+ * always visible but fails the instant it's touched would just be a dead
+ * end wearing the same look as every real button around it.
+ */
+function PrinterConnectControl() {
+  const [state, setState] = useState<BluetoothPrinterState>({ status: 'disconnected', deviceName: null, lastError: null });
+
+  useEffect(() => subscribeBluetoothPrinter(setState), []);
+
+  if (!isWebBluetoothSupported()) return null;
+
+  const connected = state.status === 'connected';
+
+  return (
+    <Stack spacing={0.25}>
+      <Button
+        startIcon={
+          connected ? (
+            <BluetoothConnectedOutlinedIcon fontSize="small" sx={{ color: 'success.main' }} />
+          ) : (
+            <BluetoothOutlinedIcon fontSize="small" />
+          )
+        }
+        onClick={() => {
+          if (connected) {
+            disconnectBluetoothPrinter();
+            return;
+          }
+          // requestDevice() rejects the same way for "the cashier closed
+          // the picker without choosing anything" as it does for a real
+          // failure — bluetoothPrinter.ts already recorded lastError for
+          // the second case, and there's nothing more useful to do with
+          // either here than let the subscription above repaint this
+          // control from whatever state landed.
+          connectBluetoothPrinter().catch(() => {});
+        }}
+        disabled={state.status === 'connecting'}
+        sx={{ justifyContent: 'flex-start', color: connected ? 'success.main' : 'text.secondary' }}
+      >
+        {state.status === 'connecting' ? 'Connecting…' : connected ? (state.deviceName ?? 'Printer connected') : 'Connect Printer'}
+      </Button>
+      {state.lastError && !connected && (
+        <Typography variant="caption" color="error.main" sx={{ pl: 4.5 }}>
+          {state.lastError}
+        </Typography>
+      )}
+    </Stack>
   );
 }

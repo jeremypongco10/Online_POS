@@ -17,6 +17,7 @@ import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { CartTotals, CartLine } from './posTypes';
 import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import { POS_ACCENT, POS_ACTION_TINTS, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
@@ -95,6 +96,8 @@ export function ReceiptPanel({
   saleStarted,
   onHold,
 }: Props) {
+  const { user } = useAuth();
+  const loyaltyEnabled = user?.loyalty_enabled ?? true;
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const activeItemCount = lines.filter((line) => !line.voided).length;
   // A successful checkout (or a Hold) resets the sale and bumps saleCounter
@@ -248,7 +251,7 @@ export function ReceiptPanel({
                 // for a role without loyalty.view, hence the undefined
                 // check.
                 trailing={
-                  customer.points !== undefined && customer.points !== null ? (
+                  loyaltyEnabled && customer.points !== undefined && customer.points !== null ? (
                     <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                       · {customer.points.toLocaleString('en-PH')} pts
                     </Typography>
@@ -416,6 +419,24 @@ export function ReceiptPanel({
               // buttons across the POS share it rather than each carrying
               // a near-miss copy.
               ...posRaisedButtonSx(POS_ACTION_TINTS.pay),
+              // Overrides the shared grey disabled look for this button
+              // only. With an empty cart Pay is disabled most of the time,
+              // and the shared treatment left white label text on a pale
+              // grey fill — barely legible, and the reason this looked
+              // washed out. Same hue as the enabled button, just pale,
+              // with the label and keycap in the hue itself: clearly
+              // "not yet" without being hard to read.
+              '&.Mui-disabled': {
+                backgroundColor: `${POS_ACTION_TINTS.pay}1f`,
+                backgroundImage: 'none',
+                boxShadow: 'none',
+                color: POS_ACTION_TINTS.pay,
+                '& kbd': {
+                  bgcolor: `${POS_ACTION_TINTS.pay}1f`,
+                  color: POS_ACTION_TINTS.pay,
+                  borderColor: `${POS_ACTION_TINTS.pay}55`,
+                },
+              },
             }}
           >
             Pay

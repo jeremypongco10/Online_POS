@@ -32,6 +32,8 @@ import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { canAccessPos } from '../auth/posAccess';
 import { ThemeToggle } from '../ThemeToggle';
+import { ChatPanel } from './ChatPanel';
+import { HelpPanel } from '../help/HelpPanel';
 import { ChangePasswordModal } from '../ChangePasswordModal';
 import { IconBox, IconCash, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconTruck, IconUsers } from './icons';
 import logoDark from '../assets/logo-dark.png';
@@ -368,6 +370,16 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                 </Box>
               </Button>
             )}
+
+            {/* Back Office only, by permission AND by never being rendered
+                anywhere in the POS screen at all — see ChatPanel's own
+                docblock. Cashier/Cashier Supervisor never hold chat.access
+                (GrantChatPermissionToExistingRoles), so this simply isn't
+                in the tree for them rather than being a hidden/disabled
+                icon they'd have no use for anyway. */}
+            {hasPermission('chat.access') && <ChatPanel />}
+
+            <HelpPanel />
 
             <ThemeToggle />
 

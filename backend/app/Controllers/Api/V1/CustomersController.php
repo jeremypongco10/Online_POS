@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Models\CompanyModel;
 use App\Models\CustomerModel;
 use App\Models\LoyaltyCardModel;
 use App\Models\LoyaltyPointTransactionModel;
@@ -146,11 +147,20 @@ class CustomersController extends BaseCrudController
      * row — points is the computed sum of that customer's ledger entries,
      * never a stored counter — if the caller can see loyalty data at all
      * (a role with customers.view but not loyalty.view, none exist today,
-     * but the check costs nothing).
+     * but the check costs nothing) AND the company actually runs a loyalty
+     * program (loyalty_enabled) — a company with it switched off never
+     * gets points/card data back here, regardless of the caller's own
+     * permissions.
      */
     private function attachPoints(array $customers): array
     {
-        if (! in_array('loyalty.view', Services::authContext()->permissions, true)) {
+        $auth = Services::authContext();
+        if (! in_array('loyalty.view', $auth->permissions, true)) {
+            return $customers;
+        }
+
+        $company = model(CompanyModel::class)->find($auth->companyId);
+        if (! $company || (int) ($company->loyalty_enabled ?? 1) !== 1) {
             return $customers;
         }
 

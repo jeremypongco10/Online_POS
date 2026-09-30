@@ -21,6 +21,55 @@ export interface AuthUser {
   tax_system: string;
   /** Minutes of no activity before the POS screen locks itself, 0 = never. A cashier can still always lock it by hand regardless — see pos/useIdleLock. */
   pos_lock_idle_minutes: number;
+  /** Master switch for the whole Customer Loyalty feature (points + loyalty card) — off hides every points/card UI outright, not just the ability to earn new ones. See AuthController::attachCompanyProfile / AddLoyaltyEnabledToCompanies. */
+  loyalty_enabled: boolean;
+}
+
+/** A Back Office teammate who holds chat.access — the "start a new conversation" picker's contact list (both for a new direct message and for who can be added to a group). See ChatController::contacts(). */
+export interface ChatContact {
+  id: number;
+  name: string;
+  email: string;
+  role_id: number;
+}
+
+/** One row per conversation (direct or group), not per message — ChatController::conversations(). */
+export interface ChatConversation {
+  id: number;
+  type: 'direct' | 'group';
+  /** For 'direct', the OTHER participant's name; for 'group', the group's own name. */
+  name: string;
+  member_count: number;
+  last_message: string;
+  /** True if the most recent message was deleted by its sender — `last_message` is then an empty string; show "This message was deleted" instead. */
+  last_message_deleted: boolean;
+  last_message_at: string | null;
+  last_message_from_me: boolean;
+  /** Who sent the last message — mainly useful for a group's list preview ("Maria: On my way"); null if there are no messages yet. */
+  last_message_sender_name: string | null;
+  unread_count: number;
+}
+
+/** A conversation's current, active membership — ChatController::messages() bundles this in with the thread itself, since viewing a thread already loads everything a "group info" view needs. */
+export interface ChatConversationMember {
+  user_id: number;
+  name: string;
+  email: string;
+  joined_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  company_id: number;
+  conversation_id: number;
+  sender_id: number;
+  /** Only present on messages fetched via GET /chat/messages (joined server-side) — a message just POSTed back from send() won't have it, but it's always the caller's own, so it's never needed there. */
+  sender_name?: string;
+  /** Empty once deleted_at is set — the text itself is cleared server-side, not just hidden. See ChatMessageModel::softDelete(). */
+  body: string;
+  /** Null = not deleted. Only the message's own sender can ever set this. */
+  deleted_at: string | null;
+  created_at: string;
 }
 
 export interface Unit {
@@ -35,6 +84,14 @@ export interface TaxRate {
   name: string;
   rate: string;
   is_default: string | number;
+  /**
+   * The protected standard rate for its regime (12% VAT / 10% GST) —
+   * never deletable, by this row's own id, either through the ordinary
+   * Tax tab (TaxesController::delete) or through "Reset configuration"
+   * (SystemResetController::reset). Server-set only; there's no create/
+   * update field for it. See AddIsSystemToTaxRates.
+   */
+  is_system?: string | number;
   /**
    * The single-letter BIR receipt flag — V(atable), E(xempt),
    * Z(ero-rated), N(on-VAT). Server-derived from the rate's
@@ -89,12 +146,16 @@ export interface StoreProductPrice {
   store_name: string;
   cost_price: string | null;
   selling_price: string | null;
+  /** Whether this store has starred the product for its POS Favorites shortcut. Separate from the price — saved the moment it's toggled, not with Save Prices. */
+  is_favorite?: boolean;
 }
 
 export interface Company {
   id: number;
   trade_name: string;
   legal_name: string | null;
+  /** Relative path (e.g. "uploads/companies/1_ab3f.png") — resolve with assetUrl() before use as an <img src>, same convention as a product's image_path. Set via POST/DELETE /companies/{id}/logo, never through the plain company PUT alone (see CompaniesController::uploadLogo). */
+  logo_path: string | null;
   tax_id: string | null;
   is_vat_registered: string | number;
   vat_registration_number: string | null;
@@ -108,6 +169,8 @@ export interface Company {
   is_active: string | number;
   /** Points earned per ₱100 of a sale's total, applied automatically at checkout when a customer is attached. 0 = disabled. */
   loyalty_points_per_100: string | number;
+  /** Master switch for the whole Customer Loyalty feature — off hides every points/card UI outright, separate from the earn rate above. See AddLoyaltyEnabledToCompanies. */
+  loyalty_enabled: string | number;
   /** Minutes of no activity before the POS screen locks itself, 0 = never (manual locking still always works). See pos/useIdleLock. */
   pos_lock_idle_minutes: string | number;
   /** Whether a supervisor must sign off before the POS drops a single cart line. Defaults to 0 — a mis-scan correction is logged, not blocked. See VoidApprovalDialog. */
@@ -138,6 +201,8 @@ export interface Store {
   name: string;
   code: string;
   address: string | null;
+  phone: string | null;
+  email: string | null;
   is_active: string | number;
   /** A closing message printed at the BOTTOM of this store's own receipts — "Thank you, come again", a return policy, a promo, etc. The header is a fixed structured block (name/address/TIN/VAT Reg TIN/Serial/MIN below), so free text has no place there; this is the receipt's one free-text slot. Frozen onto each sale at checkout (Sale.store_receipt_footer_note is the copy a receipt actually reads), so editing this never rewrites a receipt already issued. */
   receipt_footer_note: string | null;
@@ -149,9 +214,13 @@ export interface Store {
   ptu_number: string | null;
   /** Whether the three fields above actually print on this store's receipts — independent of whether they're filled in. Checked once at checkout (SalesController::create), so toggling this never changes a receipt already issued. */
   show_bir_details: string | number;
+  /** This store's own opening-float default — every register in the store uses it unconditionally (see AddOpeningFloatToStores; a register carries no such configuration of its own at all). */
+  opening_float_mode: OpeningFloatMode;
+  /** Only meaningful when opening_float_mode is 'fixed'/'fixed_confirm'. */
+  default_opening_float: string | null;
 }
 
-/** Three ways a cash session can start on this register — see RegisterModel's own notes (backend) on the three modes and why 'fixed'/'fixed_confirm' resolve to the exact same number server-side regardless of what a client sends. */
+/** Three ways a cash session can start — see StoreModel's own notes (backend) on the modes and why 'fixed'/'fixed_confirm' resolve to the exact same number server-side regardless of what a client sends. Configured per-store only (Store.opening_float_mode) — a register has no configuration of its own, see Register's own effective_* fields below. */
 export type OpeningFloatMode = 'manual' | 'fixed' | 'fixed_confirm';
 
 export interface Register {
@@ -160,9 +229,10 @@ export interface Register {
   name: string;
   code: string;
   is_active: string | number;
-  opening_float_mode: OpeningFloatMode;
-  /** Only meaningful when opening_float_mode isn't 'manual' — null for a register left on manual entry. */
-  default_opening_float: string | null;
+  /** This register's own store's opening_float_mode, resolved server-side (RegisterModel::resolveOpeningFloat()) — added purely so the POS's own register picker (OpenRegisterScreen) doesn't need a second request just to find out how a register it's about to open actually starts. */
+  effective_opening_float_mode: OpeningFloatMode;
+  /** The float paired with effective_opening_float_mode. */
+  effective_opening_float: string | null;
   /** Sales rung up on this terminal are practice only: marked, excluded from every total, report and reading, and never given a real BIR invoice number. */
   is_training_mode: string | number;
 }
@@ -221,6 +291,7 @@ export interface Customer {
   name: string;
   email: string | null;
   mobile: string | null;
+  address: string | null;
   is_active: string | number;
   points?: number | null;
   loyalty_card_id?: number | null;
@@ -272,7 +343,20 @@ export interface SaleResponse {
 
 export interface Receipt {
   sale_id: number;
-  company: { name: string | null; tin: string | null };
+  company: {
+    name: string | null;
+    tin: string | null;
+    /** The business's current logo (read live, not frozen at checkout — see AddLogoPathToCompanies), for the browser/window.print() receipt. Resolve with assetUrl(). Null when there's no logo. */
+    logo_path: string | null;
+    /**
+     * The same logo, pre-converted to ESC/POS raster bytes for the
+     * Bluetooth thermal-printer path — see EscPosImageService on the
+     * backend for why this is computed server-side rather than in the
+     * browser. Null whenever logo_path is null, or the file couldn't be
+     * rasterized.
+     */
+    logo_escpos: { width: number; height: number; bytes_base64: string } | null;
+  };
   store: {
     name: string | null;
     address: string | null;
@@ -444,7 +528,7 @@ export interface AdminUser {
   company_id: number;
   role_id: number | null;
   name: string;
-  email: string;
+  email: string | null;
   username: string;
   phone: string | null;
   is_active: string | number;

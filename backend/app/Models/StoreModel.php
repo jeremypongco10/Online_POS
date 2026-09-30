@@ -14,10 +14,23 @@ class StoreModel extends Model
     protected $createdField = 'created_at';
     protected $updatedField = 'updated_at';
 
+    /**
+     * The three ways a cash session can start on any register in this
+     * store — see AddOpeningFloatToStores. Every register uses ITS
+     * store's setting unconditionally now (no per-register override —
+     * see DropOpeningFloatFromRegisters and RegisterModel::
+     * resolveOpeningFloat()), so this is the one and only place these
+     * modes are configured.
+     */
+    public const OPENING_FLOAT_MANUAL = 'manual';
+    public const OPENING_FLOAT_FIXED = 'fixed';
+    public const OPENING_FLOAT_FIXED_CONFIRM = 'fixed_confirm';
+
     protected $allowedFields = [
         'company_id', 'name', 'code', 'address', 'phone', 'email', 'is_active', 'receipt_footer_note',
         'vat_reg_tin', 'pos_serial_no', 'min_no', 'show_bir_details',
         'ptu_number', 'ptu_date_issued', 'ptu_valid_until',
+        'opening_float_mode', 'default_opening_float',
     ];
 
     protected $validationRules = [
@@ -47,5 +60,11 @@ class StoreModel extends Model
         // receipts — see AddShowBirDetailsToStores. Independent of
         // whether they're filled in.
         'show_bir_details' => ['label' => 'Show BIR details on receipt', 'rules' => 'permit_empty|in_list[0,1]'],
+        // This store's own opening-float default — see AddOpeningFloatToStores.
+        // No 'inherit' option here, unlike a register's own version of this
+        // field: a store is the top of that hierarchy, nothing further up
+        // for it to inherit from.
+        'opening_float_mode' => ['label' => 'Opening float mode', 'rules' => 'permit_empty|in_list[manual,fixed,fixed_confirm]'],
+        'default_opening_float' => ['label' => 'Opening float', 'rules' => 'permit_empty|decimal|greater_than_equal_to[0]'],
     ];
 }

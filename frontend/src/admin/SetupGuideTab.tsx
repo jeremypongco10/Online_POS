@@ -17,7 +17,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 
 /** The Settings tabs this guide can send someone to — kept as a loose string so SettingsScreen owns the real Tab union. */
-export type SetupTarget = 'stores' | 'registers' | 'payment-methods' | 'invoicing' | 'tax' | 'discounts' | 'units' | 'security';
+export type SetupTarget = 'business' | 'stores' | 'registers' | 'payment-methods' | 'invoicing' | 'tax' | 'discounts' | 'units' | 'security';
 
 /**
  * The last two steps finish outside Settings entirely — a configured
@@ -41,6 +41,7 @@ const SECTION_TARGETS: Record<'prices' | 'stock', SetupSection> = {
  * to check — assuming the pattern held left both steps' buttons dead.
  */
 const TARGET_PERMISSIONS: Record<SetupTarget, string[]> = {
+  business: ['companies.view', 'companies.manage'],
   stores: ['stores.view'],
   registers: ['registers.view'],
   'payment-methods': ['payment-methods.view'],
@@ -151,7 +152,7 @@ export function SetupGuideTab({
           title: 'Business profile',
           detail:
             "Your registered business name and TIN. These print at the top of every receipt, so a receipt issued before they're set carries the wrong identity permanently.",
-          target: 'invoicing',
+          target: 'business',
           required: true,
           done: company === null ? null : Boolean(company.tax_id && (company.legal_name || company.trade_name)),
         },

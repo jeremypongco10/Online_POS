@@ -23,6 +23,7 @@ import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
 import { api, ApiError } from '../api/client';
 import type { Customer, LoyaltyCard } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import { POS_ACCENT, posRaisedButtonSx } from './format';
 import { initialsForName } from './productColor';
 
@@ -72,6 +73,11 @@ function DetailRow({ icon, label, value }: { icon: ReactNode; label: string; val
  * are different answers.
  */
 export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
+  // Company-wide master switch (see AuthController::attachCompanyProfile)
+  // — off hides points/card entirely, leaving plain customer attach/search
+  // (member discount, contact info, sales history) fully working.
+  const { user } = useAuth();
+  const loyaltyEnabled = user?.loyalty_enabled ?? true;
   const [customerNumber, setCustomerNumber] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -138,9 +144,9 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
   // customer, not a card record), so the customer's own decorated fields
   // are the primary source here and `card` is only a fallback for the
   // paths that do carry one.
-  const cardNumber = customer?.card_number ?? card?.card_number ?? null;
+  const cardNumber = loyaltyEnabled ? (customer?.card_number ?? card?.card_number ?? null) : null;
   const points = customer?.points ?? (card ? Number(card.points) : undefined);
-  const canSeePoints = points !== undefined;
+  const canSeePoints = loyaltyEnabled && points !== undefined;
 
   return (
     <Stack spacing={2.5}>
@@ -375,7 +381,7 @@ export function CustomerLoyaltyPanel({ customer, card, onAttach }: Props) {
                     </Box>
                     {/* Points on the row itself, so picking between two
                         similar names doesn't need a second lookup. */}
-                    {c.points !== undefined && c.points !== null && (
+                    {loyaltyEnabled && c.points !== undefined && c.points !== null && (
                       <Chip
                         size="small"
                         label={`${c.points.toLocaleString('en-PH')} pts`}

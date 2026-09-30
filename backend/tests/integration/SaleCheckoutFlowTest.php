@@ -3,6 +3,7 @@
 use App\Libraries\JwtService;
 use App\Models\CashSessionModel;
 use App\Models\CompanyModel;
+use App\Models\CustomerModel;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
 use App\Models\InvoiceSeriesModel;
@@ -174,6 +175,20 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
 
         $db->table('inventory_transactions')->where('store_id', $this->storeId)->delete();
         $db->table('inventory')->where('store_id', $this->storeId)->delete();
+        // loyalty_cards.customer_id -> customers is ON DELETE CASCADE on
+        // the live MySQL schema (confirmed directly against information_
+        // schema), same as CreateLoyaltyCards declares, but that action got
+        // lost in the SQLite test DB's own copy somewhere along an earlier
+        // migration's rebuild-aside dance — same known SQLite-only class of
+        // gap as cash_sessions.register_id just below. Deleted explicitly,
+        // children first.
+        $customerIds = $db->table('customers')->select('id')->where('company_id', $this->companyId)->get()->getResultArray();
+        if ($customerIds !== []) {
+            $ids = array_column($customerIds, 'id');
+            $db->table('loyalty_point_transactions')->whereIn('customer_id', $ids)->delete();
+            $db->table('loyalty_cards')->whereIn('customer_id', $ids)->delete();
+        }
+        $db->table('customers')->where('company_id', $this->companyId)->delete();
         $db->table('tax_rates')->where('company_id', $this->companyId)->delete();
         $db->table('products')->where('company_id', $this->companyId)->delete();
         // Explicit, unlike transaction_counters (real ON DELETE CASCADE to
@@ -726,5 +741,69 @@ final class SaleCheckoutFlowTest extends CIUnitTestCase
 
         $response->assertStatus(422);
         $this->assertSame(0, model(SaleModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    private function makeCustomer(): int
+    {
+        return (int) model(CustomerModel::class)->insert([
+            'company_id' => $this->companyId,
+            'first_name' => 'Loyalty',
+            'last_name' => 'Test',
+            'is_active' => 1,
+        ], true);
+    }
+
+    public function testCheckoutAwardsLoyaltyPointsWhenEnabledWithANonzeroRate(): void
+    {
+        model(CompanyModel::class)->update($this->companyId, ['loyalty_enabled' => 1, 'loyalty_points_per_100' => 10]);
+        $customerId = $this->makeCustomer();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'customer_id' => $customerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
+                ],
+            ])->assertStatus(201);
+
+        // 10 pts per ₱100 on a ₱65 sale = floor(65 * 10 / 100) = 6.
+        $balance = \Config\Database::connect()->table('loyalty_point_transactions')
+            ->selectSum('points_delta')->where('customer_id', $customerId)->get()->getRow();
+        $this->assertSame(6, (int) $balance->points_delta);
+    }
+
+    public function testCheckoutDoesNotAwardLoyaltyPointsWhenTheFeatureIsDisabled(): void
+    {
+        // Rate is still nonzero — loyalty_enabled is what must stop this,
+        // not an incidental zero rate. Same reasoning as the migration's
+        // own docblock: a company that doesn't run a loyalty program at
+        // all, not just one between rates.
+        model(CompanyModel::class)->update($this->companyId, ['loyalty_enabled' => 0, 'loyalty_points_per_100' => 10]);
+        $customerId = $this->makeCustomer();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->withBodyFormat('json')
+            ->post('/api/v1/sales', [
+                'company_id' => $this->companyId,
+                'store_id' => $this->storeId,
+                'register_id' => $this->registerId,
+                'customer_id' => $customerId,
+                'items' => [
+                    ['product_id' => $this->productId, 'quantity' => 1, 'unit_price' => 65.00],
+                ],
+                'payments' => [
+                    ['method' => 'cash', 'amount' => 65.00],
+                ],
+            ])->assertStatus(201);
+
+        $count = \Config\Database::connect()->table('loyalty_point_transactions')->where('customer_id', $customerId)->countAllResults();
+        $this->assertSame(0, $count);
     }
 }

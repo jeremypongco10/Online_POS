@@ -38,11 +38,11 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import CheckOutlinedIcon from '@mui/icons-material/CheckOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { formatDateTime } from '../regional';
 
 interface CreateForm {
   name: string;
-  email: string;
   username: string;
   phone: string;
   password: string;
@@ -51,7 +51,7 @@ interface CreateForm {
   store_id: string;
 }
 
-const EMPTY_CREATE: CreateForm = { name: '', email: '', username: '', phone: '', password: '', role_id: '', store_id: '' };
+const EMPTY_CREATE: CreateForm = { name: '', username: '', phone: '', password: '', role_id: '', store_id: '' };
 
 type SectionColor = 'primary' | 'warning' | 'success' | 'error';
 
@@ -139,10 +139,22 @@ export function UsersScreen() {
   }, [hasPermission]);
 
   const roleName = (id: number | null) => roles.find((r) => r.id === id)?.name ?? '—';
-  // Mirrors the backend guard in UsersController — only a Super Admin can
-  // hand out the Super Admin role, so it's never even offered as an
-  // option to anyone else.
-  const assignableRoles = roles.filter((r) => r.name !== 'Super Admin' || user?.role_name === 'Super Admin');
+  // Mirrors UsersController::TOP_LEVEL_ROLE_NAMES — Dev Admin is a Custom
+  // role built with Super Admin's exact permission set purely for dev/test
+  // administration, so the backend treats handing out either one the same
+  // way: only a caller who already holds Super Admin or Dev Admin may
+  // assign Super Admin. Dev Admin itself is only ever offered to a caller
+  // who's already a Dev Admin — it's backstage tooling for other
+  // developers, not something a business-side Super Admin should see or
+  // hand out while setting up regular staff.
+  const TOP_LEVEL_ROLE_NAMES = ['Super Admin', 'Dev Admin'];
+  const callerIsTopLevelAdmin = user?.role_name ? TOP_LEVEL_ROLE_NAMES.includes(user.role_name) : false;
+  const callerIsDevAdmin = user?.role_name === 'Dev Admin';
+  const assignableRoles = roles.filter((r) => {
+    if (r.name === 'Dev Admin') return callerIsDevAdmin;
+    if (r.name === 'Super Admin') return callerIsTopLevelAdmin;
+    return true;
+  });
   // These role names all mean "assigned to work at one specific store" —
   // the backend rejects a create/role-change/store-access edit that would
   // leave one of them assigned to anything other than exactly one store,
@@ -152,6 +164,11 @@ export function UsersScreen() {
   const roleRequiresOneStore = (roleId: string) => SINGLE_STORE_ROLES.includes(roles.find((r) => String(r.id) === roleId)?.name ?? '');
   const creatingSingleStoreRole = roleRequiresOneStore(createForm.role_id);
   const targetRequiresOneStore = storeAccessUserR ? roleRequiresOneStore(storeAccessUserR.role_id ? String(storeAccessUserR.role_id) : '') : false;
+  // Baggers never sign themselves in — they're only picked from a list by
+  // an already-logged-in cashier (see the POS's BaggerPanel) — so this is
+  // the one role Add User doesn't force a password for. Mirrors
+  // UsersController::create()'s own roleIsBagger() check.
+  const creatingBaggerRole = roles.find((r) => String(r.id) === createForm.role_id)?.name === 'Bagger';
 
   function openCreate() {
     setCreateForm(EMPTY_CREATE);
@@ -160,6 +177,10 @@ export function UsersScreen() {
   }
 
   async function submitCreate() {
+    if (!createForm.role_id) {
+      reportError(null, 'Pick a role for this account.');
+      return;
+    }
     if (creatingSingleStoreRole && !createForm.store_id) {
       reportError(null, 'Pick the one store this role is assigned to.');
       return;
@@ -169,11 +190,10 @@ export function UsersScreen() {
     try {
       await api.post('/users', {
         name: createForm.name,
-        email: createForm.email,
         username: createForm.username,
         phone: createForm.phone || null,
         password: createForm.password,
-        role_id: createForm.role_id || null,
+        role_id: createForm.role_id,
         store_id: creatingSingleStoreRole ? createForm.store_id : undefined,
       });
       setShowCreate(false);
@@ -199,10 +219,36 @@ export function UsersScreen() {
     }
   }
 
+  /**
+   * Gated on users.delete, a permission this app hands out to no role by
+   * default — deactivate (above) is the normal way to remove someone's
+   * access; this is a real, permanent delete for narrow dev/test cleanup
+   * only. The backend refuses it outright (422, with a specific reason)
+   * for any account that has real history — sales, a cash session, chat
+   * messages, group membership — so this can't silently destroy business
+   * records; that error just surfaces here the same way any other one does.
+   */
+  async function deleteUser(user: AdminUser) {
+    if (
+      !(await confirm(`Permanently delete "${user.name}"? This cannot be undone, and only works if the account has no sales, cash session, or chat history.`, {
+        title: 'Delete User',
+        confirmLabel: 'Delete',
+      }))
+    )
+      return;
+    try {
+      await api.del(`/users/${user.id}`);
+      reload();
+      notify('User permanently deleted');
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Failed to delete user', 'error');
+    }
+  }
+
   function openManage(user: AdminUser) {
     setManaging(user);
     setManageError(null);
-    setDetailsForm({ name: user.name, email: user.email, username: user.username, phone: user.phone ?? '' });
+    setDetailsForm({ name: user.name, email: user.email ?? '', username: user.username, phone: user.phone ?? '' });
     clearDetailsErrors();
     setManageRoleId(user.role_id ? String(user.role_id) : '');
   }
@@ -233,7 +279,7 @@ export function UsersScreen() {
     try {
       await api.put<AdminUser>(`/users/${managing.id}`, {
         name: detailsForm.name,
-        email: detailsForm.email,
+        email: detailsForm.email || null,
         username: detailsForm.username,
         phone: detailsForm.phone || null,
         role_id: manageRoleId || null,
@@ -390,6 +436,13 @@ export function UsersScreen() {
                   </Tooltip>
                 </>
               )}
+              {hasPermission('users.delete') && u.id !== user?.id && (
+                <Tooltip title="Delete">
+                  <IconButton size="small" aria-label="Delete" color="error" onClick={() => deleteUser(u)}>
+                    <DeleteOutlineOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             </>
           );
         }}
@@ -415,21 +468,6 @@ export function UsersScreen() {
                   }}
                   error={!!fieldErrors?.name}
                   helperText={fieldErrors?.name}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  label="Email"
-                  type="email"
-                  fullWidth
-                  value={createForm.email}
-                  onChange={(e) => {
-                    setCreateForm({ ...createForm, email: e.target.value });
-                    clearField('email');
-                  }}
-                  error={!!fieldErrors?.email}
-                  helperText={fieldErrors?.email}
                   required
                 />
               </Grid>
@@ -464,9 +502,15 @@ export function UsersScreen() {
                 <SearchableSelect
                   label="Role"
                   fullWidth
+                  required
                   value={createForm.role_id}
-                  onChange={(v) => setCreateForm({ ...createForm, role_id: v, store_id: '' })}
-                  options={[{ value: '', label: '— None —' }, ...assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))]}
+                  onChange={(v) => {
+                    setCreateForm({ ...createForm, role_id: v, store_id: '' });
+                    clearField('role_id');
+                  }}
+                  options={assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))}
+                  error={!!fieldErrors?.role_id}
+                  helperText={fieldErrors?.role_id}
                 />
               </Grid>
               {creatingSingleStoreRole && (
@@ -484,7 +528,7 @@ export function UsersScreen() {
               )}
               <Grid size={{ xs: 12 }}>
                 <TextField
-                  label="Password (min 8 characters)"
+                  label={creatingBaggerRole ? 'Password (min 8 characters) — optional for Bagger' : 'Password (min 8 characters)'}
                   type="password"
                   fullWidth
                   value={createForm.password}
@@ -493,9 +537,12 @@ export function UsersScreen() {
                     clearField('password');
                   }}
                   error={!!fieldErrors?.password}
-                  helperText={fieldErrors?.password}
+                  helperText={
+                    fieldErrors?.password ??
+                    (creatingBaggerRole ? 'Baggers are picked from a list by a cashier — they never sign in themselves.' : undefined)
+                  }
                   slotProps={{ htmlInput: { minLength: 8 } }}
-                  required
+                  required={!creatingBaggerRole}
                 />
               </Grid>
 
@@ -571,7 +618,6 @@ export function UsersScreen() {
                     }}
                     error={!!detailsFieldErrors?.email}
                     helperText={detailsFieldErrors?.email}
-                    required
                   />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6 }}>

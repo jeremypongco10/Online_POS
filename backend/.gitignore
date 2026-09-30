@@ -68,6 +68,12 @@ Vagrantfile
 /public/uploads/products/*
 !/public/uploads/products/index.html
 
+# Company logos, same reasoning (CompaniesController::uploadLogo).
+/public/uploads/companies/*
+
+# Output of a backgrounded `php spark serve`.
+/writable/serve.log
+
 php_errors.log
 
 #-------------------------

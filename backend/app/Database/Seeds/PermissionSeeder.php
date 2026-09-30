@@ -44,6 +44,13 @@ class PermissionSeeder extends Seeder
         'users.view' => ['View Users', 'Can view user accounts'],
         'users.create' => ['Create Users', 'Can create new user accounts'],
         'users.update' => ['Update Users', 'Can edit existing user accounts'],
+        // Deliberately not granted to any role by RoleSeeder — see
+        // AddUsersDeletePermission for why even Super Admin/Company Admin
+        // don't get this one automatically. A permanent delete, unlike
+        // update/deactivate, so it exists in the catalog but is meant to
+        // be handed out narrowly (a dev/test-cleanup role), never as part
+        // of ordinary account management.
+        'users.delete' => ['Delete Users', 'Can permanently delete a user account (not deactivate) — bypasses the normal deactivate-only workflow'],
 
         'stores.view' => ['View Stores', 'Can view store records'],
         'stores.manage' => ['Manage Stores', 'Can create and edit stores'],
@@ -97,6 +104,13 @@ class PermissionSeeder extends Seeder
         'returns.approve' => ['Approve Returns', 'Can approve a pending return, issuing the refund and restocking inventory'],
 
         'audit.view' => ['View Audit Trail', 'Can view the audit trail of who did what, and when'],
+
+        // Deliberately one flat permission, not view/manage — there's no
+        // read-only mode for a chat that makes sense; a role either uses it
+        // or doesn't. Never granted to Cashier/Cashier Supervisor (see
+        // GrantChatPermissionToExistingRoles) — chat has no POS-side UI at
+        // all, so the permission would have nothing to reach for either role.
+        'chat.access' => ['Access Chat', 'Can send and receive Back Office direct messages'],
     ];
 
     public function run()

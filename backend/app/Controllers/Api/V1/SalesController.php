@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Libraries\EscPosImageService;
 use App\Libraries\TaxService;
 use App\Models\CompanyModel;
 use App\Models\CustomerModel;
@@ -100,6 +101,22 @@ class SalesController extends BaseCrudController
             }
         }
 
+        // Live, not frozen onto the sale like company_name/tin — see
+        // AddLogoPathToCompanies for why a logo is decoration rather than a
+        // legal fact this receipt is attesting to.
+        $company = model(CompanyModel::class)->find((int) $sale->company_id);
+        $logoEscPos = null;
+        if ($company !== null && $company->logo_path) {
+            $raster = (new EscPosImageService())->rasterFromFile(FCPATH . $company->logo_path);
+            if ($raster !== null) {
+                $logoEscPos = [
+                    'width' => $raster['width'],
+                    'height' => $raster['height'],
+                    'bytes_base64' => base64_encode($raster['bytes']),
+                ];
+            }
+        }
+
         return $this->ok([
             // The receipt's own sale id, so the POS can report back that
             // this one went to paper (see markPrinted()) without the
@@ -108,6 +125,15 @@ class SalesController extends BaseCrudController
             'company' => [
                 'name' => $sale->company_name,
                 'tin' => $sale->company_tin,
+                // Relative path, same convention as a product's image_path
+                // — the frontend resolves it to a loadable URL itself (see
+                // assetUrl()). Null whenever there's no logo, or GD
+                // couldn't rasterize it (logoEscPos stays null too either way).
+                'logo_path' => $company->logo_path ?? null,
+                // Pre-converted ESC/POS raster bytes for the Bluetooth print
+                // path — see EscPosImageService's own docblock for why this
+                // is computed here rather than in the browser.
+                'logo_escpos' => $logoEscPos,
             ],
             'store' => [
                 'name' => $sale->store_name,
@@ -759,9 +785,12 @@ class SalesController extends BaseCrudController
         // --- Award loyalty points (flat company-wide rate, v1 — see the
         // migration adding loyalty_points_per_100 to companies). Needs a
         // customer attached (points belong to a customer's card, not the
-        // sale) and a nonzero rate; floor() so a sale under the rate's
-        // threshold earns 0 rather than being rounded up into free points. ---
-        if (! empty($payload['customer_id']) && $company && (int) $company->loyalty_points_per_100 > 0) {
+        // sale), the whole feature switched on (loyalty_enabled — a
+        // company that doesn't run a loyalty program at all, not just one
+        // between rates), and a nonzero rate; floor() so a sale under the
+        // rate's threshold earns 0 rather than being rounded up into free
+        // points. ---
+        if (! empty($payload['customer_id']) && $company && (int) ($company->loyalty_enabled ?? 1) === 1 && (int) $company->loyalty_points_per_100 > 0) {
             $pointsEarned = (int) floor($total * $company->loyalty_points_per_100 / 100);
 
             if ($pointsEarned > 0) {
@@ -1104,6 +1133,8 @@ class SalesController extends BaseCrudController
 
             return $this->apiFail('Invalid supervisor credentials', 401);
         }
+
+        $userModel->rehashPasswordIfNeeded((int) $approver->id, $payload['password'], $approver->password_hash);
 
         if (! in_array($requiredPermission, $userModel->permissionSlugs((int) $approver->id), true)) {
             Services::auditLogger()->log($deniedAction, $entityType, null, $label, [

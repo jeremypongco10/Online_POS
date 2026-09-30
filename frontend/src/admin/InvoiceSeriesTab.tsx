@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Company, InvoiceSeries, Store, AuditLog } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -109,12 +109,16 @@ const RESET_RULE_OPTIONS: { value: Company['transaction_no_reset_rule']; label: 
 ];
 
 /**
- * Settings → Sales Invoicing. Two cards, matching spec §12 exactly: a
- * read-only Business Information card (the branch's own registered
- * identity — editing any of it happens on the Stores/Company screens this
- * only reads from, not here) and the Invoice Series table itself, with
- * Add/View/Edit/Activate/Deactivate/View History actions and deliberately
- * no Reset Number action anywhere.
+ * Settings → Sales Invoicing. A Branch picker (read-only detail for the
+ * selected store — editing that happens on the Stores screen this only
+ * reads from), the Invoice Series table itself, with Add/View/Edit/
+ * Activate/Deactivate/View History actions and deliberately no Reset
+ * Number action anywhere, and Transaction Numbering underneath (a plain
+ * internal shift reference, unrelated to invoice numbers). The company's
+ * own registered identity (name/TIN/VAT/logo) used to share a card with
+ * the Branch picker here — it's now its own tab, Settings → Business
+ * Information (see BusinessInformationTab.tsx), since it isn't specific
+ * to any one branch or to sales invoicing at all.
  *
  * Numbering is never generated here — this screen only configures the
  * series a real sale later draws from via InvoiceSeriesModel::nextNumber()
@@ -124,8 +128,16 @@ const RESET_RULE_OPTIONS: { value: Company['transaction_no_reset_rule']; label: 
  */
 export function InvoiceSeriesTab() {
   const { user, hasPermission } = useAuth();
-  const canManage = hasPermission('invoice-series.manage');
-  const canManageCompany = hasPermission('companies.manage');
+  // Sales invoicing (both the invoice series themselves and the
+  // transaction-numbering settings below) is BIR-registration-sensitive
+  // enough that actually changing it is Dev Admin only — see
+  // InvoiceSeriesController::devAdminOnly() and CompaniesController::
+  // DEV_ADMIN_ONLY_FIELDS, which are what actually enforce this; these
+  // two just keep the controls from inviting a click they're going to
+  // reject. Viewing stays governed by the ordinary permissions alone.
+  const isDevAdmin = user?.role_name === 'Dev Admin';
+  const canManage = hasPermission('invoice-series.manage') && isDevAdmin;
+  const canManageCompany = hasPermission('companies.manage') && isDevAdmin;
   const confirm = useConfirm();
   const notify = useSnackbar();
 
@@ -142,51 +154,6 @@ export function InvoiceSeriesTab() {
     });
     api.get<Company>(`/companies/${user.company_id}`).then(setCompany);
   }, [user]);
-
-  // Business profile — the company-wide registered identity. Its own
-  // card and save action, separate from both the branch fields beside it
-  // (those live in Stores) and the numbering below.
-  const [profile, setProfile] = useState({ legal_name: '', tax_id: '', is_vat_registered: '0', vat_registration_number: '' });
-  const [profileSaving, setProfileSaving] = useState(false);
-  const {
-    fieldErrors: profileErrors,
-    formError: profileError,
-    clearErrors: clearProfileErrors,
-    clearField: clearProfileField,
-    reportError: reportProfileError,
-  } = useFormErrors();
-
-  useEffect(() => {
-    if (!company) return;
-    setProfile({
-      legal_name: company.legal_name ?? '',
-      tax_id: company.tax_id ?? '',
-      is_vat_registered: Number(company.is_vat_registered) === 1 ? '1' : '0',
-      vat_registration_number: company.vat_registration_number ?? '',
-    });
-  }, [company]);
-
-  async function saveProfile() {
-    if (!company) return;
-    setProfileSaving(true);
-    clearProfileErrors();
-    try {
-      const updated = await api.put<Company>(`/companies/${company.id}`, {
-        legal_name: profile.legal_name || null,
-        tax_id: profile.tax_id || null,
-        is_vat_registered: profile.is_vat_registered === '1' ? 1 : 0,
-        // Cleared alongside the flag: a VAT number left behind on a
-        // business that has since deregistered would keep printing.
-        vat_registration_number: profile.is_vat_registered === '1' ? profile.vat_registration_number || null : null,
-      });
-      setCompany(updated);
-      notify('Business profile updated');
-    } catch (err) {
-      reportProfileError(err, 'Failed to save the business profile');
-    } finally {
-      setProfileSaving(false);
-    }
-  }
 
   // Transaction Numbering — deliberately its own card/save action, kept
   // out of the Invoice Series form's state entirely: it edits a company
@@ -205,8 +172,17 @@ export function InvoiceSeriesTab() {
     reportError: reportTxnError,
   } = useFormErrors();
 
+  // Seeded from the fetched company exactly ONCE — see
+  // BusinessInformationTab's own copy of this same fix for why a plain
+  // `[company]` dependency here is a real data-loss bug, not just a
+  // theoretical one: any later `company` update (a duplicate fetch, or
+  // this card's own saveTransactionNumbering() calling setCompany() on
+  // success) silently overwrites whatever the admin had already typed,
+  // and Save then resubmits the stale data instead.
+  const txnSeeded = useRef(false);
   useEffect(() => {
-    if (!company) return;
+    if (!company || txnSeeded.current) return;
+    txnSeeded.current = true;
     setTxnRule(company.transaction_no_reset_rule);
     setTxnPrefix(company.transaction_no_prefix ?? '');
     setTxnLength(String(company.transaction_no_length));
@@ -419,94 +395,7 @@ export function InvoiceSeriesTab() {
   return (
     <Stack spacing={2.5}>
       <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
-          Business Information
-        </Typography>
-        {/* Editable, where this card used to be read-only and pointed at
-            "the Company profile" for the name/TIN/VAT status — a screen
-            that has never existed anywhere in this app, leaving the three
-            fields that print at the top of every BIR receipt with no way
-            to set them at all. The branch half below stays read-only and
-            still points at Stores, which is a real screen. */}
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-          The registered identity printed at the top of every receipt this business issues. Branch details below come from Settings → Stores.
-        </Typography>
-
-        <Grid container spacing={2} sx={{ mb: 1 }}>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              label="Registered Business Name"
-              fullWidth
-              value={profile.legal_name}
-              onChange={(e) => {
-                setProfile({ ...profile, legal_name: e.target.value });
-                clearProfileField('legal_name');
-              }}
-              error={!!profileErrors?.legal_name}
-              helperText={profileErrors?.legal_name ?? 'As registered with the BIR — falls back to the trade name if blank.'}
-              disabled={!canManageCompany}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              label="TIN"
-              fullWidth
-              value={profile.tax_id}
-              onChange={(e) => {
-                setProfile({ ...profile, tax_id: e.target.value });
-                clearProfileField('tax_id');
-              }}
-              error={!!profileErrors?.tax_id}
-              helperText={profileErrors?.tax_id ?? 'Prints as "TIN:" on every receipt.'}
-              disabled={!canManageCompany}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <SearchableSelect
-              label="VAT Status"
-              value={profile.is_vat_registered}
-              onChange={(v) => setProfile({ ...profile, is_vat_registered: v })}
-              options={[
-                { value: '1', label: 'VAT Registered' },
-                { value: '0', label: 'Non-VAT' },
-              ]}
-              fullWidth
-              disabled={!canManageCompany}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              label="VAT Registration Number"
-              fullWidth
-              value={profile.vat_registration_number}
-              onChange={(e) => {
-                setProfile({ ...profile, vat_registration_number: e.target.value });
-                clearProfileField('vat_registration_number');
-              }}
-              error={!!profileErrors?.vat_registration_number}
-              helperText={profileErrors?.vat_registration_number ?? 'Leave blank if not VAT registered.'}
-              disabled={!canManageCompany || profile.is_vat_registered !== '1'}
-            />
-          </Grid>
-
-          {profileError && (
-            <Grid size={{ xs: 12 }}>
-              <Alert severity="error">{profileError}</Alert>
-            </Grid>
-          )}
-
-          {canManageCompany && (
-            <Grid size={{ xs: 12 }}>
-              <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-                <Button variant="contained" onClick={saveProfile} disabled={profileSaving}>
-                  {profileSaving ? 'Saving…' : 'Save Business Profile'}
-                </Button>
-              </Stack>
-            </Grid>
-          )}
-        </Grid>
-
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mt: 2, mb: 1.5 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5 }}>
           Branch
         </Typography>
         <Box sx={{ maxWidth: 360, mb: 2 }}>
@@ -530,6 +419,12 @@ export function InvoiceSeriesTab() {
           The active series is what the POS draws every invoice number from — continuously, never reset. A series that reaches its maximum number
           retires itself automatically; configure a new one rather than reusing or resetting it.
         </Typography>
+
+        {hasPermission('invoice-series.manage') && !isDevAdmin && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Only a Dev Admin can create, edit, activate, or deactivate an invoice series — contact one to make changes here.
+          </Alert>
+        )}
 
         <ListToolbar
           search={q}
@@ -624,6 +519,12 @@ export function InvoiceSeriesTab() {
           requirements of its own. Deliberately separate from the Invoice Series configuration above: change this without it affecting invoice
           numbering in any way, or vice versa.
         </Typography>
+
+        {hasPermission('companies.manage') && !isDevAdmin && (
+          <Alert severity="info" sx={{ mb: 2.5 }}>
+            Only a Dev Admin can change sales invoicing settings — contact one to update this.
+          </Alert>
+        )}
 
         <Grid container spacing={2} sx={{ maxWidth: 640 }}>
           <Grid size={{ xs: 12, sm: 6 }}>

@@ -6,6 +6,8 @@ import IconButton from '@mui/material/IconButton';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AppsIcon from '@mui/icons-material/Apps';
+import LocalFireDepartmentOutlinedIcon from '@mui/icons-material/LocalFireDepartmentOutlined';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import GrassOutlinedIcon from '@mui/icons-material/GrassOutlined';
 import SetMealOutlinedIcon from '@mui/icons-material/SetMealOutlined';
 import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined';
@@ -20,11 +22,15 @@ import CleaningServicesOutlinedIcon from '@mui/icons-material/CleaningServicesOu
 import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined';
 import type { Category } from '../api/types';
 import { HIDDEN_SCROLLBAR_SX, POS_ACCENT } from './format';
+import { QUICK_FILTER_LABELS, type QuickFilter } from './quickFilter';
 
 interface Props {
   categories: Category[];
   selected: number | null;
   onSelect: (categoryId: number | null) => void;
+  /** Which shortcut is on, if any. The two shortcut pills only render when a handler is supplied. */
+  quickFilter?: QuickFilter | null;
+  onSelectQuickFilter?: (filter: QuickFilter) => void;
 }
 
 /**
@@ -36,6 +42,13 @@ interface Props {
  * first: "Grocery & Canned Goods" has to match before a bare "can", and
  * "Personal Care" before "care". Anything unmatched keeps a neutral tag
  * rather than a wrong-but-confident picture.
+ *
+ * `ice` and `rice` are anchored to the start of a word (`\b`) because as
+ * bare substrings they sit inside common category words: "Office", "Spices"
+ * and "Services" all contain "ice", so "School & Office Supplies" got the
+ * frozen-goods snowflake, and "Price" contains "rice". Left unanchored at
+ * the end on purpose, so "Ice Cream", "Iced Tea" and "Rice & Grains" still
+ * match.
  */
 // Component types rather than rendered elements: a table of live JSX also
 // trips the jsx-key lint rule, which can't tell a lookup table from a
@@ -43,13 +56,13 @@ interface Props {
 // instance.
 const ICON_RULES: Array<[RegExp, typeof LabelOutlinedIcon]> = [
   [/bakery|bread|pastr/i, BakeryDiningOutlinedIcon],
-  [/frozen|chilled|ice/i, AcUnitOutlinedIcon],
+  [/frozen|chilled|\bice/i, AcUnitOutlinedIcon],
   [/meat|seafood|fish|poultry/i, SetMealOutlinedIcon],
   [/beverage|drink|juice|coffee|water/i, LocalCafeOutlinedIcon],
   [/snack|chip|candy|biscuit/i, CookieOutlinedIcon],
   [/personal care|hygiene|beauty|cosmetic/i, FaceRetouchingNaturalOutlinedIcon],
   [/household|cleaning|laundry/i, CleaningServicesOutlinedIcon],
-  [/grocery|canned|grain|staple|rice|noodle/i, GrassOutlinedIcon],
+  [/grocery|canned|grain|staple|\brice|noodle/i, GrassOutlinedIcon],
   [/school|office|paper|supplies/i, EditOutlinedIcon],
   [/tobacco|alcohol|liquor|beer|wine/i, LiquorOutlinedIcon],
   [/home|furnish/i, HomeOutlinedIcon],
@@ -73,7 +86,7 @@ function iconForCategory(name: string): ReactElement {
  * keeps the cost fixed at exactly one row however long the catalog's
  * category list gets.
  */
-export function CategoryPills({ categories, selected, onSelect }: Props) {
+export function CategoryPills({ categories, selected, onSelect, quickFilter = null, onSelectQuickFilter }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -159,7 +172,25 @@ export function CategoryPills({ categories, selected, onSelect }: Props) {
         spacing={1.25}
         sx={{ overflowX: 'auto', minWidth: 0, py: 0.25, scrollBehavior: 'smooth', ...HIDDEN_SCROLLBAR_SX }}
       >
-        {pill('all', 'All', <AppsIcon fontSize="small" />, selected === null, () => onSelect(null))}
+        {pill('all', 'All', <AppsIcon fontSize="small" />, selected === null && quickFilter === null, () => onSelect(null))}
+        {/* Straight after "All" so the broadest views sit together at the
+            left edge, ahead of the catalog's own sections. */}
+        {onSelectQuickFilter &&
+          pill(
+            'popular',
+            QUICK_FILTER_LABELS.popular,
+            <LocalFireDepartmentOutlinedIcon fontSize="small" />,
+            quickFilter === 'popular',
+            () => onSelectQuickFilter('popular')
+          )}
+        {onSelectQuickFilter &&
+          pill(
+            'favorites',
+            QUICK_FILTER_LABELS.favorites,
+            <StarBorderIcon fontSize="small" />,
+            quickFilter === 'favorites',
+            () => onSelectQuickFilter('favorites')
+          )}
         {categories.map((c) => pill(String(c.id), c.name, iconForCategory(c.name), selected === c.id, () => onSelect(c.id)))}
       </Stack>
       {canScrollRight && (

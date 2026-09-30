@@ -35,7 +35,9 @@ export function RolesScreen() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const notify = useSnackbar();
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, reload } = useList<Role>('/roles');
+  // 'client': every company's role list is always small enough to fit on
+  // one page in practice — no need for a network round trip to search it.
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Role>('/roles', {}, true, 'client');
 
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
 
@@ -184,8 +186,8 @@ export function RolesScreen() {
   return (
     <div>
       <ListToolbar
-        search=""
-        onSearchChange={() => {}}
+        search={q}
+        onSearchChange={setQ}
         onAdd={hasPermission('roles.manage') ? openCreate : undefined}
         addLabel="Add Role"
         onRefresh={reload}
@@ -224,7 +226,11 @@ export function RolesScreen() {
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                {Number(r.is_system) !== 1 && (
+                {/* is_system already covers every seeded role; Dev Admin is
+                    the one Custom exception — it stays freely editable
+                    (kept above), but never deletable, same as the backend's
+                    own RolesController::delete() enforces. */}
+                {Number(r.is_system) !== 1 && r.name !== 'Dev Admin' && (
                   <Tooltip title="Delete">
                     <IconButton size="small" aria-label="Delete" color="error" onClick={() => remove(r)}>
                       <DeleteIcon fontSize="small" />

@@ -37,10 +37,12 @@ final class InvoiceSeriesTest extends CIUnitTestCase
 
     private int $companyId;
     private int $storeId;
-    /** Holds both invoice-series.view and invoice-series.manage. */
+    /** Holds both invoice-series.view and invoice-series.manage, role name "Dev Admin". */
     private string $manageToken;
     /** Holds only invoice-series.view. */
     private string $viewOnlyToken;
+    /** Holds invoice-series.manage same as manageToken, but role name "Company Admin" — proves the permission alone isn't enough. */
+    private string $nonDevAdminManageToken;
 
     protected function setUp(): void
     {
@@ -54,7 +56,13 @@ final class InvoiceSeriesTest extends CIUnitTestCase
             'code' => "ISS-{$suffix}",
         ], true);
 
-        $roleId = (int) model(RoleModel::class)->insert(['company_id' => $this->companyId, 'name' => 'Admin'], true);
+        // Named literally "Dev Admin" — actually managing an invoice series
+        // (not just holding invoice-series.manage) is now restricted to
+        // that role by name, see InvoiceSeriesController::devAdminOnly().
+        // viewOnlyToken below is unaffected: it's stopped by the
+        // invoice-series.manage route filter before ever reaching that
+        // check, same as before.
+        $roleId = (int) model(RoleModel::class)->insert(['company_id' => $this->companyId, 'name' => 'Dev Admin'], true);
         $userId = (int) model(UserModel::class)->insert([
             'company_id' => $this->companyId,
             'role_id' => $roleId,
@@ -71,6 +79,20 @@ final class InvoiceSeriesTest extends CIUnitTestCase
         ]);
         $this->viewOnlyToken = $jwt->issueAccessToken($userId, $this->companyId, $roleId, [
             'invoice-series.view',
+        ]);
+
+        $nonDevAdminRoleId = (int) model(RoleModel::class)->insert(['company_id' => $this->companyId, 'name' => 'Company Admin'], true);
+        $nonDevAdminUserId = (int) model(UserModel::class)->insert([
+            'company_id' => $this->companyId,
+            'role_id' => $nonDevAdminRoleId,
+            'name' => 'Non Dev Admin Tester',
+            'email' => "istester-nda-{$suffix}@example.com",
+            'username' => "istester_nda_{$suffix}",
+            'password' => 'Password123!',
+            'is_active' => 1,
+        ], true);
+        $this->nonDevAdminManageToken = $jwt->issueAccessToken($nonDevAdminUserId, $this->companyId, $nonDevAdminRoleId, [
+            'invoice-series.view', 'invoice-series.manage',
         ]);
     }
 
@@ -353,5 +375,37 @@ final class InvoiceSeriesTest extends CIUnitTestCase
         $response->assertStatus(422);
         $this->assertStringContainsString('No active invoice series is available for this branch', $response->getJSON());
         $this->assertSame(0, \Config\Database::connect()->table('sales')->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    // --- Dev Admin restriction ------------------------------------------
+
+    public function testHoldingInvoiceSeriesManageIsNotEnoughWithoutBeingDevAdmin(): void
+    {
+        $response = $this->authAs($this->nonDevAdminManageToken)->withBodyFormat('json')->post('/api/v1/invoice-series', $this->validPayload());
+
+        $response->assertStatus(403);
+        $this->assertSame(0, model(InvoiceSeriesModel::class)->where('company_id', $this->companyId)->countAllResults());
+    }
+
+    public function testNonDevAdminCannotUpdateAnExistingSeries(): void
+    {
+        $seriesId = (int) model(InvoiceSeriesModel::class)->insert($this->validPayload() + ['company_id' => $this->companyId], true);
+
+        $response = $this->authAs($this->nonDevAdminManageToken)->withBodyFormat('json')->put("/api/v1/invoice-series/{$seriesId}", ['prefix' => 'HACK-']);
+
+        $response->assertStatus(403);
+        $this->assertSame('SI-', model(InvoiceSeriesModel::class)->find($seriesId)->prefix);
+    }
+
+    public function testNonDevAdminCannotActivateOrDeactivateASeries(): void
+    {
+        $seriesId = (int) model(InvoiceSeriesModel::class)->insert($this->validPayload(['status' => 'inactive']) + ['company_id' => $this->companyId], true);
+
+        $this->authAs($this->nonDevAdminManageToken)->post("/api/v1/invoice-series/{$seriesId}/activate")->assertStatus(403);
+        $this->assertSame('inactive', model(InvoiceSeriesModel::class)->find($seriesId)->status);
+
+        model(InvoiceSeriesModel::class)->update($seriesId, ['status' => 'active']);
+        $this->authAs($this->nonDevAdminManageToken)->post("/api/v1/invoice-series/{$seriesId}/deactivate")->assertStatus(403);
+        $this->assertSame('active', model(InvoiceSeriesModel::class)->find($seriesId)->status);
     }
 }

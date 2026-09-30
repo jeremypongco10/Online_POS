@@ -74,6 +74,10 @@ class RoleSeeder extends Seeder
                     // role below Company Admin trusted to authorize a
                     // refund themselves.
                     'returns.view', 'returns.create', 'returns.approve',
+                    // Back Office direct messaging — not Cashier Supervisor
+                    // below, which stays register-bound. See
+                    // GrantChatPermissionToExistingRoles for the full split.
+                    'chat.access',
                 ],
             ],
             // Sits between Cashier and Store Manager: the same day-to-day

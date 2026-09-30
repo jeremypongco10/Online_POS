@@ -47,7 +47,9 @@ import { useIdleLock } from './useIdleLock';
 import { PosLockScreen } from './PosLockScreen';
 import { LogoutWithSaleDialog } from './LogoutWithSaleDialog';
 import { usePosZoom } from './usePosZoom';
+import { reconnectRememberedPrinter } from './bluetoothPrinter';
 import { ADMIN_NAV_PERMISSIONS } from '../admin/AdminLayout';
+import { HelpPanel } from '../help/HelpPanel';
 
 interface Props {
   onOpenAdmin: (path?: string) => void;
@@ -109,6 +111,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  // Whether the receipt now showing should fire ReceiptModal's own
+  // autoPrint on mount — true out of a fresh checkout, false out of the
+  // reprint lookup below. Kept alongside `receipt` rather than folded
+  // into it: it describes how this screen got the receipt, not a
+  // property of the receipt itself.
+  const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   // The invoice-lookup dialog F7 opens when no receipt is already on
   // screen — see posShortcuts.ts's 'reprint' entry for the full split
   // with ReceiptModal's own local F7 (print) listener.
@@ -240,6 +248,40 @@ export function PosScreen({ onOpenAdmin }: Props) {
    * already gets on the line above — a cashier who
    * hasn't pressed F10 can Delete-edit the search box exactly as normal.
    */
+  useEffect(() => {
+    // Nothing can actually remove or disable the browser/OS window's own
+    // close control — that's outside anything a page is allowed to touch,
+    // by design. This is the one lever a page does have: intercepting the
+    // close/refresh/navigate-away attempt itself and forcing the browser's
+    // native "leave this page?" confirmation, so closing the till is never
+    // a single silent click. Scoped to exactly the lifetime of this
+    // component (mounted only while viewing the POS — see Gate in App.tsx)
+    // rather than to some narrower "sale in progress" condition: the ask
+    // here is that a cashier always signs out through the account menu,
+    // not just that an in-progress cart shouldn't be lost.
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      // Chrome ignores any custom text and shows its own fixed wording
+      // regardless (browsers stopped honoring custom returnValue strings
+      // around 2016, specifically so a page can't dress this dialog up as
+      // something else) — setting it is still required to trigger the
+      // prompt at all in some engines.
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // Best-effort silent reattach to whatever Bluetooth printer Chrome
+  // already granted this site access to — so a page reload mid-shift
+  // doesn't force the cashier back through the device picker for a
+  // printer they already paired earlier today. A genuine no-op, not a
+  // failure, on a Chrome build without persistent-device support; see
+  // bluetoothPrinter.ts's own doc on reconnectRememberedPrinter.
+  useEffect(() => {
+    reconnectRememberedPrinter();
+  }, []);
+
   useEffect(() => {
     if (selectedCartKey === null) return;
 
@@ -912,6 +954,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
       });
       const fullReceipt = await api.get<Receipt>(`/sales/${sale.id}/receipt`);
       setReceipt(fullReceipt);
+      setAutoPrintReceipt(true);
       resetSale();
     } catch (err) {
       setCheckoutError(err instanceof ApiError ? err.message : 'Failed to complete checkout');
@@ -1019,8 +1062,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
       <OpenRegisterScreen
         registerId={registerId}
         registerName={`${selectedRegister.name} (${selectedRegister.code})`}
-        openingFloatMode={selectedRegister.opening_float_mode}
-        defaultOpeningFloat={selectedRegister.default_opening_float}
+        openingFloatMode={selectedRegister.effective_opening_float_mode}
+        defaultOpeningFloat={selectedRegister.effective_opening_float}
         currency={user?.currency}
         onOpened={setCashSession}
       />
@@ -1056,25 +1099,28 @@ export function PosScreen({ onOpenAdmin }: Props) {
         searchSlotRef={setSearchSlot}
         controlsSlotRef={setControlsSlot}
         actions={
-          <AccountMenu
-            user={user}
-            stores={stores}
-            registers={registers}
-            storeId={storeId}
-            registerId={registerId}
-            onStoreChange={setStoreId}
-            onRegisterChange={setRegisterId}
-            heldSales={heldSales}
-            onResumeHeld={handleResume}
-            onDiscardHeld={handleDiscardHeld}
-            cashSession={cashSession}
-            onCloseTerminal={() => setShowCloseRegister(true)}
-            canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
-            onOpenAdmin={() => onOpenAdmin()}
-            onLogout={requestLogout}
-            onLock={idleLock.lock}
-            zoom={posZoom}
-          />
+          <>
+            <HelpPanel iconColor="#fff" />
+            <AccountMenu
+              user={user}
+              stores={stores}
+              registers={registers}
+              storeId={storeId}
+              registerId={registerId}
+              onStoreChange={setStoreId}
+              onRegisterChange={setRegisterId}
+              heldSales={heldSales}
+              onResumeHeld={handleResume}
+              onDiscardHeld={handleDiscardHeld}
+              cashSession={cashSession}
+              onCloseTerminal={() => setShowCloseRegister(true)}
+              canOpenAdmin={ADMIN_NAV_PERMISSIONS.some((p) => hasPermission(p))}
+              onOpenAdmin={() => onOpenAdmin()}
+              onLogout={requestLogout}
+              onLock={idleLock.lock}
+              zoom={posZoom}
+            />
+          </>
         }
       />
 
@@ -1231,7 +1277,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
         />
       )}
 
-      {receipt && <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} />}
+      {receipt && (
+        <ReceiptModal receipt={receipt} methods={paymentMethods} onClose={() => setReceipt(null)} autoPrint={autoPrintReceipt} />
+      )}
 
       {/* Rendered last so it paints over every dialog above, not just the
           product grid/cart underneath them — see blockingDialogOpen's own
@@ -1266,6 +1314,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
         // progress.
         onFound={(r) => {
           setReceipt(r);
+          setAutoPrintReceipt(false);
           setReprintOpen(false);
         }}
       />

@@ -15,12 +15,13 @@ class CompanyModel extends Model
     protected $updatedField = 'updated_at';
 
     protected $allowedFields = [
-        'trade_name', 'legal_name', 'tax_id', 'is_vat_registered', 'vat_registration_number',
+        'trade_name', 'legal_name', 'logo_path', 'tax_id', 'is_vat_registered', 'vat_registration_number',
         'email', 'phone', 'address', 'currency', 'tax_system', 'timezone', 'is_active', 'loyalty_points_per_100',
         'require_item_void_approval', 'require_cancel_approval', 'require_manual_discount_approval',
         'default_regular_discount_percent', 'default_promo_discount_percent', 'default_employee_discount_percent',
         'default_member_discount_percent', 'default_wholesale_discount_percent', 'pos_lock_idle_minutes',
         'transaction_no_reset_rule', 'transaction_no_prefix', 'transaction_no_length', 'is_bir_registered',
+        'loyalty_enabled',
     ];
 
     protected $validationRules = [
@@ -43,6 +44,11 @@ class CompanyModel extends Model
         // "Points earned per ₱100 of a sale's total" — 0 (the default) means
         // loyalty points aren't awarded automatically at all.
         'loyalty_points_per_100' => ['label' => 'Loyalty points per 100', 'rules' => 'permit_empty|is_natural'],
+        // Master switch for the whole Customer Loyalty feature (points +
+        // loyalty card), separate from the rate above — off hides every
+        // points/card UI outright rather than just stopping new points
+        // from being earned. See AddLoyaltyEnabledToCompanies.
+        'loyalty_enabled' => ['label' => 'Customer loyalty enabled', 'rules' => 'permit_empty|in_list[0,1]'],
         // 0 (the default) means the POS never locks itself on its own —
         // a cashier can still always lock it by hand regardless.
         'pos_lock_idle_minutes' => ['label' => 'Lock POS after idle minutes', 'rules' => 'permit_empty|is_natural'],

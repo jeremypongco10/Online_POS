@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
@@ -13,7 +13,7 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import Button from '@mui/material/Button';
 import PrintIcon from '@mui/icons-material/Print';
-import { api } from '../api/client';
+import { api, ApiError, assetUrl } from '../api/client';
 import type { PaymentMethodOption, Receipt } from '../api/types';
 import { formatMoney, posRaisedButtonSx, TAX_INDICATOR_LABELS } from './format';
 import { currencySymbol, showsBirDetail, taxLabel } from '../regional';
@@ -22,9 +22,42 @@ import { discountTypeLabel } from './discountTypes';
 import { PopTransition } from '../PopTransition';
 import { METHOD_LABELS } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
+import { isBluetoothPrinterReady, printReceiptViaBluetooth } from './bluetoothPrinter';
+import { useSnackbar } from '../Snackbar';
 
-/** Phase 18: the printable receipt — every field sourced from the sale's own frozen snapshot. */
-export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; methods: PaymentMethodOption[]; onClose: () => void }) {
+/**
+ * Phase 18: the printable receipt — every field sourced from the sale's own
+ * frozen snapshot.
+ *
+ * `autoPrint` fires the same print() the button/F7 do, once, right after
+ * this mounts — for the "just rang this up" moment only (PosScreen passes
+ * it true straight out of checkout(), false out of ReprintReceiptDialog's
+ * onFound). A past-sale lookup must never trigger a physical reprint on
+ * its own; showing that receipt is the whole action there, and printing it
+ * stays a deliberate second step.
+ *
+ * Two genuinely different print paths live behind the one print() below.
+ * With a Bluetooth printer connected (see PrinterConnectControl in
+ * AccountMenu), this writes ESC/POS bytes straight to it — see
+ * bluetoothPrinter.ts for why that's actually silent, no dialog at all,
+ * unlike every desktop workaround this app also supports. With none
+ * connected, it falls back to window.print(), which still opens the
+ * browser's own dialog unless the browser itself was launched with
+ * print-dialog suppression (Chrome/Edge's --kiosk-printing flag) pointed
+ * at a printer — a launch configuration on the till, not something this
+ * component can reach.
+ */
+export function ReceiptModal({
+  receipt,
+  methods,
+  onClose,
+  autoPrint = false,
+}: {
+  receipt: Receipt;
+  methods: PaymentMethodOption[];
+  onClose: () => void;
+  autoPrint?: boolean;
+}) {
   const { user } = useAuth();
   // Read from the signed-in user rather than frozen onto the sale like
   // show_bir_details is. That's the honest split: show_bir_details is a
@@ -35,6 +68,7 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
   const showBir = showsBirDetail(user?.tax_system);
   const symbol = currencySymbol(user?.currency);
   const methodLabel = (code: string) => methods.find((m) => m.code === code)?.name ?? METHOD_LABELS[code] ?? code;
+  const notify = useSnackbar();
 
   /**
    * Records that this receipt went to paper, so the NEXT time it's
@@ -42,10 +76,41 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
    * banner. Deliberately fire-and-forget: a failed count must never stop
    * a cashier printing, and the worst case is one unmarked duplicate
    * rather than a blocked till.
+   *
+   * The Bluetooth branch is the only place in this function that can
+   * genuinely fail silently otherwise — window.print() either shows a
+   * dialog (visible failure/success by construction) or, under
+   * --kiosk-printing, fails the same way any OS print job would, off in
+   * the OS's own queue. A dropped BLE write has no such visible signal at
+   * all, so it's the one path that gets its own error toast.
    */
   function print() {
     api.post(`/sales/${receipt.sale_id}/mark-printed`, {}).catch(() => {});
+
+    if (isBluetoothPrinterReady()) {
+      printReceiptViaBluetooth(receipt, methods, user?.tax_system, user?.currency).catch((err) => {
+        notify(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to print to the Bluetooth printer', 'error');
+      });
+      return;
+    }
+
     window.print();
+  }
+
+  // Fired from the Dialog's own onEntered below, NOT a mount-time effect:
+  // this Dialog pops in via PopTransition (Grow, 180ms), and window.print()
+  // runs synchronously against whatever the DOM looks like the instant
+  // it's called. Fired on mount, that's mid-Grow — scaled down, still
+  // fading in — which is exactly what produced a blank print preview.
+  // onEntered only fires once the enter transition has actually finished,
+  // so the receipt is fully painted at its real size by the time this
+  // runs. The ref still guards against StrictMode's dev-only double-invoke
+  // (see main.tsx) queuing two print jobs off one onEntered.
+  const autoPrinted = useRef(false);
+  function firePendingAutoPrint() {
+    if (!autoPrint || autoPrinted.current) return;
+    autoPrinted.current = true;
+    print();
   }
 
   /**
@@ -71,7 +136,14 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
   }, [receipt.sale_id]);
 
   return (
-    <Dialog open onClose={onClose} maxWidth="xs" fullWidth slots={{ transition: PopTransition }}>
+    <Dialog
+      open
+      onClose={onClose}
+      maxWidth="xs"
+      fullWidth
+      slots={{ transition: PopTransition }}
+      slotProps={{ transition: { onEntered: firePendingAutoPrint } }}
+    >
       {/* `receipt-card` retained only as the hook for pos.css's @media print rules */}
       <DialogContent className="receipt-card" sx={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5 }}>
         {/* Both banners sit above everything, because both change what
@@ -92,6 +164,14 @@ export function ReceiptModal({ receipt, methods, onClose }: { receipt: Receipt; 
         )}
 
         <Box sx={{ textAlign: 'center', mb: 1.5, pb: 1.5, borderBottom: '1px dashed', borderColor: 'divider' }}>
+          {receipt.company.logo_path && (
+            <Box
+              component="img"
+              src={assetUrl(receipt.company.logo_path)}
+              alt=""
+              sx={{ display: 'block', maxWidth: 140, maxHeight: 80, mx: 'auto', mb: 0.75 }}
+            />
+          )}
           <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{receipt.company.name}</Typography>
           {receipt.company.tin && <Typography variant="inherit">TIN: {receipt.company.tin}</Typography>}
           <Typography variant="inherit">{receipt.store.name}</Typography>

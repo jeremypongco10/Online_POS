@@ -18,13 +18,14 @@ interface Props {
   registerName: string;
   /**
    * How this register starts a session — configured in the Back Office's
-   * POS Terminals settings (see RegistersTab), not something this screen
-   * decides on its own. Undefined/'manual' is today's original
-   * behaviour: the cashier counts the drawer and types what they
-   * counted. See CashSessionsController::open() on the backend, which is
-   * the actual source of truth for what figure a 'fixed'/'fixed_confirm'
-   * register opens at — this screen only decides how little or much the
-   * cashier does to get there, never the number itself.
+   * Stores settings (see StoresTab; every register in a store shares its
+   * setting, see RegisterModel::resolveOpeningFloat()), not something
+   * this screen decides on its own. Undefined/'manual' is today's
+   * original behaviour: the cashier counts the drawer and types what
+   * they counted. See CashSessionsController::open() on the backend,
+   * which is the actual source of truth for what figure a 'fixed'/
+   * 'fixed_confirm' register opens at — this screen only decides how
+   * little or much the cashier does to get there, never the number itself.
    */
   openingFloatMode?: OpeningFloatMode;
   /** Only meaningful when openingFloatMode isn't 'manual'. */

@@ -27,13 +27,13 @@ class UserModel extends Model
         'company_id' => ['label' => 'Company', 'rules' => 'required|is_natural_no_zero'],
         'role_id' => ['label' => 'Role', 'rules' => 'permit_empty|is_natural_no_zero'],
         'name' => ['label' => 'Name', 'rules' => 'required|min_length[2]|max_length[150]'],
-        'email' => ['label' => 'Email', 'rules' => 'required|valid_email|max_length[150]|is_unique[users.email,id,{id}]'],
+        'email' => ['label' => 'Email', 'rules' => 'permit_empty|valid_email|max_length[150]|is_unique[users.email,id,{id}]'],
         'username' => ['label' => 'Username', 'rules' => 'required|alpha_numeric_punct|max_length[60]|is_unique[users.username,id,{id}]'],
         'phone' => ['label' => 'Phone', 'rules' => 'permit_empty|max_length[30]'],
         'is_active' => ['label' => 'Active status', 'rules' => 'permit_empty|in_list[0,1]'],
     ];
 
-    protected $beforeInsert = ['hashPassword'];
+    protected $beforeInsert = ['hashPasswordOnInsert'];
     protected $beforeUpdate = ['hashPassword'];
 
     /**
@@ -42,15 +42,69 @@ class UserModel extends Model
      * Also stamps password_changed_at so JwtAuthFilter can invalidate
      * every token issued before this change (see its `iat` check).
      */
+    /**
+     * Cost 10, not PASSWORD_BCRYPT's bare default: PHP 8.4 raised that
+     * default to 12, which measures ~600ms per password_verify() on this
+     * hardware versus ~150ms at 10 — paid synchronously on every login and
+     * every supervisor void-approval. Cost 10 was PHP's own default for a
+     * decade and OWASP's own floor; the brute-force resistance a higher
+     * cost buys is already covered by the account lockout in
+     * registerFailedLogin(), so there's nothing this trades away that
+     * wasn't already handled, only a 4x latency tax it was paying for free.
+     */
+    private const PASSWORD_HASH_COST = 10;
+
     protected function hashPassword(array $data): array
     {
         if (! empty($data['data']['password'])) {
-            $data['data']['password_hash'] = password_hash($data['data']['password'], PASSWORD_BCRYPT);
+            $data['data']['password_hash'] = password_hash($data['data']['password'], PASSWORD_BCRYPT, ['cost' => self::PASSWORD_HASH_COST]);
             $data['data']['password_changed_at'] = date('Y-m-d H:i:s');
         }
         unset($data['data']['password']);
 
         return $data;
+    }
+
+    /**
+     * Same as hashPassword(), except on INSERT a blank password has to
+     * become an explicit password_hash = NULL rather than just omitting
+     * the column — the Bagger role is created this way on purpose (see
+     * UsersController::create()'s roleIsBagger() check: baggers never
+     * sign in themselves), and the column has no sane default to fall
+     * back on otherwise.
+     */
+    protected function hashPasswordOnInsert(array $data): array
+    {
+        $data['data']['password_hash'] = ! empty($data['data']['password'])
+            ? password_hash($data['data']['password'], PASSWORD_BCRYPT, ['cost' => self::PASSWORD_HASH_COST])
+            : null;
+        if (! empty($data['data']['password'])) {
+            $data['data']['password_changed_at'] = date('Y-m-d H:i:s');
+        }
+        unset($data['data']['password']);
+
+        return $data;
+    }
+
+    /**
+     * Transparently migrates an existing account's hash down to the
+     * current cost the moment its plaintext is next seen (a successful
+     * login or void approval) — the only point a hash can be re-derived at
+     * all. Written straight through the query builder rather than
+     * update()/hashPassword(), specifically to avoid stamping
+     * password_changed_at: that field drives JwtAuthFilter's token
+     * invalidation, and a cost migration must never log out whatever
+     * session just authenticated with the very password being rehashed.
+     */
+    public function rehashPasswordIfNeeded(int $userId, string $plaintext, string $currentHash): void
+    {
+        if (! password_needs_rehash($currentHash, PASSWORD_BCRYPT, ['cost' => self::PASSWORD_HASH_COST])) {
+            return;
+        }
+
+        $this->db->table($this->table)->where('id', $userId)->update([
+            'password_hash' => password_hash($plaintext, PASSWORD_BCRYPT, ['cost' => self::PASSWORD_HASH_COST]),
+        ]);
     }
 
     /** Looks a user up by whichever of email or username matches — login accepts either. */

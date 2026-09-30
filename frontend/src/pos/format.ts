@@ -8,13 +8,13 @@
 export const POS_ACCENT = '#2563eb';
 
 /**
- * The top bar's navy. Deliberately a fixed hex rather than a theme token,
- * for the same reason POS_ACCENT is: the bar is a constant dark surface
+ * The top bar's background. Deliberately a fixed hex rather than a theme
+ * token, for the same reason POS_ACCENT is: the bar is a constant surface
  * whatever the app-wide light/dark setting says, so everything sitting on
  * it (the search pill, the icons, the store name) can be coloured against
  * a known background instead of against whichever palette is live.
  */
-export const POS_HEADER_BG = '#0f2137';
+export const POS_HEADER_BG = '#0c3692';
 
 /**
  * One tint per POS action, carried by that action's icon chip wherever it
@@ -49,7 +49,10 @@ export const POS_ACTION_TINTS = {
   cancel: '#dc2626',
   shortcuts: '#64748b',
   search: POS_ACCENT,
-  pay: '#16a34a',
+  // Teal rather than the brighter green it was (#16a34a): that green
+  // measured only ~3.3:1 against the white label on it, and sat hard
+  // against the blue header and accents. This is ~5.5:1 and calmer.
+  pay: '#0f766e',
   hold: '#f59e0b',
   cart: '#0891b2',
   keys: '#64748b',

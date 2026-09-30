@@ -65,7 +65,7 @@ export function PosHeader({ actions, storeName, searchSlotRef, controlsSlotRef }
         flexShrink: 0,
         gap: { xs: 1.5, md: 2.5 },
         px: { xs: 1.5, md: 2.5 },
-        py: 1.25,
+        py: 1.5,
         bgcolor: POS_HEADER_BG,
         // Cast downward only — nothing sits above this bar to receive a
         // shadow, and without the stacking context the grid scrolling
@@ -79,12 +79,12 @@ export function PosHeader({ actions, storeName, searchSlotRef, controlsSlotRef }
           only thing on this bar worth the width, and a logo would take
           most of what's left. */}
       <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', flexShrink: 0, display: { xs: 'none', md: 'flex' } }}>
-        <ShoppingCartIcon sx={{ color: '#fff', fontSize: 30 }} />
+        <ShoppingCartIcon sx={{ color: '#fff', fontSize: 24 }} />
         <Box sx={{ lineHeight: 1 }}>
-          <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: 19, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+          <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
             Execute IT
           </Typography>
-          <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontWeight: 700, fontSize: 9.5, letterSpacing: '0.18em' }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontWeight: 700, fontSize: 8.5, letterSpacing: '0.18em' }}>
             POS SYSTEM
           </Typography>
         </Box>
@@ -103,22 +103,22 @@ export function PosHeader({ actions, storeName, searchSlotRef, controlsSlotRef }
           terminal is online, then stops looking at it. */}
       {storeName && (
         <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', flexShrink: 0, display: { xs: 'none', lg: 'flex' } }}>
-          <StorefrontOutlinedIcon sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 26 }} />
+          <StorefrontOutlinedIcon sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 21 }} />
           <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 14.5, lineHeight: 1.2 }} noWrap>
+            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }} noWrap>
               {storeName}
             </Typography>
             <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center' }}>
               <Box
                 sx={{
-                  width: 7,
-                  height: 7,
+                  width: 6,
+                  height: 6,
                   borderRadius: '50%',
                   flexShrink: 0,
                   bgcolor: online ? '#22c55e' : '#ef4444',
                 }}
               />
-              <Typography sx={{ color: online ? 'rgba(255,255,255,0.65)' : '#fca5a5', fontSize: 11.5, fontWeight: 600 }}>
+              <Typography sx={{ color: online ? 'rgba(255,255,255,0.65)' : '#fca5a5', fontSize: 10.5, fontWeight: 600 }}>
                 {online ? 'Online' : 'Offline'}
               </Typography>
             </Stack>

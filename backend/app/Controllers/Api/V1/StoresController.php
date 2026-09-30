@@ -27,10 +27,21 @@ class StoresController extends BaseCrudController
      * who is currently store-restricted gets the new store added to their
      * own Store Access automatically (see
      * UserStoreModel::grantToRestrictedUsersWithRole() for why only
-     * already-restricted ones are touched).
+     * already-restricted ones are touched), and an "opening float
+     * required unless manual" check applies here too (see this class's
+     * own validateOpeningFloat() — every register in the store uses this
+     * setting unconditionally, see AddOpeningFloatToStores).
      */
     public function create()
     {
+        $payload = $this->payload();
+        if (($error = $this->validateOpeningFloat(
+            $payload['opening_float_mode'] ?? StoreModel::OPENING_FLOAT_MANUAL,
+            $payload['default_opening_float'] ?? null
+        )) !== null) {
+            return $error;
+        }
+
         $response = parent::create();
         $body = json_decode($response->getBody(), true);
 
@@ -51,6 +62,51 @@ class StoresController extends BaseCrudController
         }
 
         return $response;
+    }
+
+    public function update($id = null)
+    {
+        $row = $this->applyScope()->find($id);
+        if ($row === null) {
+            return $this->notFound();
+        }
+
+        $payload = $this->payload();
+
+        // The effective value after this update, not just what's in the
+        // request body — a PUT that only touches, say, is_active
+        // shouldn't fail validation against a store's own already-saved
+        // opening float configuration just because this request never
+        // mentions it.
+        $mode = array_key_exists('opening_float_mode', $payload) ? $payload['opening_float_mode'] : $row->opening_float_mode;
+        $float = array_key_exists('default_opening_float', $payload) ? $payload['default_opening_float'] : $row->default_opening_float;
+
+        if (($error = $this->validateOpeningFloat($mode, $float)) !== null) {
+            return $error;
+        }
+
+        return parent::update($id);
+    }
+
+    /**
+     * "Required only when the mode actually needs it" — the one rule a
+     * single-column validation rule on `default_opening_float` can't
+     * express, so it lives here instead. A store set to 'fixed' or
+     * 'fixed_confirm' with no configured float would leave every one of
+     * its registers with nothing for CashSessionsController::open() to
+     * apply, so that combination is rejected before it can ever be saved.
+     */
+    private function validateOpeningFloat(string $mode, $float)
+    {
+        if ($mode === StoreModel::OPENING_FLOAT_MANUAL) {
+            return null;
+        }
+
+        if ($float === null || $float === '' || (float) $float <= 0) {
+            return $this->apiFail('An opening float greater than zero is required when the opening float mode is not manual.', 422);
+        }
+
+        return null;
     }
 
     /** GET /api/v1/stores/{id}/users — users with access to this store. */

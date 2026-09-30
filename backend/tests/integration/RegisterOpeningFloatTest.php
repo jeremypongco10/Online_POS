@@ -10,18 +10,21 @@ use CodeIgniter\Test\DatabaseTestTrait;
 use CodeIgniter\Test\FeatureTestTrait;
 
 /**
- * A configured default opening cash for a register, so a cashier isn't
- * required to type one in at every login — see
- * AddOpeningFloatToRegisters and RegisterModel's own notes on the three
- * modes.
+ * A configured default opening cash, so a cashier isn't required to type
+ * one in at every login — see AddOpeningFloatToStores and StoreModel's own
+ * notes on the three modes. Lives entirely on the STORE: a register
+ * carries none of this configuration itself (see
+ * DropOpeningFloatFromRegisters) and always uses its own store's setting
+ * unconditionally — one place to configure it for every register in a
+ * store, no per-register override to keep in sync.
  *
- * Covers both halves of the feature: RegistersController rejecting a
- * 'fixed'/'fixed_confirm' register with no configured float (the rule a
+ * Covers both halves of the feature: StoresController rejecting a
+ * 'fixed'/'fixed_confirm' store with no configured float (the rule a
  * single-column DB constraint can't express), and
  * CashSessionsController::open() actually resolving the opening balance
- * from that configuration server-side rather than trusting whatever
- * `opening_balance` a client happens to send — the whole point of a
- * fixed float being that it can't be talked into a different one.
+ * from the register's store server-side rather than trusting whatever
+ * `opening_balance` a client happens to send — the whole point of a fixed
+ * float being that it can't be talked into a different one.
  *
  * @internal
  */
@@ -68,7 +71,7 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
             (int) $user,
             $this->companyId,
             null,
-            ['registers.view', 'registers.manage', 'cash-sessions.view', 'cash-sessions.manage']
+            ['registers.view', 'registers.manage', 'cash-sessions.view', 'cash-sessions.manage', 'stores.view', 'stores.manage']
         );
     }
 
@@ -94,96 +97,68 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
             'store_id' => $this->storeId,
             'name' => 'Register ' . bin2hex(random_bytes(4)),
             'code' => 'R-' . bin2hex(random_bytes(4)),
-            'opening_float_mode' => 'manual',
-            'default_opening_float' => null,
         ], $overrides), true);
     }
 
-    public function testCreatingFixedRegisterWithoutFloatIsRejected(): void
+    private function setStoreOpeningFloat(?string $mode, $float): void
+    {
+        \Config\Database::connect()->table('stores')
+            ->where('id', $this->storeId)
+            ->update(['opening_float_mode' => $mode, 'default_opening_float' => $float]);
+    }
+
+    // -- Store-level opening float ---------------------------------------
+
+    public function testCreatingStoreWithFixedModeAndNoFloatIsRejected(): void
     {
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
-            ->post('/api/v1/registers', [
-                'store_id' => $this->storeId,
-                'name' => 'No Float Register',
-                'code' => 'NFR-1',
+            ->post('/api/v1/stores', [
+                'name' => 'No Float Store',
+                'code' => 'NFS-1',
                 'opening_float_mode' => 'fixed',
             ]);
 
         $response->assertStatus(422);
     }
 
-    public function testCreatingFixedRegisterWithZeroFloatIsRejected(): void
+    public function testUpdatingStoreToFixedModeWithoutFloatIsRejected(): void
     {
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
-            ->post('/api/v1/registers', [
-                'store_id' => $this->storeId,
-                'name' => 'Zero Float Register',
-                'code' => 'ZFR-1',
-                'opening_float_mode' => 'fixed',
-                'default_opening_float' => 0,
-            ]);
+            ->put('/api/v1/stores/' . $this->storeId, ['opening_float_mode' => 'fixed']);
 
         $response->assertStatus(422);
     }
 
-    public function testCreatingFixedRegisterWithFloatSucceeds(): void
+    public function testUpdatingStoreOpeningFloatSucceeds(): void
     {
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
-            ->post('/api/v1/registers', [
-                'store_id' => $this->storeId,
-                'name' => 'Fixed Float Register',
-                'code' => 'FFR-1',
-                'opening_float_mode' => 'fixed',
-                'default_opening_float' => 5000,
-            ]);
+            ->put('/api/v1/stores/' . $this->storeId, ['opening_float_mode' => 'fixed', 'default_opening_float' => 3000]);
 
-        $response->assertStatus(201);
+        $response->assertStatus(200);
         $body = json_decode($response->getJSON(), true);
         $this->assertSame('fixed', $body['data']['opening_float_mode']);
-        $this->assertEqualsWithDelta(5000.00, (float) $body['data']['default_opening_float'], 0.001);
+        $this->assertEqualsWithDelta(3000.00, (float) $body['data']['default_opening_float'], 0.001);
     }
 
-    /**
-     * The reverse of the create-time check — turning an existing manual
-     * register into 'fixed' without ever supplying a float has to be
-     * rejected the same way, not just the create path. Also proves the
-     * merged-state check: a PUT that touches only opening_float_mode
-     * still has to see the (missing) float on the row itself.
-     */
-    public function testUpdatingRegisterToFixedModeWithoutFloatIsRejected(): void
+    public function testUpdatingUnrelatedFieldOnAFixedStoreSucceeds(): void
     {
-        $id = $this->createRegister();
+        $this->setStoreOpeningFloat('fixed', 3000);
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
-            ->put('/api/v1/registers/' . $id, ['opening_float_mode' => 'fixed']);
-
-        $response->assertStatus(422);
-    }
-
-    /**
-     * The other half of that same merged-state check: a PUT touching
-     * only an unrelated field (Active/Inactive, the common case) on an
-     * already-fixed register must NOT fail against its own existing
-     * configuration just because this particular request never mentions
-     * opening_float_mode or default_opening_float.
-     */
-    public function testUpdatingUnrelatedFieldOnFixedRegisterSucceeds(): void
-    {
-        $id = $this->createRegister(['opening_float_mode' => 'fixed', 'default_opening_float' => 3000]);
-
-        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
-            ->withBodyFormat('json')
-            ->put('/api/v1/registers/' . $id, ['is_active' => 0]);
+            ->put('/api/v1/stores/' . $this->storeId, ['is_active' => 0]);
 
         $response->assertStatus(200);
     }
 
-    public function testOpeningManualRegisterStillRequiresOpeningBalance(): void
+    // -- A register always follows its own store's opening float --------
+
+    public function testOpeningARegisterWhoseStoreIsManualStillRequiresOpeningBalance(): void
     {
+        // Store's own mode is 'manual' by default — untouched here.
         $id = $this->createRegister();
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
@@ -193,7 +168,7 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
         $response->assertStatus(422);
     }
 
-    public function testOpeningManualRegisterUsesTheSuppliedOpeningBalance(): void
+    public function testOpeningARegisterWhoseStoreIsManualUsesTheSuppliedOpeningBalance(): void
     {
         $id = $this->createRegister();
 
@@ -207,14 +182,15 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
     }
 
     /**
-     * The core of the feature: a cashier opening a fixed-float register
-     * with no opening_balance in the request at all — exactly what the
-     * frontend now sends for this mode — gets the register's configured
-     * float, not a validation error.
+     * The core of the feature: a cashier opening a register whose STORE
+     * has a fixed float configured, with no opening_balance in the
+     * request at all — exactly what the frontend now sends for this
+     * mode — gets the store's configured float, not a validation error.
      */
-    public function testOpeningFixedRegisterWithNoBalanceInRequestUsesConfiguredFloat(): void
+    public function testOpeningARegisterUsesItsStoresConfiguredFixedFloat(): void
     {
-        $id = $this->createRegister(['opening_float_mode' => 'fixed', 'default_opening_float' => 5000]);
+        $this->setStoreOpeningFloat('fixed', 5000);
+        $id = $this->createRegister();
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
@@ -226,9 +202,10 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
     }
 
     /** Same as above, for 'fixed_confirm' — the two fixed modes resolve identically server-side; only the cashier-facing tap differs. */
-    public function testOpeningFixedConfirmRegisterUsesConfiguredFloat(): void
+    public function testOpeningARegisterWhoseStoreIsFixedConfirmUsesConfiguredFloat(): void
     {
-        $id = $this->createRegister(['opening_float_mode' => 'fixed_confirm', 'default_opening_float' => 2500]);
+        $this->setStoreOpeningFloat('fixed_confirm', 2500);
+        $id = $this->createRegister();
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
@@ -241,13 +218,14 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
 
     /**
      * The security property this whole design hinges on: a client
-     * sending a DIFFERENT opening_balance for a fixed-float register is
-     * ignored, not honoured — the server is the source of truth for what
-     * a fixed register opens at, exactly as if nothing had been sent.
+     * sending a DIFFERENT opening_balance for a register whose store has
+     * a fixed float is ignored, not honoured — the server is the source
+     * of truth, exactly as if nothing had been sent.
      */
-    public function testOpeningFixedRegisterIgnoresAMismatchedClientSuppliedBalance(): void
+    public function testOpeningARegisterIgnoresAMismatchedClientSuppliedBalanceWhenItsStoreIsFixed(): void
     {
-        $id = $this->createRegister(['opening_float_mode' => 'fixed', 'default_opening_float' => 5000]);
+        $this->setStoreOpeningFloat('fixed', 5000);
+        $id = $this->createRegister();
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
             ->withBodyFormat('json')
@@ -256,5 +234,66 @@ final class RegisterOpeningFloatTest extends CIUnitTestCase
         $response->assertStatus(201);
         $body = json_decode($response->getJSON(), true);
         $this->assertEqualsWithDelta(5000.00, (float) $body['data']['opening_balance'], 0.001);
+    }
+
+    /** Two registers in the same store both follow it — the whole point of centralizing this on the store instead of each register. */
+    public function testEveryRegisterInAStoreSharesItsConfiguredFloat(): void
+    {
+        $this->setStoreOpeningFloat('fixed', 4000);
+        $idA = $this->createRegister();
+        $idB = $this->createRegister();
+
+        foreach ([$idA, $idB] as $id) {
+            $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+                ->withBodyFormat('json')
+                ->post('/api/v1/cash-sessions/open', ['register_id' => $id]);
+
+            $response->assertStatus(201);
+            $body = json_decode($response->getJSON(), true);
+            $this->assertEqualsWithDelta(4000.00, (float) $body['data']['opening_balance'], 0.001);
+        }
+    }
+
+    // -- effective_opening_float_mode / effective_opening_float ----------
+
+    public function testRegistersListIncludesEffectiveOpeningFloatFieldsMatchingItsStore(): void
+    {
+        $this->setStoreOpeningFloat('fixed', 3000);
+        $this->createRegister();
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->get('/api/v1/registers?store_id=' . $this->storeId);
+
+        $response->assertStatus(200);
+        $row = json_decode($response->getJSON(), true)['data'][0];
+        $this->assertSame('fixed', $row['effective_opening_float_mode']);
+        $this->assertEqualsWithDelta(3000.00, (float) $row['effective_opening_float'], 0.001);
+    }
+
+    public function testRegisterShowIncludesTheSameEffectiveFields(): void
+    {
+        $this->setStoreOpeningFloat('fixed_confirm', 1500);
+        $id = $this->createRegister();
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->get('/api/v1/registers/' . $id);
+
+        $response->assertStatus(200);
+        $row = json_decode($response->getJSON(), true)['data'];
+        $this->assertSame('fixed_confirm', $row['effective_opening_float_mode']);
+        $this->assertEqualsWithDelta(1500.00, (float) $row['effective_opening_float'], 0.001);
+    }
+
+    public function testEffectiveFieldsReflectAManualStoreToo(): void
+    {
+        // Store's own mode is 'manual' by default — untouched here.
+        $this->createRegister();
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])
+            ->get('/api/v1/registers?store_id=' . $this->storeId);
+
+        $row = json_decode($response->getJSON(), true)['data'][0];
+        $this->assertSame('manual', $row['effective_opening_float_mode']);
+        $this->assertNull($row['effective_opening_float']);
     }
 }

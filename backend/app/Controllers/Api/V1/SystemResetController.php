@@ -14,10 +14,11 @@ use Config\Services;
  * the state a brand-new install starts in.
  *
  * Scope is configuration only: branches, terminals, payment methods, tax
- * rates, invoice numbering, cash sessions, readings, and every
- * company-level setting. Products, categories, suppliers and customers
- * are deliberately left alone — those are catalogue records a business
- * keeps across a reconfiguration.
+ * rates, invoice numbering, cash sessions, readings, Back Office chat
+ * (conversations, groups and messages), and every company-level setting.
+ * Products, categories, suppliers and customers are deliberately left
+ * alone — those are catalogue records a business keeps across a
+ * reconfiguration.
  *
  * REFUSED once the system has traded. Two foreign keys make this
  * non-negotiable rather than merely prudent:
@@ -56,6 +57,9 @@ class SystemResetController extends BaseApiController
         }
 
         $db = Database::connect();
+        // Read before the transaction touches it — needed after the commit
+        // to unlink the file itself (see the logo_path clear below).
+        $oldLogoPath = $db->table('companies')->select('logo_path')->where('id', $companyId)->get()->getFirstRow()->logo_path ?? null;
         $storeIds = model(StoreModel::class)->where('company_id', $companyId)->findColumn('id') ?: [];
         $registerIds = $storeIds === []
             ? []
@@ -75,6 +79,15 @@ class SystemResetController extends BaseApiController
         // Detach before deleting the rates, or the CASCADE takes the
         // products with them — see this class's own note.
         $db->table('products')->where('company_id', $companyId)->update(['tax_rate_id' => null]);
+
+        // Back Office chat — direct messages and groups. A single delete:
+        // chat_messages.conversation_id and chat_conversation_participants.
+        // conversation_id are both ON DELETE CASCADE (see
+        // CreateChatConversations/RestructureChatMessagesForConversations),
+        // so removing the conversations themselves takes their messages
+        // and membership rows with them without needing three separate
+        // deletes in the right order.
+        $db->table('chat_conversations')->where('company_id', $companyId)->delete();
 
         if ($registerIds !== []) {
             $sessionIds = array_column(
@@ -100,7 +113,11 @@ class SystemResetController extends BaseApiController
             $db->table('stores')->whereIn('id', $storeIds)->delete();
         }
 
-        $db->table('tax_rates')->where('company_id', $companyId)->delete();
+        // is_system rows are the protected standard rate for each regime
+        // (12% VAT / 10% GST) and are never touched by a reset — see
+        // AddIsSystemToTaxRates. Without this, a reset used to leave the
+        // company with zero tax rates at all, not just a clean slate.
+        $db->table('tax_rates')->where('company_id', $companyId)->where('is_system', 0)->delete();
         $db->table('payment_methods')->where('company_id', $companyId)->delete();
 
         // Cash is the one method the rest of the system assumes exists
@@ -121,6 +138,11 @@ class SystemResetController extends BaseApiController
         // and blanking it would leave the account nameless.
         $db->table('companies')->where('id', $companyId)->update([
             'legal_name' => null,
+            // Added after this reset was first written, which is exactly
+            // how it ended up missing here for a while — a business's
+            // logo is as much "configuration a new install starts
+            // without" as its legal name or address are.
+            'logo_path' => null,
             'tax_id' => null,
             'is_vat_registered' => 0,
             'vat_registration_number' => null,
@@ -131,6 +153,7 @@ class SystemResetController extends BaseApiController
             'currency' => 'PHP',
             'tax_system' => 'vat',
             'loyalty_points_per_100' => 0,
+            'loyalty_enabled' => 1,
             'pos_lock_idle_minutes' => 0,
             'require_item_void_approval' => 0,
             'require_cancel_approval' => 1,
@@ -150,6 +173,16 @@ class SystemResetController extends BaseApiController
 
         if ($db->transStatus() === false) {
             return $this->apiFail('The reset could not be completed and nothing was changed.', 500);
+        }
+
+        // Only after the commit succeeds — same ordering CompaniesController::
+        // deleteLogo() uses, so a failed reset never leaves the DB pointing
+        // at nothing while the file underneath it is still gone.
+        if ($oldLogoPath) {
+            $oldFull = FCPATH . $oldLogoPath;
+            if (is_file($oldFull)) {
+                unlink($oldFull);
+            }
         }
 
         Services::auditLogger()->log('reset', 'System Configuration', $companyId, 'Configuration reset to a new-setup state', []);

@@ -99,9 +99,16 @@ export function ReadingsTab() {
     }
   }
 
+  // This picker spans every store's terminals at once (registers is
+  // fetched company-wide, not scoped to one branch), so the store name has
+  // to be part of the label — "POS 1" is a perfectly normal code to reuse
+  // in every branch, and without this an admin picking a terminal here
+  // couldn't tell which store's "POS 1" they were about to generate a
+  // reading for. Same reasoning as CashDrawersScreen's own terminalLabel().
   const registerOptions = useMemo(
-    () => registers.map((r) => ({ value: String(r.id), label: `${r.name} (${r.code})` })),
-    [registers]
+    () => registers.map((r) => ({ value: String(r.id), label: `${r.name} (${r.code}) · ${storeName(r.store_id)}` })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [registers, stores]
   );
 
   const columns: Column<ZReading>[] = [

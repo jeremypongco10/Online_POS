@@ -149,6 +149,16 @@ final class SystemResetTest extends CIUnitTestCase
             $db->table('sales')->whereIn('id', $saleIds)->delete();
         }
 
+        $conversationIds = array_column(
+            $db->table('chat_conversations')->select('id')->where('company_id', $this->companyId)->get()->getResultArray(),
+            'id'
+        );
+        if ($conversationIds !== []) {
+            $db->table('chat_conversation_participants')->whereIn('conversation_id', $conversationIds)->delete();
+        }
+        $db->table('chat_messages')->where('company_id', $this->companyId)->delete();
+        $db->table('chat_conversations')->where('company_id', $this->companyId)->delete();
+
         $db->table('transaction_counters')->where('register_id', $this->registerId)->delete();
         $db->table('cash_sessions')->where('register_id', $this->registerId)->delete();
         $db->table('inventory_transactions')->where('store_id', $this->storeId)->delete();
@@ -194,6 +204,34 @@ final class SystemResetTest extends CIUnitTestCase
         $this->assertNotEmpty($company->trade_name);
     }
 
+    /**
+     * Regression: logo_path was added to companies after this reset was
+     * first written, and nobody had taught reset() about it — a business's
+     * logo carried straight through a "back to new-install" reset
+     * unchanged, which is exactly the kind of configuration this endpoint
+     * exists to clear. Covers the file on disk too, not just the column:
+     * an orphaned upload left behind on every reset would accumulate
+     * forever with nothing pointing at it.
+     */
+    public function testResetClearsTheLogoAndDeletesTheFile(): void
+    {
+        $dir = FCPATH . 'uploads/companies/';
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $path = $dir . $this->companyId . '_reset_test' . bin2hex(random_bytes(4)) . '.png';
+        $img = imagecreatetruecolor(4, 4);
+        imagefill($img, 0, 0, imagecolorallocate($img, 0, 0, 0));
+        imagepng($img, $path);
+        imagedestroy($img);
+        model(CompanyModel::class)->update($this->companyId, ['logo_path' => 'uploads/companies/' . basename($path)]);
+
+        $this->reset()->assertStatus(200);
+
+        $this->assertNull(model(CompanyModel::class)->find($this->companyId)->logo_path);
+        $this->assertFalse(is_file($path), 'The uploaded logo file must be deleted from disk by a reset, not just unlinked from the row.');
+    }
+
     public function testResetKeepsTheCatalogueAndDetachesItFromDeletedTaxRates(): void
     {
         $this->reset()->assertStatus(200);
@@ -204,6 +242,114 @@ final class SystemResetTest extends CIUnitTestCase
         $this->assertNotNull($product, 'The product must survive a configuration reset.');
         $this->assertSame('Reset Test Widget', $product->name);
         $this->assertNull($product->tax_rate_id);
+    }
+
+    public function testResetKeepsTheProtectedSystemDefaultTaxRateButClearsOrdinaryOnes(): void
+    {
+        // Raw insert, not the model: is_system is deliberately absent from
+        // TaxRateModel::$allowedFields, so model()->insert() would
+        // silently drop it and this fixture would never actually be
+        // protected — see ProtectedTaxRateTest for that guarantee itself.
+        $db = \Config\Database::connect();
+        $db->table('tax_rates')->insert([
+            'company_id' => $this->companyId,
+            'name' => 'VAT (System)',
+            'tax_system' => 'vat',
+            'rate' => 12,
+            'is_default' => 1,
+            'is_system' => 1,
+            'is_active' => 1,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $systemRateId = (int) $db->insertID();
+
+        $this->reset()->assertStatus(200);
+
+        // The ordinary rate from setUp() (is_system defaults to 0) is
+        // still gone — this isn't a blanket "keep everything" change.
+        $this->assertSame(0, $db->table('tax_rates')->where('id', $this->taxRateId)->countAllResults());
+        $this->assertSame(1, $db->table('tax_rates')->where('id', $systemRateId)->countAllResults());
+
+        $survivor = model(TaxRateModel::class)->find($systemRateId);
+        $this->assertSame(12.0, (float) $survivor->rate);
+        $this->assertSame(1, (int) $survivor->is_system);
+    }
+
+    /**
+     * The gap SeedRemainingVatClassificationRates closed: protecting only
+     * the 12% VAT row left a reset still wiping VAT EXEMPT/ZERO RATED/NON
+     * VAT, which TaxService::classify() needs by name to print the E/Z/N
+     * receipt flags at all — a company with none of them left can't
+     * correctly flag an exempt or zero-rated product until it recreates
+     * them from scratch, exactly the annoyance is_system exists to avoid.
+     */
+    public function testResetKeepsAllFourVatClassificationRatesWhenProtected(): void
+    {
+        $db = \Config\Database::connect();
+        $names = ['VAT', 'VAT EXEMPT', 'ZERO RATED', 'NON VAT'];
+        $ids = [];
+
+        foreach ($names as $name) {
+            $db->table('tax_rates')->insert([
+                'company_id' => $this->companyId,
+                'name' => $name . ' (Protected)',
+                'tax_system' => 'vat',
+                'rate' => $name === 'VAT' ? 12 : 0,
+                'is_default' => 0,
+                'is_system' => 1,
+                'is_active' => 1,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $ids[] = (int) $db->insertID();
+        }
+
+        $this->reset()->assertStatus(200);
+
+        $this->assertSame(count($names), $db->table('tax_rates')->whereIn('id', $ids)->countAllResults());
+    }
+
+    /**
+     * Back Office chat wasn't part of this reset's scope until a user
+     * asked for it — added alongside AddOpeningFloatToStores-era chat
+     * work as exactly the kind of "configuration a new install starts
+     * without" the class docblock already describes. Proves the single
+     * `chat_conversations` delete actually reaches its messages and
+     * membership rows via their own ON DELETE CASCADE, not just the
+     * conversation row itself.
+     */
+    public function testResetClearsChatConversationsMessagesAndMemberships(): void
+    {
+        $otherUserId = (int) model(UserModel::class)->insert([
+            'company_id' => $this->companyId,
+            'role_id' => null,
+            'name' => 'Reset Chat Other',
+            'email' => 'reset-chat-' . bin2hex(random_bytes(4)) . '@example.com',
+            'username' => 'reset_chat_' . bin2hex(random_bytes(4)),
+            'password' => 'Password123!',
+            'is_active' => 1,
+        ], true);
+
+        $conversationId = model(\App\Models\ChatConversationModel::class)
+            ->findOrCreateDirect($this->companyId, $this->userId, $otherUserId, $this->userId);
+        model(\App\Models\ChatMessageModel::class)->insert([
+            'company_id' => $this->companyId,
+            'conversation_id' => $conversationId,
+            'sender_id' => $this->userId,
+            'body' => 'this should not survive a reset',
+        ]);
+
+        try {
+            $this->reset()->assertStatus(200);
+
+            $db = \Config\Database::connect();
+            $this->assertSame(0, $db->table('chat_conversations')->where('id', $conversationId)->countAllResults());
+            $this->assertSame(0, $db->table('chat_messages')->where('conversation_id', $conversationId)->countAllResults());
+            $this->assertSame(0, $db->table('chat_conversation_participants')->where('conversation_id', $conversationId)->countAllResults());
+        } finally {
+            \Config\Database::connect()->table('users')->where('id', $otherUserId)->delete();
+        }
     }
 
     public function testResetLeavesCashAsTheOnePaymentMethod(): void

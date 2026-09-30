@@ -1,19 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import type { Bagger, Customer } from '../api/types';
 import { KeyHint } from './KeyHint';
 import { PosHelpDialog } from './PosHelpDialog';
-import { POS_ACTION_TINTS } from './format';
-import PersonOutlineIcon from '@mui/icons-material/PersonOutlineOutlined';
-import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
-import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
-import RemoveShoppingCartOutlinedIcon from '@mui/icons-material/RemoveShoppingCartOutlined';
-import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
-import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
-import UndoOutlinedIcon from '@mui/icons-material/UndoOutlined';
-import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined';
-import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import { POS_ACCENT, POS_ACTION_TINTS } from './format';
 import { focusProductSearch } from './productGridNav';
 
 interface Props {
@@ -33,23 +24,27 @@ interface Props {
 }
 
 /**
- * A plain white tile: the action's icon in a disc of its own colour, then
- * the label over its keycap.
+ * A plain white tile: the label over its keycap, nothing else.
  *
- * The colour-carrying has swapped places over time. Icons were dropped
- * once as clutter and the identity moved into a wash across the whole
- * tile (each action's own hue from POS_ACTION_TINTS at 8%); that left six
- * pastel rectangles along the bottom of the screen, and at 8% the hues
- * were too close to tell apart anyway. The icon disc does the same job
- * with one small saturated circle instead of a whole surface, so the
- * tile itself is now a plain card like every other card here.
+ * No icons, on request. A coloured icon disc used to lead each tile (and
+ * before that a wash of the action's hue across the whole tile, which left
+ * six pastel rectangles along the bottom of the screen). The action's hue
+ * now only shows on interaction — the hover fill, the keycap's hairline
+ * and the solid fill of an attached Customer/Bagger — so at rest the row is
+ * plain cards carrying words, like every other card here.
  *
- * Everything is one flat fill and one hairline border — no gradient, no
- * drop shadow, no hover lift. All three were tried and are gone: six
- * gradient-washed tiles with coloured glows under them were the loudest
- * thing in a screen otherwise built from hairlines, and the 1px lift made
- * the row twitch under a finger on a touch till. The response to a hover
- * is a colour change rather than a movement.
+ * A neutral ambient shadow, one hairline border, and STILL no gradient
+ * and no hover lift. Coloured gradients with a tinted glow under them
+ * were tried once and pulled for being the loudest thing on a screen
+ * built from hairlines; a hover that moves the tile (translateY) was
+ * tried too and made the row "twitch" under a finger resting on a touch
+ * till. Both stay gone. What's back is a plain grey shadow — the same
+ * one every product tile and the cart panel already carry — since this
+ * row had become the one flat, un-lifted surface left once the rest of
+ * the screen picked that up; hover deepens it slightly, and a genuine
+ * tap (`:active` only, never a resting hover) scales the tile down a
+ * touch for a press-in cue that can't fire from something as still as a
+ * mouse sitting over the button.
  *
  * The keycap is deliberately not the darkest thing on the tile. A solid
  * grey badge under a dark label put the most contrast on "F5" instead of
@@ -60,12 +55,13 @@ interface Props {
  * row's width, and left-packed content left a dead half-button of space
  * on the right of each one. Centred, that same width reads as padding.
  *
- * 48px minimum height. This is a touchscreen till, so it stays clear of
- * the ~44px every published finger-target minimum starts at, but no
- * higher: it was 58 to give the label-over-keycap stack room twice over,
- * and at that size a secondary row of six tiles was the heaviest thing on
- * a screen whose real work happens in the product grid and the cart. The
- * stack gets its room from tighter internal gap and padding instead.
+ * 56px minimum height (50 for the `compact` pair) — comfortably clear of
+ * the ~44px every published finger-target minimum starts at. This sat at
+ * 48 for a stretch, when a secondary row of six tiles was reading as the
+ * heaviest thing on a screen whose real work happens in the product grid
+ * and the cart; raised back up on request, since at 48 the label/keycap
+ * stack left almost no padding around it — the row read as clipped rather
+ * than padded.
  *
  * `attached` is Customer/Bagger's "someone is on this sale" state. The
  * labels stay fixed rather than swapping in the person's name — the
@@ -84,7 +80,6 @@ function ActionButton({
   attached = false,
   danger = false,
   compact = false,
-  icon,
 }: {
   id: string;
   label: string;
@@ -110,16 +105,11 @@ function ActionButton({
    * aren't properties of the sale — Shortcuts and Search, which this
    * row's own doc comment calls the least-reached-for of the set.
    *
-   * Also drops the icon disc and pins them to a fixed, non-growing width,
-   * so the room they give up goes to whichever sale-property buttons are
-   * actually on screen via those buttons' own flex-grow. The disc and the
-   * width trade against each other: carrying one costs ~30px that a
-   * second-tier control shouldn't be spending, so these two go back to a
-   * bare label over its keycap and stay narrow.
+   * Also pins them to a fixed, non-growing width, so the room they give
+   * up goes to whichever sale-property buttons are actually on screen via
+   * those buttons' own flex-grow.
    */
   compact?: boolean;
-  /** The glyph for this action, shown in a disc of the action's own colour beside the label. */
-  icon?: ReactNode;
 }) {
   // Solid-filled states (a customer/bagger attached, or Cancel under the
   // cursor) put white text on the action's own colour; everything else is
@@ -128,13 +118,10 @@ function ActionButton({
   // this attached or dangerous?".
   const filled = attached;
 
-  // Plain white now, for every button in the row. These used to wear a
-  // wash of their own action's colour, which put six pastel rectangles
-  // along the bottom of the screen — the identity that wash was carrying
-  // has moved into the icon disc instead, where a single saturated circle
-  // says the same thing far more sharply than a whole tinted surface at
-  // 8% opacity ever did. The tile itself is a plain card like every other
-  // card on this screen.
+  // Plain white for every button in the row. These used to wear a wash
+  // of their own action's colour, which put six pastel rectangles along
+  // the bottom of the screen; the tile is a plain card like every other
+  // card on this screen, and the action's hue only appears on interaction.
   const surface = 'background.paper';
 
   return (
@@ -143,15 +130,8 @@ function ActionButton({
       onClick={onClick}
       sx={{
         display: 'flex',
-        // A row once the icon disc arrived: stacked, the disc pushed the
-        // label and its keycap down into a three-deck tile that needed
-        // back the height this row spent real effort giving to the grid.
-        // Side by side, the disc fills width the centred label was
-        // leaving empty anyway.
-        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: compact ? 0.75 : 1,
         // Grows to share the row's width — uncapped on purpose (a maximum
         // is what left a dead strip at the end of the row on a wide
         // screen) — unless `compact` opts this one tile out entirely, so
@@ -162,34 +142,37 @@ function ActionButton({
         // actions then took roughly 260px of height — more than the
         // product grid above them had left. The till keeps 120.
         //
-        // `compact` is back to a fixed, non-growing width for Help and
-        // Search — the row's second tier, and narrower than the four
-        // sale-property buttons in the design too. 112 rather than the 80
-        // it was before they gained icon discs: 80 fit a bare label but
-        // crushes a 26px disc plus "Search" against the tile's own
-        // padding, where 112 leaves both room and still reads as clearly
-        // the smaller pair.
+        // `compact` is a fixed, non-growing width for Help and Search —
+        // the row's second tier, and narrower than the four sale-property
+        // buttons in the design too.
         flex: compact ? '0 0 auto' : { xs: '1 1 88px', sm: '1 1 120px' },
         width: compact ? 86 : undefined,
         minWidth: 0,
-        // 48 everywhere, down from 58 on the till: these are a secondary
-        // row under the product grid, and at 58 with a 14px label they
-        // read as the heaviest thing on a screen whose actual work
-        // happens in the grid and the cart. 48 still clears the ~44px
-        // touch-target guideline the note above cites — the room the
-        // label-over-keycap stack needs is bought back by the tighter
-        // gap/padding below rather than by height — and hands the grid
-        // roughly another tile row.
-        minHeight: compact ? 44 : 48,
+        // Raised to 56/50 (from 48/44): at 48 the label/keycap stack
+        // nearly filled the tile on its own, leaving these looking clipped
+        // rather than padded. The extra height is pure breathing room
+        // above and below that content, not bigger text, so the row reads
+        // as more comfortable to tap without the labels changing size.
+        minHeight: compact ? 50 : 56,
         px: compact ? 0.75 : 1.25,
         py: compact ? 0.5 : 0.625,
-        borderRadius: 1,
+        // 1.5, up from 1 — every other card on this screen now (product
+        // tiles, the cart panel) curves noticeably more than this row
+        // did, which was the one visibly squarer surface left over from
+        // before the redesign. Still short of the header's fully-rounded
+        // pills; six rectangles in a row read oddest of all as pills.
+        borderRadius: 1.5,
         border: '1px solid',
-        // A neutral hairline, not a tinted one — with the surface white,
-        // a coloured border was the last thing still washing the whole
-        // tile in its action's hue. Cancel keeps a red-tinted edge, since
-        // that one genuinely is about consequence rather than identity.
-        borderColor: filled ? tint : danger ? `${tint}5c` : 'divider',
+        // A thin outline in the POS accent blue — the same blue as the
+        // selected category pill and the grid/list toggle — rather than each
+        // action's own hue, so the row reads as one set of controls instead
+        // of a rainbow of outlines, and the tile itself stays white. (It
+        // used to be the theme's `divider`, ~12% black, which on a white
+        // tile was close to invisible and read as no border at all.) Hover
+        // still moves the edge to the action's own colour below. Cancel
+        // keeps a red-tinted edge, since that one genuinely is about
+        // consequence rather than identity.
+        borderColor: filled ? tint : danger ? `${tint}5c` : POS_ACCENT,
         bgcolor: filled ? tint : surface,
         backgroundImage: 'none',
         color: filled ? '#fff' : danger ? tint : 'text.primary',
@@ -197,8 +180,17 @@ function ActionButton({
         fontSize: compact ? 11.5 : 13,
         lineHeight: 1.15,
         textTransform: 'none',
-        boxShadow: 'none',
-        transition: 'background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+        // A soft ambient shadow at rest, matching the exact recipe every
+        // product tile already carries (`0 2px 8px rgba(15,23,42,0.05)`)
+        // — this row was the one flat, un-lifted surface left on a
+        // screen where product cards and the cart panel both float
+        // gently above the page. Still no COLOURED glow: that specific
+        // effect (six gradient-washed tiles with tinted glows under
+        // them) was tried once already and pulled for being the loudest
+        // thing on a screen otherwise built from hairlines — this is a
+        // neutral grey lift, not that.
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+        transition: 'background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease',
         // KeyHint is shared with Pay and the search field, so its neutral
         // keycap is overridden here rather than changed at the source.
         // ml:0 cancels the margin it carries for sitting inline after a
@@ -222,18 +214,13 @@ function ActionButton({
           bgcolor: danger || filled ? tint : `${tint}26`,
           color: danger || filled ? '#fff' : 'text.primary',
           borderColor: tint,
-          boxShadow: 'none',
-          // The icon disc has to follow the surface underneath it. Once
-          // Cancel fills solid red, a disc still wearing its resting style
-          // is a red glyph on a 14%-red circle over solid red — the icon
-          // simply vanished, which is the one button where losing the
-          // glyph matters most. Same white-on-colour treatment the keycap
-          // below already switches to, and that an `attached` tile gets
-          // from `filled` directly; this covers the hover, which is a CSS
-          // state no prop can see.
-          ...(danger || filled
-            ? { '& .pos-action-icon': { bgcolor: 'rgba(255,255,255,0.22)', color: '#fff' } }
-            : {}),
+          // Deepens rather than vanishing — this used to reset to 'none'
+          // back when the resting state had no shadow to reset FROM.
+          // Now that rest carries the same soft lift every card on this
+          // screen does, resetting it here would make hovering read as
+          // the tile sinking flatter, backwards from what a hover is
+          // meant to signal.
+          boxShadow: '0 4px 12px rgba(15, 23, 42, 0.09)',
         },
         // Once Cancel fills solid, the pale keycap all but disappears
         // against it — swap to the white-on-colour treatment KeyHint
@@ -248,8 +235,16 @@ function ActionButton({
           },
         }),
         // One more step of the same hue under a finger, so a press still
-        // answers without the tile moving.
-        '&:active': { bgcolor: danger || filled ? tint : `${tint}38` },
+        // answers without the tile moving — plus a small scale-down for
+        // the same reason the colour deepens: a genuine press cue.
+        // Deliberately `:active` and not `:hover`: a translateY-on-hover
+        // was tried here before and reverted for making the row "twitch"
+        // under a finger resting on a touch till — anything a still
+        // cursor or finger can trigger by simply sitting there is the
+        // wrong kind of motion. `:active` only exists for the instant of
+        // an actual press and is gone the moment it releases, so it
+        // can't twitch the way a hover state can.
+        '&:active': { bgcolor: danger || filled ? tint : `${tint}38`, transform: 'scale(0.97)' },
       }}
     >
       {/* Label over its keycap — two lines, so each button stays narrow
@@ -257,37 +252,6 @@ function ActionButton({
           their own shortcuts. Ellipsised rather than wrapped: a label that
           wrapped would push the keycap out of the tile and make one button
           taller than the rest of the row. */}
-      {/* The icon rides in a tinted disc in the action's own hue, rather
-          than sitting bare beside the label. Bare glyphs were tried here
-          before and removed as clutter — the disc is what makes this a
-          target to aim at instead of a decoration: at a glance across a
-          counter the cashier is looking for "the blue circle", not for a
-          16px outline of a person. Skipped on `compact` tiles: a disc
-          costs roughly 30px of width, which is most of what makes Help
-          and Search the narrow pair in the first place. Bare labels there
-          read as the row's second tier rather than as unfinished. */}
-      {icon && !compact && (
-        <Box
-          component="span"
-          // Named so the parent's :hover can restyle it — see the
-          // white-on-colour rule there. A hover is a CSS state, not a
-          // prop, so `filled` below can't see it.
-          className="pos-action-icon"
-          sx={{
-            flexShrink: 0,
-            width: compact ? 26 : 30,
-            height: compact ? 26 : 30,
-            borderRadius: '50%',
-            display: 'grid',
-            placeItems: 'center',
-            bgcolor: filled ? 'rgba(255,255,255,0.22)' : `${tint}24`,
-            color: filled ? '#fff' : tint,
-            '& svg': { fontSize: 17 },
-          }}
-        >
-          {icon}
-        </Box>
-      )}
       <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
         <Box
           component="span"
@@ -424,7 +388,6 @@ export function CartActionsRow({
       <ActionButton
         id="pos-help-button"
         label="Help"
-        icon={<HelpOutlineOutlinedIcon />}
         keyLabel="F1"
         tint={POS_ACTION_TINTS.shortcuts}
         onClick={() => setHelpOpen(true)}
@@ -443,7 +406,6 @@ export function CartActionsRow({
       <ActionButton
         id="pos-action-search"
         label="Search"
-        icon={<SearchOutlinedIcon />}
         keyLabel="F2"
         tint={POS_ACTION_TINTS.search}
         onClick={focusProductSearch}
@@ -453,7 +415,6 @@ export function CartActionsRow({
       <ActionButton
         id="pos-action-add-customer"
         label="Customer"
-        icon={<PersonOutlineIcon />}
         keyLabel="F3"
         tint={POS_ACTION_TINTS.customer}
         onClick={onOpenCustomer}
@@ -463,7 +424,6 @@ export function CartActionsRow({
       <ActionButton
         id="pos-action-bagger"
         label="Bagger"
-        icon={<ShoppingBagOutlinedIcon />}
         keyLabel="F4"
         tint={POS_ACTION_TINTS.bagger}
         onClick={onOpenBagger}
@@ -482,7 +442,6 @@ export function CartActionsRow({
           <ActionButton
             id="pos-action-discount"
             label="Discount"
-            icon={<SellOutlinedIcon />}
             keyLabel="F5"
             tint={POS_ACTION_TINTS.discount}
             onClick={onOpenDiscount}
@@ -511,7 +470,6 @@ export function CartActionsRow({
           <ActionButton
             id="pos-action-void-item"
             label="Void Item"
-            icon={<RemoveShoppingCartOutlinedIcon />}
             keyLabel="F7"
             tint={POS_ACTION_TINTS.voidItem}
             onClick={onVoidItemSearch}
@@ -526,7 +484,6 @@ export function CartActionsRow({
           <ActionButton
             id="pos-action-reprint"
             label="Reprint"
-            icon={<ReceiptLongOutlinedIcon />}
             keyLabel="F7"
             tint={POS_ACTION_TINTS.reprint}
             onClick={onReprintReceipt}
@@ -535,7 +492,6 @@ export function CartActionsRow({
           <ActionButton
             id="pos-action-return"
             label="Return"
-            icon={<UndoOutlinedIcon />}
             keyLabel="F8"
             tint={POS_ACTION_TINTS.return}
             onClick={onReturn}
@@ -563,7 +519,7 @@ export function CartActionsRow({
               wide to close the gap. */}
           <Box sx={{ flex: 1, minWidth: 8 }} />
 
-          {/* The only one that doesn't get a coloured icon disc on white:
+          {/* The only one that isn't plain white with a neutral hairline:
               this destroys the sale in progress, so it stays legible as
               the dangerous one from across the row rather than reading as
               one more peer. Red border and red label, filling to solid
@@ -572,7 +528,6 @@ export function CartActionsRow({
           <ActionButton
             id="pos-action-cancel"
             label="Cancel Sale"
-            icon={<CancelOutlinedIcon />}
             keyLabel="F9"
             tint={POS_ACTION_TINTS.cancel}
             onClick={onCancel}

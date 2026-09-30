@@ -4,6 +4,8 @@ namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
 use App\Models\InvoiceSeriesModel;
+use App\Models\RoleModel;
+use CodeIgniter\HTTP\ResponseInterface;
 use Config\Services;
 
 /**
@@ -49,8 +51,43 @@ class InvoiceSeriesController extends BaseCrudController
         return $payload;
     }
 
+    /**
+     * Sales invoice numbering is BIR-registration-sensitive enough (a
+     * misconfigured series can duplicate or skip numbers already promised
+     * to the tax authority) that actually changing one — creating,
+     * editing, activating, deactivating — is restricted to a caller
+     * logged in as Dev Admin, on top of the ordinary invoice-series.manage
+     * permission. Viewing (index/show) is unaffected; anyone who could
+     * already see this tab still can.
+     */
+    private function callerRoleName(): ?string
+    {
+        $roleId = Services::authContext()->roleId;
+
+        if ($roleId === null) {
+            return null;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null ? $role->name : null;
+    }
+
+    private function devAdminOnly(): ?ResponseInterface
+    {
+        if ($this->callerRoleName() !== 'Dev Admin') {
+            return $this->apiFail('Only a Dev Admin can manage sales invoicing.', 403);
+        }
+
+        return null;
+    }
+
     public function create()
     {
+        if ($blocked = $this->devAdminOnly()) {
+            return $blocked;
+        }
+
         $payload = $this->payload();
         $payload['company_id'] = Services::authContext()->companyId;
 
@@ -64,6 +101,10 @@ class InvoiceSeriesController extends BaseCrudController
 
     public function update($id = null)
     {
+        if ($blocked = $this->devAdminOnly()) {
+            return $blocked;
+        }
+
         $before = $this->applyScope()->find($id);
         if ($before === null) {
             return $this->notFound();
@@ -103,6 +144,10 @@ class InvoiceSeriesController extends BaseCrudController
      */
     public function activate($id = null)
     {
+        if ($blocked = $this->devAdminOnly()) {
+            return $blocked;
+        }
+
         $row = $this->applyScope()->find($id);
         if ($row === null) {
             return $this->notFound();
@@ -130,6 +175,10 @@ class InvoiceSeriesController extends BaseCrudController
     /** POST /invoice-series/{id}/deactivate — no overlap check needed; turning a series off can never conflict with anything. */
     public function deactivate($id = null)
     {
+        if ($blocked = $this->devAdminOnly()) {
+            return $blocked;
+        }
+
         $row = $this->applyScope()->find($id);
         if ($row === null) {
             return $this->notFound();

@@ -48,7 +48,12 @@ class AuthController extends BaseApiController
             return $this->unauthorized('Account is no longer active');
         }
 
-        if (! $user || ! password_verify($payload['password'], $user->password_hash)) {
+        // A null password_hash means an account (Bagger role — see
+        // UsersController::create()) that was never given a password at
+        // all, since it's never meant to sign in itself; password_verify()
+        // only accepts a string, so this is checked before calling it
+        // rather than left to fail some other way.
+        if (! $user || $user->password_hash === null || ! password_verify($payload['password'], $user->password_hash)) {
             // A $user with no match at all has no company to attribute the
             // attempt to — nothing meaningful to log there. A found user
             // with the wrong password does, and is worth recording: a
@@ -64,6 +69,7 @@ class AuthController extends BaseApiController
 
         $userModel->clearLoginLock($user->id);
         $userModel->update($user->id, ['last_login_at' => date('Y-m-d H:i:s')]);
+        $userModel->rehashPasswordIfNeeded((int) $user->id, $payload['password'], $user->password_hash);
         Services::auditLogger()->logAuthEvent((int) $user->company_id, (int) $user->id, $user->name, 'login');
 
         // Roles held to one session at a time (cashiers) drop any earlier
@@ -273,6 +279,7 @@ class AuthController extends BaseApiController
         }
 
         $userModel->clearLoginLock($user->id);
+        $userModel->rehashPasswordIfNeeded((int) $user->id, $payload['password'], $user->password_hash);
         Services::auditLogger()->log('unlock', 'User', $user->id, $user->name);
 
         return $this->ok(null, 'Unlocked');
@@ -333,6 +340,10 @@ class AuthController extends BaseApiController
         $user->currency = $company->currency ?? 'PHP';
         $user->tax_system = $company->tax_system ?? 'vat';
         $user->pos_lock_idle_minutes = (int) ($company->pos_lock_idle_minutes ?? 0);
+        // Lets the POS and Customers screen hide every loyalty-related UI
+        // element outright, without a second request, the same way
+        // pos_lock_idle_minutes above already rides the auth payload.
+        $user->loyalty_enabled = (int) ($company->loyalty_enabled ?? 1) === 1;
     }
 
     private function tokenResponse(object $user)

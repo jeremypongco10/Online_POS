@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
-import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -22,6 +21,7 @@ import { SearchField } from '../SearchField';
 import { KeyHint } from './KeyHint';
 import { CategoryDialog } from './CategoryDialog';
 import { CategoryPills } from './CategoryPills';
+import { QUICK_FILTER_LABELS, type QuickFilter } from './quickFilter';
 import { ProductGrid } from './ProductGrid';
 import { ProductListView } from './ProductListView';
 import { AddQuantityDialog } from './AddQuantityDialog';
@@ -88,6 +88,11 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
   const notify = useSnackbar();
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState<number | null>(null);
+  // The Top Sellers / Favorites shortcuts. Their own state rather than a
+  // pseudo category id, and mutually exclusive with a category pick (see
+  // selectCategory/selectQuickFilter): each is a different slice of the
+  // catalog, not a section inside one.
+  const [quickFilter, setQuickFilter] = useState<QuickFilter | null>(null);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [categories, setCategories] = useState<CategoryNode[]>([]);
@@ -95,6 +100,13 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * What `query` was the last time the effect below actually ran — the
+   * signal that decides whether THIS run debounces at all. See its use
+   * there: the 250ms delay exists to stop a keystroke-per-request flood
+   * while someone is typing, and only a typed change is that.
+   */
+  const lastQueryRef = useRef('');
 
   // Infinite-scroll state for the grid/list below. `page` tracks the last
   // page successfully appended; `hasMore` comes straight from the API's own
@@ -140,8 +152,28 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
     api.get<CategoryNode[]>('/categories/tree').then(setCategories).catch(() => setCategories([]));
   }, [companyId]);
 
+  // Picking a category (or "All") leaves a shortcut, and picking a shortcut
+  // clears the category — never both at once, so the pill row and the
+  // Category button can only ever describe one filter.
+  const selectCategory = useCallback((id: number | null) => {
+    setCategoryId(id);
+    setQuickFilter(null);
+  }, []);
+  const selectQuickFilter = useCallback((filter: QuickFilter) => {
+    setCategoryId(null);
+    setQuickFilter(filter);
+  }, []);
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    // Whether the actual TEXT changed since this effect last ran — the
+    // one thing the debounce below exists to protect against. Read
+    // before any early return so it always reflects the immediately
+    // previous run, then stamped for next time regardless of which
+    // branch this run takes.
+    const queryChangedSinceLastRun = query !== lastQueryRef.current;
+    lastQueryRef.current = query;
 
     if (!storeId) {
       setResults([]);
@@ -167,11 +199,45 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
       return;
     }
 
+    /**
+     * The debounce is a keystroke throttle, and only a keystroke should
+     * pay for it. It used to apply uniformly to every trigger of this
+     * effect — a category tap, a store switch, clearing the field —
+     * none of which are a stream of rapid-fire events with more on the
+     * way; they're each one deliberate, discrete action. Charging a
+     * category pick the same artificial 250ms a mid-word keystroke gets
+     * was pure added latency with nothing to show for it: the skeleton
+     * placeholders don't even start until this fires, so the cashier's
+     * "nothing is happening" window was 250ms longer than the network
+     * round trip actually needed.
+     *
+     * `queryChangedSinceLastRun && trimmed !== ''` is what isolates real
+     * typing: category-only changes leave `query` identical between
+     * runs (false), and clearing the field back to empty is deliberately
+     * instant too (a cashier resetting the search shouldn't wait either).
+     */
+    const delay = queryChangedSinceLastRun && trimmed !== '' ? 250 : 0;
+
     debounceRef.current = setTimeout(() => {
       // Any in-flight loadMore() for the previous filters is now stale —
       // this id bump is what makes its eventual response a no-op.
       const requestId = ++requestIdRef.current;
       setLoading(true);
+      // Cleared here, not left holding the previous filter's rows until
+      // the new page lands: `initialLoading` below is `loading &&
+      // results.length === 0`, so with stale results still sitting in
+      // state it never goes true and the skeleton placeholders never
+      // show — the grid just sat frozen on the OLD category for the
+      // debounce + network round trip, then snapped to the new one with
+      // no warning in between, which is what read as a delay/hang rather
+      // than as work in progress. This only runs once a real request is
+      // about to fire (past the debounce, past the 1-2 char guard above),
+      // so it's a different case from that guard's own "leave results
+      // alone" choice below the 3-character threshold, where no request
+      // happens at all and clearing would flash blank on every keystroke
+      // for nothing.
+      setResults([]);
+      setHasMore(false);
       const params = new URLSearchParams({
         company_id: String(companyId),
         store_id: String(storeId),
@@ -181,6 +247,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
       });
       if (trimmed !== '') params.set('q', trimmed);
       if (categoryId !== null) params.set('category_id', String(categoryId));
+      if (quickFilter) params.set(quickFilter, '1');
 
       api
         .getPaged<ProductWithStorePrice>(`/products?${params.toString()}`)
@@ -198,12 +265,12 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
         .finally(() => {
           if (requestId === requestIdRef.current) setLoading(false);
         });
-    }, 250);
+    }, delay);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, categoryId, companyId, storeId]);
+  }, [query, categoryId, quickFilter, companyId, storeId]);
 
   /**
    * Fetches the next page and appends it — the counterpart to the effect
@@ -229,6 +296,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
     });
     if (trimmed !== '') params.set('q', trimmed);
     if (categoryId !== null) params.set('category_id', String(categoryId));
+    if (quickFilter) params.set(quickFilter, '1');
 
     api
       .getPaged<ProductWithStorePrice>(`/products?${params.toString()}`)
@@ -248,7 +316,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
       .finally(() => {
         if (requestId === requestIdRef.current) setLoadingMore(false);
       });
-  }, [storeId, loading, loadingMore, hasMore, page, query, categoryId, companyId]);
+  }, [storeId, loading, loadingMore, hasMore, page, query, categoryId, quickFilter, companyId]);
 
   // The sentinel sits just past the last row; once it scrolls into the
   // results panel's own viewport (not the page's — `root` is that panel),
@@ -287,6 +355,10 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
   // open, say) — a stale name is a cosmetic problem, a raw "#25" on the
   // button is a confusing one.
   const selectedCategoryName = categories.find((c) => c.id === categoryId)?.name ?? 'Category';
+  // What the header's Category button says and how it's styled: it exists to
+  // name the slice of the catalog currently showing, and a shortcut is one.
+  const filterActive = categoryId !== null || quickFilter !== null;
+  const filterLabel = quickFilter ? QUICK_FILTER_LABELS[quickFilter] : categoryId === null ? 'Category' : selectedCategoryName;
 
   const initialLoading = loading && results.length === 0;
   const gridSkeletons = initialLoading ? 12 : loadingMore ? 4 : 0;
@@ -591,7 +663,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
     tiles[target].scrollIntoView({ block: 'nearest' });
   }
 
-  // Sized to match the search field it sits beside (48) rather than
+  // Sized to match the search field it sits beside (40) rather than
   // MUI's `small` default (~32) — the two read as one control strip that
   // way, and a view switch on a till is a finger target like any other.
   // Coloured for PosHeader's fixed navy rather than for the page: the
@@ -601,8 +673,8 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
   const toggleButtonSx = {
     gap: 0.5,
     px: 1.75,
-    minWidth: 46,
-    minHeight: 46,
+    minWidth: 40,
+    minHeight: 40,
     textTransform: 'none',
     fontWeight: 600,
     color: 'rgba(255,255,255,0.65)',
@@ -655,7 +727,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
             // cashier taps to type a name and the one a scanner types
             // into all shift, so it gets a full touch target rather than
             // the compact height the admin toolbars use.
-            minHeight: 46,
+            minHeight: 40,
             // Forced white rather than `background.paper`: this field now
             // sits on PosHeader's fixed navy, which does not follow the
             // app's light/dark setting, so a theme-driven surface would
@@ -691,12 +763,6 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
           </Stack>
         }
       />
-      {/* Fixed-footprint slot, always present — toggling the spinner's opacity instead of
-          mounting/unmounting it means the search field's own width never changes underneath it
-          when a search starts or finishes. */}
-      <Box sx={{ width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress size={14} thickness={5} sx={{ color: POS_ACCENT, opacity: loading ? 1 : 0 }} />
-      </Box>
     </Stack>
   );
 
@@ -723,15 +789,26 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
             the current filter off the side, this is the one place still
             saying which slice of the catalog the grid is showing. */}
         {categories.length > 0 && (
-          <Tooltip title={categoryId === null ? 'Filter by category' : `Category: ${selectedCategoryName}. Click to change.`}>
+          <Tooltip title={!filterActive ? 'Filter by category' : quickFilter ? `${filterLabel}. Click to change.` : `Category: ${selectedCategoryName}. Click to change.`}>
             <Button
               onClick={() => setCategoryDialogOpen(true)}
               startIcon={<AppsIcon />}
-              aria-label={categoryId === null ? 'Filter by category' : `Category: ${selectedCategoryName}`}
+              aria-label={!filterActive ? 'Filter by category' : quickFilter ? filterLabel : `Category: ${selectedCategoryName}`}
               sx={{
                 flexShrink: 0,
-                height: 46,
-                px: { xs: 1.25, sm: 2 },
+                height: 40,
+                // A fixed footprint regardless of which name is showing.
+                // This button used to size to its own label — "Category"
+                // next to "Beverages" next to "Grocery & Canned Goods" are
+                // three very different widths — and since the search
+                // field beside it is flex:1, EVERY category pick visibly
+                // resized this button and, with it, the search box: the
+                // whole bar reflowed on every single selection. Width is
+                // now a constant the rest of the bar can rely on; a long
+                // name truncates inside it instead (see the label span
+                // below) rather than pushing anything else around.
+                width: { sm: 176 },
+                px: { xs: 1.25, sm: 1.75 },
                 borderRadius: 2,
                 textTransform: 'none',
                 fontWeight: 700,
@@ -742,7 +819,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
                 // tokens: this button sits on PosHeader's fixed dark band,
                 // which ignores the app's light/dark setting, so theme
                 // colours here would be styled against the wrong surface.
-                borderColor: categoryId === null ? 'rgba(255,255,255,0.22)' : POS_ACCENT,
+                borderColor: !filterActive ? 'rgba(255,255,255,0.22)' : POS_ACCENT,
                 // Transparent at rest, not paper — a solid white pill sat
                 // in the same row as the equally white search field and
                 // grid/list toggle, and the three together read as
@@ -751,11 +828,11 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
                 // dead space; only the ACTIVE state (a category picked)
                 // still gets a solid fill, since that's the one moment
                 // this button needs to stand out as "a filter is on".
-                bgcolor: categoryId === null ? 'rgba(255,255,255,0.07)' : POS_ACCENT,
+                bgcolor: !filterActive ? 'rgba(255,255,255,0.07)' : POS_ACCENT,
                 color: '#fff',
                 '&:hover': {
-                  bgcolor: categoryId === null ? 'rgba(255,255,255,0.14)' : POS_ACCENT,
-                  borderColor: categoryId === null ? 'rgba(255,255,255,0.35)' : POS_ACCENT,
+                  bgcolor: !filterActive ? 'rgba(255,255,255,0.14)' : POS_ACCENT,
+                  borderColor: !filterActive ? 'rgba(255,255,255,0.35)' : POS_ACCENT,
                   color: '#fff',
                 },
                 // The icon alone on a phone. At 390px the search field is
@@ -765,8 +842,21 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
                 '& .MuiButton-startIcon': { mr: { xs: 0, sm: 1 } },
               }}
             >
-              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                {categoryId === null ? 'Category' : selectedCategoryName}
+              {/* block, not inline — textOverflow only clips on a
+                  block-level (or inline-block) box, and minWidth:0 is
+                  what actually lets this shrink to the button's fixed
+                  width instead of forcing the button wider to fit it. */}
+              <Box
+                component="span"
+                sx={{
+                  display: { xs: 'none', sm: 'block' },
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {filterLabel}
               </Box>
             </Button>
           </Tooltip>
@@ -828,11 +918,17 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
           this row's height is no longer competing with them for the same
           band, so the catalog's own sections can be on screen and one tap
           away instead of two taps behind a dialog. */}
-      {categories.length > 0 && (
-        <Box sx={{ flexShrink: 0, mb: 1.25, minWidth: 0 }}>
-          <CategoryPills categories={categories} selected={categoryId} onSelect={setCategoryId} />
-        </Box>
-      )}
+      {/* Always rendered, not gated on having categories: it also carries
+          the Top Sellers shortcut, which isn't a category. */}
+      <Box sx={{ flexShrink: 0, mb: 1.25, minWidth: 0 }}>
+        <CategoryPills
+          categories={categories}
+          selected={categoryId}
+          onSelect={selectCategory}
+          quickFilter={quickFilter}
+          onSelectQuickFilter={selectQuickFilter}
+        />
+      </Box>
 
       {/* Only this results area scrolls — everything else in this panel, above and below it, stays put. */}
       {/* px/pt give a hovered card's shadow somewhere to land instead of
@@ -859,10 +955,22 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
           <Stack sx={{ alignItems: 'center', textAlign: 'center', py: 6, px: 2, color: 'text.secondary' }}>
             <SearchOffOutlinedIcon sx={{ fontSize: 44, opacity: 0.4, mb: 1.5 }} />
             <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-              {query.trim() ? `No products match "${query.trim()}"` : 'No products to show'}
+              {query.trim()
+                ? `No products match "${query.trim()}"`
+                : quickFilter === 'popular'
+                  ? 'No top sellers yet'
+                  : quickFilter === 'favorites'
+                    ? 'No favorites yet'
+                    : 'No products to show'}
             </Typography>
             <Typography variant="caption">
-              {query.trim() ? 'Check the spelling, or try a different category.' : 'Pick another category, or clear the filters.'}
+              {query.trim()
+                ? 'Check the spelling, or try a different category.'
+                : quickFilter === 'popular'
+                  ? 'Products show up here once they have sold at this store in the last 30 days.'
+                  : quickFilter === 'favorites'
+                    ? 'A manager can star products for this store from Back Office → Products → Prices.'
+                    : 'Pick another category, or clear the filters.'}
             </Typography>
           </Stack>
         ) : (
@@ -902,7 +1010,7 @@ export function ProductSearch({ companyId, storeId, onAdd, searchPortalTarget, c
         onClose={() => setCategoryDialogOpen(false)}
         categories={categories}
         selected={categoryId}
-        onSelect={setCategoryId}
+        onSelect={selectCategory}
       />
 
       <AddQuantityDialog

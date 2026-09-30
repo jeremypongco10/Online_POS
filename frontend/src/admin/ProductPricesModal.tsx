@@ -20,6 +20,11 @@ import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Box from '@mui/material/Box';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 
 interface Props {
   /** The modal is open exactly when this is non-null. */
@@ -75,6 +80,49 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
     setPrices((rows) => rows.map((r) => (r.store_id === storeId ? { ...r, [field]: value } : r)));
   }
 
+  /**
+   * Stars/un-stars this product for one store's POS Favorites shortcut.
+   * Saved on the tap rather than waiting for Save Prices: a star has no
+   * half-typed state to commit, and it's its own request (see
+   * ProductsController::setFavorite). Optimistic, reverted if the server
+   * says no, so the star doesn't sit lit for something that didn't save.
+   */
+  async function toggleFavorite(row: StoreProductPrice) {
+    if (!product) return;
+    const next = !row.is_favorite;
+    const setStar = (value: boolean) =>
+      setPrices((rows) => rows.map((r) => (r.store_id === row.store_id ? { ...r, is_favorite: value } : r)));
+
+    setStar(next);
+    try {
+      await api.put(`/products/${product.id}/favorite`, { store_id: row.store_id, is_favorite: next ? 1 : 0 });
+    } catch (err) {
+      setStar(!next);
+      notify(err instanceof ApiError ? err.message : 'Could not update favorites', 'error');
+    }
+  }
+
+  /** The star for one store's row — a button when the caller can edit, a plain marker when they can only view. */
+  function favoriteControl(row: StoreProductPrice) {
+    const on = Boolean(row.is_favorite);
+    const icon = on ? <StarIcon fontSize="small" sx={{ color: '#f59e0b' }} /> : <StarBorderIcon fontSize="small" />;
+    if (!canEdit) {
+      return (
+        <Box role="img" aria-label={on ? 'Favorite' : 'Not a favorite'} sx={{ display: 'inline-flex', color: 'text.secondary' }}>
+          {icon}
+        </Box>
+      );
+    }
+    const label = `${on ? 'Remove from' : 'Add to'} favorites at ${row.store_name}`;
+    return (
+      <Tooltip title={label}>
+        <IconButton size="small" aria-label={label} aria-pressed={on} onClick={() => toggleFavorite(row)}>
+          {icon}
+        </IconButton>
+      </Tooltip>
+    );
+  }
+
   async function save() {
     if (!product) return;
     setSaving(true);
@@ -118,6 +166,7 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                       <TableCell align="right">Cost</TableCell>
                       <TableCell align="right">Price</TableCell>
                       <TableCell align="right">Profit</TableCell>
+                      <TableCell align="center">Favorite</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -175,6 +224,7 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                             );
                           })()}
                         </TableCell>
+                        <TableCell align="center">{favoriteControl(row)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -192,9 +242,10 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                     <Paper key={row.store_id} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
                       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1.25 }}>
                         <StorefrontOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
-                        <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                        <Typography variant="body2" sx={{ fontWeight: 700, flex: 1, minWidth: 0 }} noWrap>
                           {row.store_name}
                         </Typography>
+                        {favoriteControl(row)}
                       </Stack>
 
                       <Stack spacing={0.75}>
@@ -266,6 +317,12 @@ export function ProductPricesModal({ product, canEdit, myStores, onClose }: Prop
                 })}
               </Stack>
             </>
+          )}
+
+          {canEdit && visiblePrices.length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              Star a store to list this product under Favorites on that store&apos;s POS. Stars save as you tap them; prices save with Save Prices.
+            </Typography>
           )}
 
           {error && (

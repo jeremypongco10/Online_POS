@@ -8,6 +8,7 @@ use App\Models\CashMovementModel;
 use App\Models\CashSessionModel;
 use App\Models\PaymentModel;
 use App\Models\RegisterModel;
+use App\Models\StoreModel;
 use CodeIgniter\Model;
 use Config\Services;
 
@@ -51,19 +52,21 @@ class CashSessionsController extends BaseCrudController
     /**
      * POST /api/v1/cash-sessions/open  body: { register_id, opening_balance? }
      *
-     * `opening_balance` is only actually used when the register itself
-     * is in manual mode (RegisterModel::OPENING_FLOAT_MANUAL, the
-     * default, and the only mode that existed before opening floats
-     * were configurable) — a cashier counting the drawer and typing what
-     * they counted. A register configured with a fixed float opens at
-     * that configured figure regardless of what the client sends here,
-     * whether that's the omitted value the frontend now sends for
-     * 'fixed'/'fixed_confirm' or, if a client sent one anyway, a
-     * mismatched number: the whole point of a fixed float is that it
-     * can't be talked into opening at a different one, cashier-typed
-     * client or otherwise. See RegisterModel's own note on the three
-     * modes, and AddOpeningFloatToRegisters for why this — not the
-     * frontend — is where that's enforced.
+     * `opening_balance` is only actually used when the register's own
+     * STORE is in manual mode (StoreModel::OPENING_FLOAT_MANUAL, the
+     * default, and the only mode that existed before opening floats were
+     * configurable) — a cashier counting the drawer and typing what they
+     * counted. A store configured with a fixed float opens every one of
+     * its registers at that configured figure regardless of what the
+     * client sends here, whether that's the omitted value the frontend
+     * now sends for 'fixed'/'fixed_confirm' or, if a client sent one
+     * anyway, a mismatched number: the whole point of a fixed float is
+     * that it can't be talked into opening at a different one,
+     * cashier-typed client or otherwise. See StoreModel's own note on
+     * the three modes, AddOpeningFloatToStores for why this — not the
+     * frontend — is where that's enforced, and RegisterModel::
+     * resolveOpeningFloat() (what this endpoint actually calls) for why a
+     * register carries none of this configuration itself at all.
      */
     public function open()
     {
@@ -87,18 +90,18 @@ class CashSessionsController extends BaseCrudController
             return $this->notFound();
         }
 
-        $mode = $register->opening_float_mode ?? RegisterModel::OPENING_FLOAT_MANUAL;
-        if ($mode !== RegisterModel::OPENING_FLOAT_MANUAL && $register->default_opening_float !== null) {
-            $openingBalance = (float) $register->default_opening_float;
+        [$mode, $configuredFloat] = model(RegisterModel::class)->resolveOpeningFloat($register);
+        if ($mode !== StoreModel::OPENING_FLOAT_MANUAL && $configuredFloat !== null) {
+            $openingBalance = (float) $configuredFloat;
         } elseif (array_key_exists('opening_balance', $payload) && $payload['opening_balance'] !== null && $payload['opening_balance'] !== '') {
             $openingBalance = (float) $payload['opening_balance'];
         } else {
             // Either genuinely manual mode with nothing typed, or a
-            // fixed-mode register somehow left without a configured
-            // float (RegistersController's own validation should have
-            // already ruled that out at save time, but this is the
-            // actual money-recording endpoint, so it checks again rather
-            // than trusting that upstream guard was never bypassed).
+            // fixed-mode store somehow left without a configured float
+            // (StoresController's own validation should have already
+            // ruled that out at save time, but this is the actual
+            // money-recording endpoint, so it checks again rather than
+            // trusting that upstream guard was never bypassed).
             return $this->apiFail('Opening balance is required to open this POS terminal.', 422);
         }
 

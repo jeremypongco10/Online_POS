@@ -86,6 +86,27 @@ class TaxesController extends BaseCrudController
     }
 
     /**
+     * The protected standard rate for each regime (is_system — see
+     * AddIsSystemToTaxRates) can't be deleted through the ordinary Tax tab
+     * either, not just by a company-wide reset. Protecting it from one
+     * path and not the other would mean "can't be removed" wasn't actually
+     * true — an admin could just click Delete on the row directly.
+     */
+    public function delete($id = null)
+    {
+        $row = $this->applyScope()->find($id);
+        if ($row === null) {
+            return $this->notFound();
+        }
+
+        if ((int) $row->is_system === 1) {
+            return $this->apiFail('This is the standard rate for its regime and can\'t be deleted. Deactivate it instead if you don\'t want it offered.', 403);
+        }
+
+        return parent::delete($id);
+    }
+
+    /**
      * Attaches the receipt flag (V/E/Z/N — see TaxService::indicator) to
      * every returned rate. Computed on read rather than stored, so it
      * always reflects the classification the tax math itself would apply

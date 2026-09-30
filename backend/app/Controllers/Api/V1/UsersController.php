@@ -19,6 +19,21 @@ class UsersController extends BaseCrudController
     protected string $defaultSort = 'name';
 
     /**
+     * Dev Admin (see the Roles screen) is a deliberately unrestricted
+     * Custom role, created with the exact same permission set as Super
+     * Admin, for dev/test administration the System Super Admin role can't
+     * be edited or deleted to support — see AddUsersDeletePermission's
+     * docblock. Every place below that gates something on "is the caller
+     * Super Admin" by literal role name treats the two as equivalent, or
+     * granting Dev Admin wouldn't actually have granted equivalent
+     * access: a Dev Admin couldn't see other top-level accounts, couldn't
+     * hand out either restricted role, and — before this — was itself
+     * offered right alongside ordinary roles in Add User's picker, when
+     * it's meant to be set up deliberately, not chosen off a list.
+     */
+    private const TOP_LEVEL_ROLE_NAMES = ['Super Admin', 'Dev Admin'];
+
+    /**
      * Users Maintenance (and every other user-scoped action here — role
      * assignment, activate/deactivate, password reset, etc.) is narrowed
      * to teammates the caller shares a store with, once the caller
@@ -27,11 +42,12 @@ class UsersController extends BaseCrudController
      * everyone, exactly as before — this only kicks in once the caller
      * has explicit store rows of their own.
      *
-     * Separately, anyone who isn't a Super Admin themselves never sees
-     * Super Admin accounts here at all — a Store Admin/Manager shouldn't
-     * be able to view, deactivate, or reset the password of the company's
-     * top-level admins just because users.update happens to be on their
-     * role.
+     * Separately, anyone who isn't themselves a top-level admin (Super
+     * Admin or Dev Admin — see TOP_LEVEL_ROLE_NAMES) never sees Super
+     * Admin or Dev Admin accounts here at all — a Store Admin/Manager
+     * shouldn't be able to view, deactivate, or reset the password of the
+     * company's top-level admins just because users.update happens to be
+     * on their role.
      */
     protected function applyScope(): Model
     {
@@ -44,15 +60,15 @@ class UsersController extends BaseCrudController
             $query->whereIn('id', $visibleIds ?: [0]);
         }
 
-        if ($this->callerRoleName() !== 'Super Admin') {
-            $superAdminRoleId = model(RoleModel::class)
+        if (! $this->callerIsTopLevelAdmin()) {
+            $topLevelRoleIds = model(RoleModel::class)
                 ->where('company_id', $auth->companyId)
-                ->where('name', 'Super Admin')
-                ->first();
+                ->whereIn('name', self::TOP_LEVEL_ROLE_NAMES)
+                ->findColumn('id') ?: [];
 
-            if ($superAdminRoleId !== null) {
+            if ($topLevelRoleIds !== []) {
                 $query->groupStart()
-                    ->where('role_id !=', $superAdminRoleId->id)
+                    ->whereNotIn('role_id', $topLevelRoleIds)
                     ->orWhere('role_id', null)
                     ->groupEnd();
             }
@@ -74,13 +90,20 @@ class UsersController extends BaseCrudController
         return $role !== null ? $role->name : null;
     }
 
+    private function callerIsTopLevelAdmin(): bool
+    {
+        return in_array($this->callerRoleName(), self::TOP_LEVEL_ROLE_NAMES, true);
+    }
+
     /**
-     * Only a Super Admin may hand out the Super Admin role — otherwise a
-     * Store Admin/Manager holding users.update could silently promote
-     * someone past what the Users Maintenance UI even shows them exists
-     * (it already hides both the users and the role option for anyone
-     * who isn't a Super Admin themselves; this is the server-side half
-     * of that, so it can't be bypassed with a crafted request).
+     * Only a top-level admin (Super Admin or Dev Admin) may hand out
+     * either the Super Admin or the Dev Admin role — otherwise a Store
+     * Admin/Manager holding users.update could silently promote someone
+     * past what the Users Maintenance UI even shows them exists (it
+     * already hides both those accounts and both role options from
+     * anyone who isn't a top-level admin themselves; this is the
+     * server-side half of that, so it can't be bypassed with a crafted
+     * request).
      */
     private function roleAssignmentAllowed(?int $roleId): bool
     {
@@ -90,7 +113,7 @@ class UsersController extends BaseCrudController
 
         $role = model(RoleModel::class)->find($roleId);
 
-        return $role === null || $role->name !== 'Super Admin' || $this->callerRoleName() === 'Super Admin';
+        return $role === null || ! in_array($role->name, self::TOP_LEVEL_ROLE_NAMES, true) || $this->callerIsTopLevelAdmin();
     }
 
     /**
@@ -118,26 +141,55 @@ class UsersController extends BaseCrudController
         return $role !== null && in_array($role->name, self::SINGLE_STORE_ROLES, true);
     }
 
-    /** POST /api/v1/users — a password is mandatory when creating an account (optional on update). */
+    private function roleIsBagger(?int $roleId): bool
+    {
+        if ($roleId === null) {
+            return false;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null && $role->name === 'Bagger';
+    }
+
+    /**
+     * POST /api/v1/users — a role is mandatory when creating an account
+     * (unlike update, where clearing it is a valid way to suspend access
+     * without deactivating). A password is mandatory too, with one
+     * exception: see roleIsBagger() below.
+     */
     public function create()
     {
         $payload = $this->request->getJSON(true) ?? [];
 
-        if (empty($payload['password'])) {
-            return $this->validationFail(['password' => 'The password field is required.']);
-        }
-        if (strlen((string) $payload['password']) < 8) {
-            return $this->validationFail(['password' => 'Password must be at least 8 characters.']);
+        if (empty($payload['role_id'])) {
+            return $this->validationFail(['role_id' => 'The role field is required.']);
         }
 
-        if (! $this->roleIdIsOwnCompany($payload['role_id'] ?? null)) {
+        if (! $this->roleIdIsOwnCompany($payload['role_id'])) {
             return $this->apiFail('role_id must belong to your own company', 422);
         }
 
-        $roleId = isset($payload['role_id']) ? (int) $payload['role_id'] : null;
+        $roleId = (int) $payload['role_id'];
 
         if (! $this->roleAssignmentAllowed($roleId)) {
-            return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
+            return $this->apiFail('Only a top-level admin can assign the Super Admin or Dev Admin role', 403);
+        }
+
+        // Baggers never sign themselves in — they're only picked from a
+        // list by an already-logged-in cashier, for receipt and
+        // bagger-performance-report attribution (see the frontend's
+        // BaggerPanel). Every other role lands on an actual login screen,
+        // so it still needs one. An admin can still set one anyway (e.g. a
+        // bagger who's later promoted); if they do, it's held to the same
+        // minimum length as everyone else's.
+        $passwordRequired = ! $this->roleIsBagger($roleId);
+
+        if ($passwordRequired && empty($payload['password'])) {
+            return $this->validationFail(['password' => 'The password field is required.']);
+        }
+        if (! empty($payload['password']) && strlen((string) $payload['password']) < 8) {
+            return $this->validationFail(['password' => 'Password must be at least 8 characters.']);
         }
 
         // A single-store role's one store is required up front rather than
@@ -243,7 +295,7 @@ class UsersController extends BaseCrudController
         }
 
         if (! $this->roleAssignmentAllowed($roleId !== null ? (int) $roleId : null)) {
-            return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
+            return $this->apiFail('Only a top-level admin can assign the Super Admin or Dev Admin role', 403);
         }
 
         if ($this->roleRequiresExactlyOneStore($roleId !== null ? (int) $roleId : null) && ! $this->userHasExactlyOneStore((int) $id)) {
@@ -428,6 +480,84 @@ class UsersController extends BaseCrudController
         return $response;
     }
 
+    /**
+     * DELETE /api/v1/users/{id}
+     *
+     * A genuine, permanent delete — the only one anywhere in this app for
+     * a user account. Gated on users.delete, a permission this install
+     * grants to no role by default, not even Super Admin/Company Admin
+     * (see AddUsersDeletePermission) — every other path for removing a
+     * user is deactivate() above, which is what a real account should
+     * use: the sales, cash sessions, chat history, and audit trail a
+     * deactivated account leaves behind are exactly what a real business
+     * needs to keep. This exists narrowly for a dev/test-cleanup role
+     * (e.g. a company's own "Dev Admin") to actually remove disposable
+     * fixture accounts instead of leaving them deactivated forever.
+     *
+     * Blocked with a specific, friendly reason for an account that has
+     * real history — checked explicitly here rather than letting it
+     * surface as a raw database constraint-violation error. The
+     * database's own FK RESTRICT (see FixUsersForeignKeyDeleteRules)
+     * still backs this up regardless, in case this check ever has a gap.
+     */
+    public function delete($id = null)
+    {
+        $user = $this->applyScope()->find($id);
+        if (! $user) {
+            return $this->notFound();
+        }
+
+        $auth = Services::authContext();
+        if ((int) $id === $auth->userId) {
+            return $this->apiFail('You cannot delete your own account.', 422);
+        }
+
+        $blockers = $this->deletionBlockers((int) $id);
+        if ($blockers !== []) {
+            return $this->apiFail(
+                'Cannot delete this account — it has ' . implode(', ', $blockers) . '. Deactivate it instead.',
+                422
+            );
+        }
+
+        $name = $user->name;
+        $this->model->delete($id);
+
+        Services::auditLogger()->log('delete', 'User', (int) $id, $name);
+
+        return $this->noContentOk('Account permanently deleted');
+    }
+
+    /**
+     * Every RESTRICT-protected reference to users.id (see
+     * FixUsersForeignKeyDeleteRules) — a plain existence count against
+     * each, not a join, since this only ever needs to know yes/no (and
+     * how many, for the message) rather than the rows themselves.
+     *
+     * @return string[] human-readable reasons this account can't be deleted — empty if none
+     */
+    private function deletionBlockers(int $userId): array
+    {
+        $db = \Config\Database::connect();
+        $checks = [
+            ['sales rung up', 'sales', 'user_id'],
+            ['cash session(s) opened', 'cash_sessions', 'user_id'],
+            ['return(s) processed', 'returns', 'user_id'],
+            ['chat message(s) sent', 'chat_messages', 'sender_id'],
+            ['group chat membership(s)', 'chat_conversation_participants', 'user_id'],
+        ];
+
+        $blockers = [];
+        foreach ($checks as [$label, $table, $column]) {
+            $count = $db->table($table)->where($column, $userId)->countAllResults();
+            if ($count > 0) {
+                $blockers[] = "{$count} {$label}";
+            }
+        }
+
+        return $blockers;
+    }
+
     /** POST /api/v1/users/{id}/activate */
     public function activate($id = null)
     {
@@ -479,7 +609,7 @@ class UsersController extends BaseCrudController
         }
 
         if (array_key_exists('role_id', $payload) && ! $this->roleAssignmentAllowed($payload['role_id'] !== null ? (int) $payload['role_id'] : null)) {
-            return $this->apiFail('Only a Super Admin can assign the Super Admin role', 403);
+            return $this->apiFail('Only a top-level admin can assign the Super Admin or Dev Admin role', 403);
         }
 
         if (

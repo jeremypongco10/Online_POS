@@ -49,6 +49,10 @@ const EMPTY_FORM: FormState = { first_name: '', last_name: '', email: '', mobile
 
 export function CustomersScreen() {
   const { user, hasPermission } = useAuth();
+  // Company-wide master switch (Settings → Discounts & Loyalty) — off
+  // hides points/loyalty card everywhere, on top of (not instead of) the
+  // loyalty.view/loyalty.manage permission checks below.
+  const loyaltyEnabled = user?.loyalty_enabled ?? true;
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [statusFilter, setStatusFilter] = useState('');
@@ -85,7 +89,7 @@ export function CustomersScreen() {
       last_name: customer.last_name,
       email: customer.email ?? '',
       mobile: customer.mobile ?? '',
-      address: '',
+      address: customer.address ?? '',
       is_active: Number(customer.is_active) === 1,
     });
     clearErrors();
@@ -181,7 +185,7 @@ export function CustomersScreen() {
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'email', label: 'Email', render: (c) => c.email ?? '—' },
     { key: 'mobile', label: 'Mobile', render: (c) => c.mobile ?? '—' },
-    ...(hasPermission('loyalty.view')
+    ...(hasPermission('loyalty.view') && loyaltyEnabled
       ? [{ key: 'points', label: 'Points', width: 100, render: (c: Customer) => (c.points ?? 0).toLocaleString() } as Column<Customer>]
       : []),
     {
@@ -251,7 +255,7 @@ export function CustomersScreen() {
                       <EditIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  {hasPermission('loyalty.manage') && (
+                  {hasPermission('loyalty.manage') && loyaltyEnabled && (
                     <Tooltip title="Adjust Points">
                       <IconButton size="small" aria-label="Adjust Points" onClick={() => openPoints(c)}>
                         <LoyaltyIcon fontSize="small" />
@@ -392,7 +396,7 @@ export function CustomersScreen() {
             { label: 'Name', value: viewing?.name },
             { label: 'Email', value: viewing?.email },
             { label: 'Mobile', value: viewing?.mobile },
-            ...(hasPermission('loyalty.view') ? [{ label: 'Points', value: (viewing?.points ?? 0).toLocaleString() }] : []),
+            ...(hasPermission('loyalty.view') && loyaltyEnabled ? [{ label: 'Points', value: (viewing?.points ?? 0).toLocaleString() }] : []),
             { label: 'Status', value: viewing ? <StatusChip active={Number(viewing.is_active) === 1} /> : undefined },
           ]}
         />

@@ -22,6 +22,25 @@ class RegistersController extends BaseCrudController
         return $this->scopeByStoreIds('store_id');
     }
 
+    public function index()
+    {
+        $result = $this->listResource($this->applyScope(), $this->allowedFilters, $this->allowedSorts, $this->searchableFields, $this->defaultSort);
+
+        return $this->ok($this->withEffectiveOpeningFloat($result['data']), '', $result['meta']);
+    }
+
+    public function show($id = null)
+    {
+        $row = $this->applyScope()->find($id);
+        if ($row === null) {
+            return $this->notFound();
+        }
+
+        $this->withEffectiveOpeningFloat([$row]);
+
+        return $this->ok($row);
+    }
+
     public function create()
     {
         $payload = $this->payload();
@@ -32,60 +51,28 @@ class RegistersController extends BaseCrudController
             return $this->apiFail('store_id must be one of your own company\'s stores', 422);
         }
 
-        if (($error = $this->validateOpeningFloat(
-            $payload['opening_float_mode'] ?? RegisterModel::OPENING_FLOAT_MANUAL,
-            $payload['default_opening_float'] ?? null
-        )) !== null) {
-            return $error;
-        }
-
         return parent::create();
     }
 
-    public function update($id = null)
-    {
-        $row = $this->applyScope()->find($id);
-        if ($row === null) {
-            return $this->notFound();
-        }
-
-        $payload = $this->payload();
-
-        // The effective value after this update, not just what's in the
-        // request body — a PUT here can (and often does, e.g. the
-        // Active/Inactive toggle) touch only one field, and a row's
-        // existing opening-float configuration shouldn't fail validation
-        // against itself just because this particular request never
-        // mentions it.
-        $mode = array_key_exists('opening_float_mode', $payload) ? $payload['opening_float_mode'] : $row->opening_float_mode;
-        $float = array_key_exists('default_opening_float', $payload) ? $payload['default_opening_float'] : $row->default_opening_float;
-
-        if (($error = $this->validateOpeningFloat($mode, $float)) !== null) {
-            return $error;
-        }
-
-        return parent::update($id);
-    }
-
     /**
-     * "Required only when the mode actually needs it" — the one rule a
-     * single-column validation rule on `default_opening_float` can't
-     * express (see RegisterModel's own note), so it lives here instead.
-     * A register set to 'fixed' or 'fixed_confirm' with no configured
-     * float would have nothing for CashSessionsController::open() to
-     * apply, so that combination is rejected before it can ever be saved.
+     * Adds effective_opening_float_mode/effective_opening_float to every
+     * row — a register carries no opening-float configuration of its own
+     * (see DropOpeningFloatFromRegisters); these are always its own
+     * store's settings (RegisterModel::resolveOpeningFloat()), added here
+     * purely so the POS's own register picker (see PosScreen/
+     * OpenRegisterScreen) doesn't have to make a second request just to
+     * find out how a register it's about to open actually starts.
      */
-    private function validateOpeningFloat(string $mode, $float)
+    private function withEffectiveOpeningFloat(array $rows): array
     {
-        if ($mode === RegisterModel::OPENING_FLOAT_MANUAL) {
-            return null;
+        $model = model(RegisterModel::class);
+        foreach ($rows as $row) {
+            [$mode, $float] = $model->resolveOpeningFloat($row);
+            $row->effective_opening_float_mode = $mode;
+            $row->effective_opening_float = $float;
         }
 
-        if ($float === null || $float === '' || (float) $float <= 0) {
-            return $this->apiFail('An opening float greater than zero is required when the opening float mode is not manual.', 422);
-        }
-
-        return null;
+        return $rows;
     }
 
     /**

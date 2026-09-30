@@ -8,6 +8,7 @@ use App\Models\CategoryModel;
 use App\Models\ProductDiscountEligibilityModel;
 use App\Models\ProductModel;
 use App\Models\StoreModel;
+use App\Models\StoreProductFavoriteModel;
 use App\Models\StoreProductPriceModel;
 use App\Models\TaxRateModel;
 use App\Models\UnitModel;
@@ -128,9 +129,24 @@ class ProductsController extends BaseCrudController
             $builder->groupEnd();
         }
 
+        // The POS's "Favorites" shortcut: only what this store has starred
+        // (see setFavorite()). Inner join, like Top Sellers below, so the
+        // search box and category filter still narrow within it.
+        if (filter_var($this->request->getGet('favorites'), FILTER_VALIDATE_BOOLEAN)) {
+            $builder->join('store_product_favorites fav', "fav.product_id = products.id AND fav.store_id = {$storeId}", 'inner');
+        }
+
+        $popular = filter_var($this->request->getGet('popular'), FILTER_VALIDATE_BOOLEAN);
+        if ($popular) {
+            $this->restrictToTopSellers($builder, $storeId);
+        }
+
         $perPage = max(1, min((int) ($this->request->getGet('per_page') ?? 15), 100));
         $page = max(1, (int) ($this->request->getGet('page') ?? 1));
         $total = $builder->countAllResults(false);
+        if ($popular) {
+            $builder->orderBy('pop.sales_count', 'DESC');
+        }
         $rows = $builder->orderBy('products.name', 'ASC')->get($perPage, ($page - 1) * $perPage)->getResult();
 
         return $this->ok($rows, '', [
@@ -139,6 +155,54 @@ class ProductsController extends BaseCrudController
             'total' => $total,
             'last_page' => (int) ceil($total / $perPage) ?: 1,
         ]);
+    }
+
+    /** How many products the POS's "Top Sellers" shortcut shows, and how far back it looks. */
+    private const TOP_SELLERS_LIMIT = 40;
+    private const TOP_SELLERS_WINDOW_DAYS = 30;
+
+    /**
+     * Narrows a store-priced product list to what this store actually sells
+     * most, best first — the POS's "Top Sellers" shortcut.
+     *
+     * Ranked by the number of separate sales that included the product, not
+     * by units: a till sells things by the piece and by the kilo, and summing
+     * quantity across both would rank 0.25 kg of rice below 3 sweets. "How
+     * many customers bought it" has no unit to skew it.
+     *
+     * Scoped to THIS store (a branch's best sellers are its own), to the
+     * last 30 days (so the shortcut follows what's selling now rather than
+     * what sold well a year ago), and to completed, non-training sales
+     * only — a voided or held sale never happened, and a training sale is
+     * excluded from every figure this system reports (see AddBirAccreditationFields).
+     *
+     * Joined as a derived table with the cut-off applied inside it, so the
+     * search box and category filter still narrow within the top sellers
+     * rather than the other way round.
+     */
+    private function restrictToTopSellers($builder, int $storeId): void
+    {
+        $companyId = Services::authContext()->companyId;
+        $since = date('Y-m-d H:i:s', strtotime('-' . self::TOP_SELLERS_WINDOW_DAYS . ' days'));
+
+        $ranked = \Config\Database::connect()->table('sale_items si')
+            ->select('si.product_id, COUNT(DISTINCT si.sale_id) AS sales_count', false)
+            ->join('sales s', 's.id = si.sale_id')
+            ->where('s.company_id', $companyId)
+            ->where('s.store_id', $storeId)
+            ->where('s.status', 'completed')
+            ->where('s.is_training', 0)
+            ->where('s.sale_date >=', $since)
+            ->groupBy('si.product_id')
+            ->orderBy('sales_count', 'DESC')
+            // A stable cut at the limit: without a tie-break, two products
+            // sold equally often at the boundary could swap in and out
+            // between refreshes.
+            ->orderBy('si.product_id', 'ASC')
+            ->limit(self::TOP_SELLERS_LIMIT)
+            ->getCompiledSelect();
+
+        $builder->select('pop.sales_count')->join("({$ranked}) pop", 'pop.product_id = products.id', 'inner', false);
     }
 
     /**
@@ -283,6 +347,10 @@ class ProductsController extends BaseCrudController
      * One row per store in the caller's company, whether or not that
      * store has actually priced this product yet (cost_price/selling_price
      * come back null when it hasn't).
+     *
+     * `is_favorite` rides along so the dialog that edits these rows can show
+     * each store's star without a second request — it's a separate fact from
+     * the price (see setFavorite()), just per-store like it.
      */
     public function prices($id = null)
     {
@@ -297,8 +365,9 @@ class ProductsController extends BaseCrudController
         foreach ($priced as $row) {
             $byStore[(int) $row->store_id] = $row;
         }
+        $favoriteStoreIds = model(StoreProductFavoriteModel::class)->storeIdsFor((int) $id);
 
-        $rows = array_map(static function ($store) use ($byStore) {
+        $rows = array_map(static function ($store) use ($byStore, $favoriteStoreIds) {
             $row = $byStore[(int) $store->id] ?? null;
 
             return (object) [
@@ -306,10 +375,60 @@ class ProductsController extends BaseCrudController
                 'store_name' => $store->name,
                 'cost_price' => $row->cost_price ?? null,
                 'selling_price' => $row->selling_price ?? null,
+                'is_favorite' => in_array((int) $store->id, $favoriteStoreIds, true),
             ];
         }, $stores);
 
         return $this->ok($rows);
+    }
+
+    /**
+     * PUT /api/v1/products/{id}/favorite  body: { store_id, is_favorite }
+     *
+     * Stars or un-stars a product for ONE store — the shared list behind the
+     * POS's Favorites pill. Applied immediately per tap, unlike the price
+     * fields beside it (which wait for Save): a star has no half-typed state
+     * to commit.
+     *
+     * Company stores only, and for a user pinned to particular stores only
+     * those — a manager of one branch shouldn't be reshuffling another's
+     * front-of-shelf picks. Idempotent (see StoreProductFavoriteModel).
+     */
+    public function setFavorite($id = null)
+    {
+        $product = $this->applyScope()->find($id);
+        if ($product === null) {
+            return $this->notFound();
+        }
+
+        $payload = $this->request->getJSON(true) ?? [];
+        if (! $this->validateData($payload, [
+            'store_id' => ['label' => 'Store', 'rules' => 'required|is_natural_no_zero'],
+            // 0/1, like every other flag in this API. Not `false`: CI4's
+            // `required` reads a JSON false as an empty string and rejects it.
+            'is_favorite' => ['label' => 'Favorite', 'rules' => 'required|in_list[0,1]'],
+        ])) {
+            return $this->validationFail($this->validator->getErrors());
+        }
+
+        $auth = Services::authContext();
+        $storeId = (int) $payload['store_id'];
+        if (! model(StoreModel::class)->where('company_id', $auth->companyId)->find($storeId)) {
+            return $this->apiFail('Unknown store_id', 422);
+        }
+        if ($auth->allowedStoreIds !== null && ! in_array($storeId, array_map('intval', $auth->allowedStoreIds), true)) {
+            return $this->forbidden("You aren't assigned to that store.");
+        }
+
+        $favorite = filter_var($payload['is_favorite'], FILTER_VALIDATE_BOOLEAN);
+        model(StoreProductFavoriteModel::class)->setFavorite($storeId, (int) $id, $favorite);
+
+        Services::auditLogger()->log('update', 'Product Favorite', (int) $id, $product->name, [
+            'store_id' => ['old' => null, 'new' => $storeId],
+            'is_favorite' => ['old' => ! $favorite, 'new' => $favorite],
+        ]);
+
+        return $this->ok(['store_id' => $storeId, 'is_favorite' => $favorite], $favorite ? 'Added to favorites' : 'Removed from favorites');
     }
 
     /**

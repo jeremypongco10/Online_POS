@@ -41,6 +41,8 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->post('', 'CompaniesController::create', ['filter' => 'permission:companies.manage']);
             $routes->put('(:num)', 'CompaniesController::update/$1', ['filter' => 'permission:companies.manage']);
             $routes->delete('(:num)', 'CompaniesController::delete/$1', ['filter' => 'permission:companies.manage']);
+            $routes->post('(:num)/logo', 'CompaniesController::uploadLogo/$1', ['filter' => 'permission:companies.manage']);
+            $routes->delete('(:num)/logo', 'CompaniesController::deleteLogo/$1', ['filter' => 'permission:companies.manage']);
         });
 
         $routes->group('stores', static function (RouteCollection $routes) {
@@ -67,7 +69,10 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->put('(:num)', 'UsersController::update/$1', ['filter' => 'permission:users.update']);
             $routes->post('(:num)/activate', 'UsersController::activate/$1', ['filter' => 'permission:users.update']);
             $routes->post('(:num)/deactivate', 'UsersController::deactivate/$1', ['filter' => 'permission:users.update']);
-            $routes->delete('(:num)', 'UsersController::delete/$1', ['filter' => 'permission:users.update']);
+            // Deliberately its own permission, not users.update — see
+            // AddUsersDeletePermission for why this is granted to nobody
+            // by default, not even Super Admin/Company Admin.
+            $routes->delete('(:num)', 'UsersController::delete/$1', ['filter' => 'permission:users.delete']);
         });
 
         $routes->group('roles', static function (RouteCollection $routes) {
@@ -95,6 +100,10 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
             $routes->delete('(:num)', 'ProductsController::delete/$1', ['filter' => 'permission:products.delete']);
             $routes->get('(:num)/prices', 'ProductsController::prices/$1', ['filter' => 'permission:products.view']);
             $routes->put('(:num)/prices', 'ProductsController::updatePrices/$1', ['filter' => 'permission:products.update']);
+            // A store's shared Favorites list (the POS pill). Starring is a
+            // product edit; reading it needs no route of its own — it rides
+            // on the prices GET above and the ?favorites=1 list filter.
+            $routes->put('(:num)/favorite', 'ProductsController::setFavorite/$1', ['filter' => 'permission:products.update']);
             $routes->post('(:num)/image', 'ProductsController::uploadImage/$1', ['filter' => 'permission:products.update']);
             $routes->delete('(:num)/image', 'ProductsController::deleteImage/$1', ['filter' => 'permission:products.update']);
             // Resolved (product override -> category override -> eligible-
@@ -222,6 +231,36 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
         $routes->group('system', static function (RouteCollection $routes) {
             $routes->get('reset-eligibility', 'SystemResetController::eligibility', ['filter' => 'permission:companies.manage']);
             $routes->post('reset', 'SystemResetController::reset', ['filter' => 'permission:companies.manage']);
+        });
+
+        // The HTTP twin of `php spark dev:reset-transactions` — see
+        // DevToolsController and TransactionResetService for what it does
+        // and why it's safe to leave routed even in a build that ships to
+        // production (it refuses itself there). companies.manage rather
+        // than a dedicated permission, same reasoning as the 'system'
+        // group just above: this is another company-wide irreversible
+        // action, not a resource with its own ongoing management surface.
+        $routes->group('dev', static function (RouteCollection $routes) {
+            $routes->post('reset-transactions', 'DevToolsController::resetTransactions', ['filter' => 'permission:companies.manage']);
+        });
+
+        // Back Office chat (direct messages and groups) — chat.access is
+        // what actually keeps a Cashier/Cashier Supervisor out of every
+        // one of these; see ChatController's own docblock for what it
+        // re-checks beyond that.
+        $routes->group('chat', static function (RouteCollection $routes) {
+            $routes->get('contacts', 'ChatController::contacts', ['filter' => 'permission:chat.access']);
+            $routes->get('conversations', 'ChatController::conversations', ['filter' => 'permission:chat.access']);
+            $routes->get('unread-count', 'ChatController::unreadCount', ['filter' => 'permission:chat.access']);
+            $routes->get('messages', 'ChatController::messages', ['filter' => 'permission:chat.access']);
+            $routes->post('messages', 'ChatController::send', ['filter' => 'permission:chat.access']);
+            $routes->delete('messages/(:num)', 'ChatController::delete/$1', ['filter' => 'permission:chat.access']);
+            $routes->delete('conversations/(:num)', 'ChatController::deleteConversation/$1', ['filter' => 'permission:chat.access']);
+            $routes->post('direct', 'ChatController::openDirect', ['filter' => 'permission:chat.access']);
+            $routes->post('groups', 'ChatController::createGroup', ['filter' => 'permission:chat.access']);
+            $routes->put('groups/(:num)', 'ChatController::renameGroup/$1', ['filter' => 'permission:chat.access']);
+            $routes->post('groups/(:num)/members', 'ChatController::addMember/$1', ['filter' => 'permission:chat.access']);
+            $routes->delete('groups/(:num)/members/(:num)', 'ChatController::removeMember/$1/$2', ['filter' => 'permission:chat.access']);
         });
 
         // X/Z readings. The X is a GET because it changes nothing — a
