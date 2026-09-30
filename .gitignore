@@ -44,3 +44,8 @@ backups/*
 # restorable (38/38 tables, row counts matching the live database) before
 # pushing.
 !backups/pos_system-20260917-012952.sql
+
+# A second full dump, pushed at the user's explicit request on 2026-09-30
+# (same contents class as above: 5 users' password hashes, 1 customer,
+# 83 audit rows). Verified restorable (42/42 tables, row counts matching).
+!backups/pos_system-20260930-211717.sql
