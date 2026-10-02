@@ -3,6 +3,7 @@
 namespace App\Controllers\Api\V1;
 
 use App\Controllers\Api\BaseCrudController;
+use App\Controllers\Api\ResolvesSupervisorApprover;
 use App\Libraries\EscPosImageService;
 use App\Libraries\TaxService;
 use App\Models\CompanyModel;
@@ -18,13 +19,13 @@ use App\Models\ProductModel;
 use App\Models\RegisterModel;
 use App\Models\SaleItemModel;
 use App\Models\SaleModel;
+use App\Models\SalesReturnModel;
 use App\Models\StoreModel;
 use App\Models\TransactionCounterModel;
 use App\Models\UnitModel;
 use App\Models\UserModel;
 use App\Models\UserStoreModel;
 use CodeIgniter\HTTP\ResponseInterface;
-use Config\Auth as AuthConfig;
 use Config\Database;
 use Config\Services;
 use RuntimeException;
@@ -35,6 +36,8 @@ use RuntimeException;
  */
 class SalesController extends BaseCrudController
 {
+    use ResolvesSupervisorApprover;
+
     protected string $modelClass = SaleModel::class;
     protected array $allowedFilters = ['company_id', 'store_id', 'register_id', 'customer_id', 'status', 'cash_session_id'];
     protected array $allowedSorts = ['id', 'invoice_number', 'sale_date', 'total', 'created_at'];
@@ -566,7 +569,32 @@ class SalesController extends BaseCrudController
             ->where('is_active', 1)
             ->findColumn('code') ?: [];
 
+        // An exchange credit — a return settled as a replacement (see
+        // ReturnsController::posReturn) — pays like money but is not a
+        // payment method a company configures. It must name an unused
+        // credit from this branch and use all of it; it is claimed below,
+        // inside the sale's transaction, so it can only ever be spent once.
+        $exchangeReturn = null;
         foreach ($payments as $payment) {
+            if (($payment['method'] ?? null) === PaymentModel::METHOD_EXCHANGE) {
+                if ($exchangeReturn !== null) {
+                    return $this->apiFail('Only one exchange credit can be used per sale', 422);
+                }
+                $exchangeReturn = model(SalesReturnModel::class)
+                    ->where('return_number', (string) ($payment['reference'] ?? ''))
+                    ->where('store_id', (int) $payload['store_id'])
+                    ->where('status', SalesReturnModel::STATUS_COMPLETED)
+                    ->where('refund_method', PaymentModel::METHOD_EXCHANGE)
+                    ->where('exchange_sale_id', null)
+                    ->first();
+                if ($exchangeReturn === null) {
+                    return $this->apiFail('That exchange credit is not available at this branch, or has already been used', 422);
+                }
+                if (abs((float) $payment['amount'] - (float) $exchangeReturn->total_refund) > 0.005) {
+                    return $this->apiFail("An exchange credit is used in full ({$exchangeReturn->total_refund})", 422);
+                }
+                continue;
+            }
             if (! in_array($payment['method'] ?? null, $activeMethodCodes, true)) {
                 return $this->apiFail('Invalid payment method: ' . ($payment['method'] ?? '(none)'), 422);
             }
@@ -782,6 +810,20 @@ class SalesController extends BaseCrudController
             }
         }
 
+        // --- Claim the exchange credit. Conditional on it still being
+        // unused, so two registers racing for one credit can't both win. ---
+        if ($exchangeReturn !== null) {
+            $db->table('returns')
+                ->where('id', $exchangeReturn->id)
+                ->where('exchange_sale_id', null)
+                ->update(['exchange_sale_id' => $saleId, 'updated_at' => date('Y-m-d H:i:s')]);
+            if ($db->affectedRows() !== 1) {
+                $db->transRollback();
+
+                return $this->apiFail('That exchange credit was just used on another sale', 409);
+            }
+        }
+
         // --- Award loyalty points (flat company-wide rate, v1 — see the
         // migration adding loyalty_points_per_100 to companies). Needs a
         // customer attached (points belong to a customer's card, not the
@@ -900,6 +942,7 @@ class SalesController extends BaseCrudController
         return $this->ok([
             'require_item_void_approval' => $company === null || (bool) $company->require_item_void_approval,
             'require_cancel_approval' => $company === null || (bool) $company->require_cancel_approval,
+            'require_return_approval' => $company === null || (bool) ($company->require_return_approval ?? 1),
         ]);
     }
 
@@ -1058,113 +1101,6 @@ class SalesController extends BaseCrudController
             'approved_by' => $approver->name,
             'approved_by_id' => (int) $approver->id,
         ], 'Cancellation approved');
-    }
-
-    /**
-     * Shared credential/authority check behind authorizeItemVoid(),
-     * authorizeCartVoid(), and authorizeItemDiscount() — verifying a
-     * supervisor is real, active, unlocked, holds $requiredPermission,
-     * and (if the caller is store-restricted) assigned to
-     * $payload['store_id'], logging every denial along the way under the
-     * caller-supplied $deniedAction/$entityType/$label.
-     *
-     * $requiredPermission varies by caller (sales.void for the two void
-     * endpoints, sales.discount for the discount endpoint) — approving a
-     * void and approving a discount are kept as distinct authorities in
-     * this app, the same way returns.create and returns.approve are
-     * deliberately separate, so one supervisor role can be given one
-     * without the other.
-     *
-     * Returns the approver row on success, or a ResponseInterface to
-     * return immediately on failure — callers check with `instanceof
-     * ResponseInterface`, not is_object(): the approver row is also a
-     * plain object (UserModel's returnType), so is_object() alone can
-     * never tell the two apart. (Found live while testing Manual
-     * Discount's wrong-password path — the same bug was already latent
-     * in authorizeItemVoid/authorizeCartVoid, just never exercised.)
-     * The account-safety handling here deliberately mirrors
-     * AuthController::login(): this accepts a password, so it is a
-     * credential endpoint and gets the same lockout, inactive-account,
-     * and failed-attempt handling. Skipping any of it would make this a
-     * softer side door for guessing a supervisor's password than the
-     * login form itself.
-     */
-    private function resolveSupervisorApprover(array $payload, string $requiredPermission, string $deniedAction, string $entityType, string $label)
-    {
-        $auth = Services::authContext();
-        $userModel = model(UserModel::class);
-        $approver = $userModel->findByIdentifier($payload['identifier']);
-        $authConfig = config(AuthConfig::class);
-
-        // Cross-tenant approval must be impossible, so an approver from
-        // another company is treated exactly like a nonexistent one —
-        // same message, same 401 — rather than a distinct error that
-        // would confirm the account exists somewhere.
-        if ($approver && (int) $approver->company_id !== (int) $auth->companyId) {
-            $approver = null;
-        }
-
-        if ($approver && $userModel->isLocked($approver)) {
-            $minutesLeft = (int) ceil((strtotime($approver->locked_until) - time()) / 60);
-            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
-                'reason' => 'Approver account locked',
-                'identifier' => $payload['identifier'],
-            ]);
-
-            return $this->apiFail("That account is locked due to too many failed attempts. Try again in {$minutesLeft} minute(s).", 423);
-        }
-
-        if ($approver && ! (bool) $approver->is_active) {
-            $approver = null;
-        }
-
-        if (! $approver || ! password_verify($payload['password'], $approver->password_hash)) {
-            if ($approver) {
-                $userModel->registerFailedLogin($approver->id, $authConfig->maxLoginAttempts, $authConfig->lockoutMinutes);
-            }
-
-            // Logged even on failure: repeated failed void approvals on
-            // one terminal is exactly the pattern a manager reviewing the
-            // trail would want surfaced.
-            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
-                'reason' => 'Invalid supervisor credentials',
-                'identifier' => $payload['identifier'],
-            ]);
-
-            return $this->apiFail('Invalid supervisor credentials', 401);
-        }
-
-        $userModel->rehashPasswordIfNeeded((int) $approver->id, $payload['password'], $approver->password_hash);
-
-        if (! in_array($requiredPermission, $userModel->permissionSlugs((int) $approver->id), true)) {
-            Services::auditLogger()->log($deniedAction, $entityType, null, $label, [
-                'reason' => "Approver lacks {$requiredPermission}",
-                'approved_by' => $approver->name,
-            ]);
-
-            return $this->forbidden('That user is not authorized to approve this');
-        }
-
-        // A store-restricted approver (Cashier Supervisor and Store Admin
-        // are pinned to exactly one store — see UsersController::
-        // SINGLE_STORE_ROLES) can only sign off at their own store. Zero
-        // rows means unrestricted, which is access to every store, so
-        // that case passes through untouched.
-        $storeId = isset($payload['store_id']) ? (int) $payload['store_id'] : null;
-        if ($storeId !== null) {
-            $approverStores = array_map(
-                static fn ($s) => (int) $s->id,
-                model(UserStoreModel::class)->storesForUser((int) $approver->id)
-            );
-
-            if ($approverStores !== [] && ! in_array($storeId, $approverStores, true)) {
-                return $this->forbidden('That supervisor is not assigned to this store');
-            }
-        }
-
-        $userModel->clearLoginLock((int) $approver->id);
-
-        return $approver;
     }
 
     /** POST /api/v1/sales/{id}/void  body: { reason? } */

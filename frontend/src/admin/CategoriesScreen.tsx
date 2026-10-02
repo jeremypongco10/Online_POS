@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
 import type { Category } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -43,9 +43,30 @@ export function CategoriesScreen() {
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [statusFilter, setStatusFilter] = useState('');
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Category>('/categories', {
-    is_active: statusFilter,
-  });
+
+  // The complete list, independent of `data`'s own pagination/filtering —
+  // resolving a parent's name (or offering one to pick from in the form
+  // below) needs every category, not just whichever page happens to be
+  // loaded. Fetched once; a company's category tree is small enough that
+  // re-fetching per edit isn't worth the extra round trip.
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+  useEffect(() => {
+    api.get<Category[]>('/categories?per_page=200').then(setAllCategories).catch(() => setAllCategories([]));
+  }, []);
+
+  // 'client': a company's category list is always small enough to fit on
+  // one page in practice — same reasoning as RegistersTab. A category row
+  // only carries parent_id, not the parent's name, so the free-text box
+  // needs the same extraSearchText treatment Registers needed for store
+  // names, or typing a parent's name would silently match nothing despite
+  // the Parent column showing it.
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<Category>(
+    '/categories',
+    { is_active: statusFilter },
+    true,
+    'client',
+    (c) => allCategories.find((p) => p.id === c.parent_id)?.name ?? ''
+  );
 
   const [editing, setEditing] = useState<Category | null>(null);
   const [viewing, setViewing] = useState<Category | null>(null);
@@ -55,7 +76,15 @@ export function CategoriesScreen() {
   const [saving, setSaving] = useState(false);
   const { fieldErrors, formError, clearErrors, clearField, reportError } = useFormErrors();
 
-  const parentName = (id: number | null) => data.find((c) => c.id === id)?.name ?? '—';
+  const parentName = (id: number | null) => allCategories.find((c) => c.id === id)?.name ?? '—';
+
+  // reload() alone leaves allCategories stale after a create/edit/delete —
+  // a just-renamed category would keep showing its old name as someone
+  // else's Parent until the next full remount otherwise.
+  function reloadAll() {
+    reload();
+    api.get<Category[]>('/categories?per_page=200').then(setAllCategories).catch(() => {});
+  }
 
   function openCreate() {
     setEditing(null);
@@ -89,7 +118,7 @@ export function CategoriesScreen() {
       if (editing) await api.put(`/categories/${editing.id}`, payload);
       else await api.post('/categories', payload);
       setShowForm(false);
-      reload();
+      reloadAll();
       notify(editing ? 'Category updated' : 'Category created');
     } catch (err) {
       reportError(err, 'Failed to save category');
@@ -102,7 +131,7 @@ export function CategoriesScreen() {
     if (!(await confirm(`Delete category "${category.name}"?`, { title: 'Delete Category', confirmLabel: 'Delete' }))) return;
     try {
       await api.del(`/categories/${category.id}`);
-      reload();
+      reloadAll();
       notify('Category deleted');
     } catch (err) {
       notify(err instanceof ApiError ? err.message : 'Failed to delete category', 'error');
@@ -115,7 +144,7 @@ export function CategoriesScreen() {
     if (!(await confirm(`${verb} category "${category.name}"?`, { title: `${verb} Category`, confirmLabel: verb }))) return;
     try {
       await api.put(`/categories/${category.id}`, { is_active: activating ? 1 : 0 });
-      reload();
+      reloadAll();
       notify(`Category ${activating ? 'activated' : 'deactivated'}`);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : 'Failed to update category', 'error');
@@ -268,7 +297,7 @@ export function CategoriesScreen() {
                   onChange={(v) => setForm({ ...form, parent_id: v })}
                   options={[
                     { value: '', label: '— None (top level) —' },
-                    ...data.filter((c) => c.id !== editing?.id).map((c) => ({ value: String(c.id), label: c.name })),
+                    ...allCategories.filter((c) => c.id !== editing?.id).map((c) => ({ value: String(c.id), label: c.name })),
                   ]}
                 />
               </Grid>

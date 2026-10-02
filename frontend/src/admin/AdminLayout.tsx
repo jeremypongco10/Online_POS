@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode, type SyntheticEvent, type UIEvent } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent, type UIEvent } from 'react';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import Paper from '@mui/material/Paper';
@@ -24,6 +24,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import PersonIcon from '@mui/icons-material/Person';
@@ -34,11 +35,12 @@ import { canAccessPos } from '../auth/posAccess';
 import { ThemeToggle } from '../ThemeToggle';
 import { ChatPanel } from './ChatPanel';
 import { HelpPanel } from '../help/HelpPanel';
+import type { FaqCategory } from '../help/faqData';
 import { ChangePasswordModal } from '../ChangePasswordModal';
-import { IconBox, IconCash, IconChart, IconClipboard, IconLayers, IconSettings, IconShield, IconTruck, IconUsers } from './icons';
+import { IconBox, IconCash, IconChart, IconClipboard, IconLayers, IconSettings, IconRotate, IconShield, IconTruck, IconUsers } from './icons';
 import logoDark from '../assets/logo-dark.png';
 
-export type AdminSection = 'dashboard' | 'products' | 'inventory' | 'purchasing' | 'customers' | 'cash' | 'team' | 'reports' | 'settings';
+export type AdminSection = 'dashboard' | 'products' | 'inventory' | 'purchasing' | 'customers' | 'returns' | 'cash' | 'team' | 'reports' | 'settings';
 
 interface NavItem {
   section: AdminSection;
@@ -69,6 +71,20 @@ export const ADMIN_NAV_PERMISSIONS = [
   'taxes.view',
   'units.view',
 ];
+
+/** The Help Center topic each section opens on, so help starts with the page you are on. */
+const HELP_TOPIC: Record<AdminSection, FaqCategory> = {
+  dashboard: 'Dashboard',
+  products: 'Products',
+  inventory: 'Inventory',
+  purchasing: 'Purchasing',
+  customers: 'Customers',
+  returns: 'Returns',
+  cash: 'Cash Drawer',
+  team: 'Team & Access',
+  reports: 'Reports',
+  settings: 'Settings',
+};
 
 const NAV_ITEMS: NavItem[] = [
   {
@@ -102,9 +118,16 @@ const NAV_ITEMS: NavItem[] = [
   {
     section: 'customers',
     label: 'Customers',
-    description: 'Manage customer records, loyalty, and returns.',
-    permissions: ['customers.view', 'returns.view'],
+    description: 'Manage customer records and loyalty points.',
+    permissions: ['customers.view'],
     icon: IconUsers,
+  },
+  {
+    section: 'returns',
+    label: 'Returns',
+    description: 'Every return and refund done at the POS, from any sale. Returns are made at the register with Return (F8).',
+    permissions: ['returns.view'],
+    icon: IconRotate,
   },
   {
     section: 'cash',
@@ -147,7 +170,7 @@ const NAV_ITEMS: NavItem[] = [
 const NAV_GROUPS: { label: string; sections: AdminSection[] }[] = [
   { label: 'Overview', sections: ['dashboard'] },
   { label: 'Reports', sections: ['reports'] },
-  { label: 'Operations', sections: ['products', 'inventory', 'purchasing', 'customers', 'cash'] },
+  { label: 'Operations', sections: ['products', 'inventory', 'purchasing', 'customers', 'returns', 'cash'] },
   { label: 'Administration', sections: ['team', 'settings'] },
 ];
 
@@ -193,6 +216,53 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
   // + overflow:hidden shell below) — so "scrolled down" has to be read off
   // this element's own scrollTop, not window.scrollY.
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // The section bar's own scroll arrows. MUI's built-in ones decide by
+  // watching whether the last tab "intersects" the bar, and a tab that is
+  // only partly in view — or just touching the edge — counts, so with the
+  // last section cut off at the edge it hid the arrow while there was still
+  // more to see. Measuring the scroller directly has no such blind spot.
+  const navRef = useRef<HTMLDivElement>(null);
+  const [navScroll, setNavScroll] = useState({ overflow: false, left: false, right: false });
+  const navScroller = () => navRef.current?.querySelector<HTMLElement>('.MuiTabs-scroller') ?? null;
+
+  useEffect(() => {
+    const el = navScroller();
+    if (!el) return;
+    const update = () => {
+      const overflow = el.scrollWidth > el.clientWidth + 1;
+      setNavScroll({ overflow, left: overflow && el.scrollLeft > 1, right: overflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const resize = new ResizeObserver(update);
+    resize.observe(el);
+    if (el.firstElementChild) resize.observe(el.firstElementChild);
+    window.addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      resize.disconnect();
+      window.removeEventListener('resize', update);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, visibleNav.length]);
+
+  function scrollNav(direction: 1 | -1) {
+    const el = navScroller();
+    if (el) el.scrollBy({ left: direction * Math.max(160, el.clientWidth * 0.6), behavior: 'smooth' });
+  }
+
+  const navArrow = (direction: 1 | -1) => (
+    <IconButton
+      size="small"
+      onClick={() => scrollNav(direction)}
+      disabled={direction === 1 ? !navScroll.right : !navScroll.left}
+      aria-label={direction === 1 ? 'More sections' : 'Earlier sections'}
+      sx={{ flexShrink: 0, color: 'rgba(255,255,255,.85)', '&.Mui-disabled': { color: 'rgba(255,255,255,.22)' } }}
+    >
+      {direction === 1 ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+    </IconButton>
+  );
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   function handleContentScroll(e: UIEvent<HTMLDivElement>) {
@@ -281,6 +351,8 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
               read as a dense toolbar; a row of quiet pills with one filled
               reads as a place you are. */}
           {!isMobile && (
+            <Box ref={navRef} sx={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'center' }}>
+            {navScroll.overflow && navArrow(-1)}
             <Tabs
               // `false` when the current section isn't one this role can
               // see: MUI warns on a value matching no tab, and a role can
@@ -288,7 +360,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
               value={visibleNav.some((i) => i.section === section) ? section : false}
               onChange={(_event: SyntheticEvent, next: AdminSection) => selectSection(next)}
               variant="scrollable"
-              scrollButtons="auto"
+              scrollButtons={false}
               sx={{
                 // Takes the run between brand and account cluster, whatever
                 // that turns out to be — no measured offsets to go stale.
@@ -339,6 +411,8 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                 />
               ))}
             </Tabs>
+            {navScroll.overflow && navArrow(1)}
+            </Box>
           )}
 
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
@@ -379,7 +453,7 @@ export function AdminLayout({ section, onSectionChange, onBackToPos, children }:
                 icon they'd have no use for anyway. */}
             {hasPermission('chat.access') && <ChatPanel />}
 
-            <HelpPanel />
+            <HelpPanel context={HELP_TOPIC[section]} />
 
             <ThemeToggle />
 

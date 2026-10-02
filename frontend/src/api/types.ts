@@ -119,6 +119,35 @@ export interface Product {
   track_inventory: string | number;
 }
 
+/** `GET /products/catalog` row — a product with its names resolved and its figures at one branch. */
+export interface CatalogProduct extends Product {
+  category_name: string | null;
+  unit: string | null;
+  tax_name: string | null;
+  tax_rate: string | null;
+  cost_price: string | null;
+  selling_price: string | null;
+  /** Null when this branch has never had stock of it. */
+  stock_quantity: string | null;
+  reorder_level: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** `GET /products/catalog/summary` — counts for one branch. */
+export interface CatalogSummary {
+  store_id: number;
+  store_name: string | null;
+  company_name: string | null;
+  total: number;
+  active: number;
+  inactive: number;
+  no_price: number;
+  no_photo: number;
+  no_category: number;
+  out_of_stock: number;
+}
+
 /** One row's outcome from `POST /products/bulk` — used by both the Bulk Add grid and the CSV import preview. */
 export interface BulkProductResult {
   index: number;
@@ -177,6 +206,8 @@ export interface Company {
   require_item_void_approval: string | number;
   /** Whether a supervisor must sign off before the whole cart is cancelled. Defaults to 1 — rare and high-signal, so the friction is worth it. */
   require_cancel_approval: string | number;
+  /** Settings → Security: a supervisor signs off on POS returns and replacements. Defaults to on. */
+  require_return_approval?: string | number;
   /** Whether a supervisor must sign off before Manual Discount can be applied. Defaults to 1 — the one discount type with no statutory rate or business policy behind it. */
   require_manual_discount_approval: string | number;
   /** A starting point DiscountDialog pre-fills into its percent field for this type — not an enforced ceiling, the cashier can still type a different number. Null/blank means no default is configured. */
@@ -275,6 +306,8 @@ export interface CashSessionSummary {
   cash_sales_total: number;
   cash_in_total: number;
   cash_out_total: number;
+  /** Cash handed back over this drawer for returns done at the POS — already subtracted from expected_balance. */
+  cash_refund_total: number;
   expected_balance: number;
   /** Item voids this cashier made during the shift, and their value — the outlier-spotting figures on the close-out sheet. */
   void_count: number;
@@ -467,6 +500,62 @@ export interface InventoryTransaction {
   created_at: string;
 }
 
+/** `GET /inventory/movements` row — a movement with its names and cause already resolved. */
+export interface InventoryMovement extends InventoryTransaction {
+  product_name: string | null;
+  product_sku: string | null;
+  unit: string | null;
+  store_name: string | null;
+  user_name: string | null;
+  /** The PO number, sale invoice, return number, or (for a transfer) the other branch. */
+  reference_label: string | null;
+}
+
+/** `GET /inventory/stock` row — one tracked product at one branch, zero if never stocked there. */
+export interface InventoryStockRow {
+  product_id: number;
+  name: string;
+  sku: string;
+  barcode: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  unit: string | null;
+  decimal_places: number | string | null;
+  inventory_id: number | null;
+  quantity: string;
+  reorder_level: string;
+  stock_updated_at: string | null;
+  cost_price: string | null;
+  selling_price: string | null;
+}
+
+/** `GET /inventory/summary` — totals for one branch. */
+export interface InventorySummary {
+  store_id: number;
+  products: number;
+  units: string;
+  cost_value: string;
+  retail_value: string;
+  in_stock_count: number;
+  low_count: number;
+  out_count: number;
+  company_name: string | null;
+  store_name: string | null;
+  store_code: string | null;
+  store_address: string | null;
+}
+
+/** `GET /inventory/by-product/{id}` row — one product's stock at one branch. */
+export interface ProductStockByStore {
+  id: number;
+  store_id: number;
+  store_name: string;
+  store_code: string | null;
+  quantity: string;
+  reorder_level: string;
+  updated_at: string | null;
+}
+
 export interface PurchaseOrder {
   id: number;
   company_id: number;
@@ -482,6 +571,15 @@ export interface PurchaseOrder {
   tax_total: string;
   total: string;
   notes: string | null;
+  approved_by?: number | null;
+  approved_at?: string | null;
+  created_at?: string | null;
+  /** Resolved server-side on list and detail responses (see PurchasesController::withNames). */
+  supplier_name?: string | null;
+  store_name?: string | null;
+  item_count?: number;
+  /** Sum of every line's quantity, as a DECIMAL string. */
+  total_quantity?: string;
 }
 
 export interface PurchaseOrderItem {
@@ -490,6 +588,7 @@ export interface PurchaseOrderItem {
   product_id: number;
   product_name: string | null;
   product_sku: string | null;
+  unit_abbreviation?: string | null;
   tax_rate_id: number | null;
   quantity: string;
   unit_cost: string;
@@ -497,6 +596,35 @@ export interface PurchaseOrderItem {
   line_total: string;
   received_quantity: string;
 }
+
+/** `GET /purchases/{id}` — everything the detail view and the printed PO need, in one response. */
+export interface PurchaseOrderDetail extends PurchaseOrder {
+  supplier: {
+    id: number;
+    name: string;
+    contact_name: string | null;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    tax_id: string | null;
+  } | null;
+  store: { id: number; name: string; code: string | null; address: string | null; phone: string | null; email: string | null } | null;
+  company: {
+    trade_name: string;
+    legal_name: string | null;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    tax_id: string | null;
+    logo_path: string | null;
+  } | null;
+  created_by_name: string | null;
+  approved_by_name: string | null;
+  items: PurchaseOrderItem[];
+}
+
+/** `GET /purchases/summary` — order count and value per status, within the caller's store scope. */
+export type PurchaseOrderSummary = Record<PurchaseOrder['status'], { count: number; value: string }>;
 
 export interface SalesReturn {
   id: number;
@@ -508,7 +636,148 @@ export interface SalesReturn {
   reason: string | null;
   status: 'pending' | 'completed' | 'cancelled';
   total_refund: string;
+  /** Payment method code the money went back by ('cash', 'gcash', …). Null on returns made before POS returns existed. */
+  refund_method: string | null;
+  /** The drawer a cash refund came out of. */
+  cash_session_id: number | null;
+  approved_by: number | null;
+  approved_at: string | null;
   return_date: string;
+  register_id?: number | null;
+  invoice_number?: string | null;
+  store_name?: string | null;
+  store_code?: string | null;
+  register_name?: string | null;
+  cashier_name?: string | null;
+  approved_by_name?: string | null;
+  /** Total quantity returned across the lines. */
+  units?: string;
+}
+
+/** GET /returns/summary — completed refunds only for the money figures. */
+export interface ReturnsSummary {
+  return_count: number;
+  refund_total: string;
+  cash_total: string;
+  non_cash_total: string;
+  units: string;
+  completed_count: number;
+  pending_count: number;
+  cancelled_count: number;
+  by_reason: { reason: string; count: number; total: string }[];
+  company_name: string | null;
+}
+
+/** GET /customers/directory row — a customer with what the business knows about them. */
+export interface CustomerDirectoryRow {
+  id: number;
+  customer_code: string;
+  first_name: string;
+  last_name: string;
+  name: string;
+  email: string | null;
+  mobile: string | null;
+  address: string | null;
+  is_active: string | number;
+  created_at: string;
+  card_number: string | null;
+  visits: string;
+  /** Completed sales before returns. */
+  bought: string;
+  /** Completed refunds on those sales. */
+  refunded: string;
+  /** bought − refunded: what the customer actually kept paying for. */
+  spent: string;
+  last_visit: string | null;
+  /** Null when loyalty is off or the viewer can't see points. */
+  points: string | number | null;
+}
+
+export interface CustomerDirectorySummary {
+  total: number;
+  active: number;
+  inactive: number;
+  new_this_month: number;
+  never_bought: number;
+  lapsed: number;
+  lapsed_days: number;
+  /** Net of refunds. */
+  spent_total: string;
+  refunded_total: string;
+  with_points: number;
+  points_outstanding: number;
+  points_visible: boolean;
+  company_name: string | null;
+}
+
+/** GET /suppliers/directory row — a supplier with its ordering history (branches the viewer can see). */
+export interface SupplierDirectoryRow {
+  id: number;
+  name: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  tax_id: string | null;
+  is_active: string | number;
+  created_at: string;
+  orders: string;
+  /** Draft or approved, not yet received. */
+  open_orders: string;
+  open_value: string;
+  received_total: string;
+  last_order: string | null;
+}
+
+export interface SupplierDirectorySummary {
+  total: number;
+  active: number;
+  inactive: number;
+  with_open: number;
+  open_orders: number;
+  open_value: string;
+  recent: number;
+  dormant: number;
+  never: number;
+  recent_days: number;
+  received_total: string;
+  received_this_month: string;
+  company_name: string | null;
+}
+
+/** GET /suppliers/{id}/orders */
+export interface SupplierOrder {
+  id: number;
+  po_number: string;
+  status: 'draft' | 'approved' | 'received' | 'cancelled';
+  order_date: string;
+  expected_date: string | null;
+  received_date: string | null;
+  total: string;
+  store_name: string | null;
+}
+
+/** GET /customers/{id}/purchases */
+export interface CustomerPurchase {
+  id: number;
+  invoice_number: string;
+  sale_date: string;
+  total: string;
+  store_name: string | null;
+  units: string;
+  /** Completed refunds against this sale. */
+  refunded: string;
+}
+
+/** A sale line with how much of it can still be returned — GET /returns/eligible-items. */
+export interface ReturnableItem {
+  id: number;
+  product_id: number;
+  product_name?: string;
+  quantity: string;
+  unit_price: string;
+  returned_quantity: number;
+  remaining_quantity: number;
 }
 
 export interface ReturnItem {

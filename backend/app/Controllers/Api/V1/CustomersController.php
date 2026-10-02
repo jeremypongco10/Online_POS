@@ -43,6 +43,200 @@ class CustomersController extends BaseCrudController
         return $response;
     }
 
+    /** Most rows one export or printout fetches (?all=1). */
+    private const EXPORT_LIMIT = 10000;
+
+    /** "Lapsed": bought before, but nothing in this many days. */
+    private const LAPSED_DAYS = 90;
+
+    /**
+     * GET /api/v1/customers/directory — the Back Office customer list, each
+     * row carrying what the business knows about them: visits, total spent,
+     * last visit, and (when loyalty is on and the caller may see it) points.
+     * The plain index() above stays as it is for the POS customer lookup.
+     *
+     * Filters: q (name, number, email, mobile, card number), is_active,
+     * segment = new | with_points | never_bought | lapsed. Sort: name
+     * (default), customer_code, points, spent, visits, last_visit,
+     * created_at. ?all=1 for exports and printouts.
+     */
+    public function directory()
+    {
+        $showPoints = $this->loyaltyVisible();
+        $builder = $this->directoryQuery($showPoints)
+            ->select('c.id, c.customer_code, c.first_name, c.last_name, c.name, c.email, c.mobile, c.address, c.is_active, c.created_at, '
+                . 'lc.card_number, COALESCE(st.visits, 0) AS visits, COALESCE(st.spent, 0) AS bought, COALESCE(rf.refunded, 0) AS refunded, '
+                . 'COALESCE(st.spent, 0) - COALESCE(rf.refunded, 0) AS spent, st.last_visit'
+                . ($showPoints ? ', COALESCE(pt.points, 0) AS points' : ', NULL AS points'), false);
+
+        if ($this->request->getGet('all') === '1') {
+            [$perPage, $page] = [self::EXPORT_LIMIT, 1];
+        } else {
+            $perPage = max(1, min((int) ($this->request->getGet('per_page') ?? 15), 100));
+            $page = max(1, (int) ($this->request->getGet('page') ?? 1));
+        }
+        $total = $builder->countAllResults(false);
+
+        $sortParam = (string) $this->request->getGet('sort');
+        $key = ltrim($sortParam, '-');
+        $direction = str_starts_with($sortParam, '-') ? 'DESC' : 'ASC';
+        $column = match ($key) {
+            'customer_code' => 'c.customer_code',
+            'points' => $showPoints ? 'points' : 'c.name',
+            'spent' => 'spent',
+            'visits' => 'visits',
+            'last_visit' => 'st.last_visit',
+            'created_at' => 'c.created_at',
+            default => 'c.name',
+        };
+        $rows = $builder->orderBy($column, $direction)->orderBy('c.id', 'ASC')->get($perPage, ($page - 1) * $perPage)->getResult();
+
+        return $this->ok($rows, '', [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'last_page' => (int) ceil($total / $perPage) ?: 1,
+            'points_visible' => $showPoints,
+        ]);
+    }
+
+    /** GET /api/v1/customers/directory/summary — the cards above the list (search applied, segment and status not). */
+    public function directorySummary()
+    {
+        $showPoints = $this->loyaltyVisible();
+        $monthStart = date('Y-m-01 00:00:00');
+        $lapsedBefore = date('Y-m-d H:i:s', strtotime('-' . self::LAPSED_DAYS . ' days'));
+
+        $row = $this->directoryQuery($showPoints, false)
+            ->select("COUNT(*) AS total, "
+                . "COALESCE(SUM(CASE WHEN c.is_active = 1 THEN 1 ELSE 0 END), 0) AS active, "
+                . "COALESCE(SUM(CASE WHEN c.is_active = 1 THEN 0 ELSE 1 END), 0) AS inactive, "
+                . "COALESCE(SUM(CASE WHEN c.created_at >= " . $this->db()->escape($monthStart) . " THEN 1 ELSE 0 END), 0) AS new_this_month, "
+                . "COALESCE(SUM(CASE WHEN st.visits IS NULL THEN 1 ELSE 0 END), 0) AS never_bought, "
+                . "COALESCE(SUM(CASE WHEN st.last_visit < " . $this->db()->escape($lapsedBefore) . " THEN 1 ELSE 0 END), 0) AS lapsed, "
+                . "COALESCE(SUM(st.spent), 0) - COALESCE(SUM(rf.refunded), 0) AS spent_total, COALESCE(SUM(rf.refunded), 0) AS refunded_total"
+                . ($showPoints
+                    ? ", COALESCE(SUM(CASE WHEN pt.points > 0 THEN 1 ELSE 0 END), 0) AS with_points, COALESCE(SUM(CASE WHEN pt.points > 0 THEN pt.points ELSE 0 END), 0) AS points_outstanding"
+                    : ', 0 AS with_points, 0 AS points_outstanding'), false)
+            ->get()->getRow();
+
+        $company = model(CompanyModel::class)->find(Services::authContext()->companyId);
+
+        return $this->ok([
+            'total' => (int) $row->total,
+            'active' => (int) $row->active,
+            'inactive' => (int) $row->inactive,
+            'new_this_month' => (int) $row->new_this_month,
+            'never_bought' => (int) $row->never_bought,
+            'lapsed' => (int) $row->lapsed,
+            'lapsed_days' => self::LAPSED_DAYS,
+            'spent_total' => (string) $row->spent_total,
+            'refunded_total' => (string) $row->refunded_total,
+            'with_points' => (int) $row->with_points,
+            'points_outstanding' => (int) $row->points_outstanding,
+            'points_visible' => $showPoints,
+            'company_name' => $company->trade_name ?? null,
+        ]);
+    }
+
+    /** GET /api/v1/customers/{id}/purchases — their latest completed sales, newest first. */
+    public function purchases($id = null)
+    {
+        if (! $this->applyScope()->find($id)) {
+            return $this->notFound();
+        }
+
+        $auth = Services::authContext();
+        $builder = $this->db()->table('sales sa')
+            ->select('sa.id, sa.invoice_number, sa.sale_date, sa.total, s.name AS store_name, '
+                . '(SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si WHERE si.sale_id = sa.id) AS units, '
+                . "(SELECT COALESCE(SUM(r.total_refund), 0) FROM returns r WHERE r.sale_id = sa.id AND r.status = 'completed') AS refunded", false)
+            ->join('stores s', 's.id = sa.store_id', 'left')
+            ->where('sa.company_id', $auth->companyId)
+            ->where('sa.customer_id', (int) $id)
+            ->where('sa.status', 'completed')
+            ->where('sa.is_training', 0);
+        if ($auth->allowedStoreIds !== null) {
+            $builder->whereIn('sa.store_id', $auth->allowedStoreIds ?: [0]);
+        }
+
+        return $this->ok($builder->orderBy('sa.sale_date', 'DESC')->limit(10)->get()->getResult());
+    }
+
+    private function db(): \CodeIgniter\Database\BaseConnection
+    {
+        return \Config\Database::connect();
+    }
+
+    /** Points are shown only when the company runs loyalty and the caller holds loyalty.view — same rule as attachPoints(). */
+    private function loyaltyVisible(): bool
+    {
+        $auth = Services::authContext();
+        if (! in_array('loyalty.view', $auth->permissions, true)) {
+            return false;
+        }
+        $company = model(CompanyModel::class)->find($auth->companyId);
+
+        return $company && (int) ($company->loyalty_enabled ?? 1) === 1;
+    }
+
+    /**
+     * customers with their purchase stats (completed, non-training sales)
+     * and points balance joined on, scoped to the caller's company, with
+     * the request's filters. $withSegment false leaves the status and
+     * segment filters off, for the summary cards.
+     */
+    private function directoryQuery(bool $showPoints, bool $withSegment = true): \CodeIgniter\Database\BaseBuilder
+    {
+        $db = $this->db();
+        $companyId = (int) Services::authContext()->companyId;
+        $get = fn (string $key) => trim((string) ($this->request->getGet($key) ?? ''));
+
+        $stats = "(SELECT customer_id, COUNT(*) AS visits, SUM(total) AS spent, MAX(sale_date) AS last_visit FROM sales "
+            . "WHERE company_id = {$companyId} AND status = 'completed' AND is_training = 0 AND customer_id IS NOT NULL GROUP BY customer_id) st";
+
+        // Completed refunds on those same sales, so "spent" is what the
+        // customer actually kept paying for, not what rang up before returns.
+        $refunds = "(SELECT sa.customer_id, SUM(r.total_refund) AS refunded FROM returns r JOIN sales sa ON sa.id = r.sale_id "
+            . "WHERE sa.company_id = {$companyId} AND sa.is_training = 0 AND r.status = 'completed' AND sa.customer_id IS NOT NULL GROUP BY sa.customer_id) rf";
+
+        $builder = $db->table('customers c')
+            ->join($stats, 'st.customer_id = c.id', 'left', false)
+            ->join($refunds, 'rf.customer_id = c.id', 'left', false)
+            // One card per customer, so a second card can never list them twice.
+            ->join('(SELECT customer_id, MAX(card_number) AS card_number FROM loyalty_cards GROUP BY customer_id) lc', 'lc.customer_id = c.id', 'left', false)
+            ->where('c.company_id', $companyId);
+
+        if ($showPoints) {
+            $builder->join('(SELECT customer_id, SUM(points_delta) AS points FROM loyalty_point_transactions GROUP BY customer_id) pt', 'pt.customer_id = c.id', 'left', false);
+        }
+
+        if ($get('q') !== '') {
+            $builder->groupStart()
+                ->like('c.name', $get('q'))
+                ->orLike('c.customer_code', $get('q'))
+                ->orLike('c.email', $get('q'))
+                ->orLike('c.mobile', $get('q'))
+                ->orLike('lc.card_number', $get('q'))
+                ->groupEnd();
+        }
+
+        if ($withSegment) {
+            if ($get('is_active') === '1' || $get('is_active') === '0') {
+                $builder->where('c.is_active', (int) $get('is_active'));
+            }
+            match ($get('segment')) {
+                'new' => $builder->where('c.created_at >=', date('Y-m-01 00:00:00')),
+                'with_points' => $showPoints ? $builder->where('pt.points >', 0) : $builder,
+                'never_bought' => $builder->where('st.visits IS NULL', null, false),
+                'lapsed' => $builder->where('st.last_visit <', date('Y-m-d H:i:s', strtotime('-' . self::LAPSED_DAYS . ' days'))),
+                default => $builder,
+            };
+        }
+
+        return $builder;
+    }
+
     public function index()
     {
         $response = parent::index();

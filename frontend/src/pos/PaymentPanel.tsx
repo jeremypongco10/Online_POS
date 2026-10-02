@@ -54,6 +54,8 @@ export const METHOD_LABELS: Record<string, string> = {
   maya: 'Maya',
   bank_transfer: 'Bank Transfer',
   other: 'Other',
+  // Reserved, not admin-defined: a replacement's credit spent on the new sale.
+  exchange: 'Exchange credit',
 };
 
 interface Props {

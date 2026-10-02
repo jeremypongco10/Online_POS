@@ -92,6 +92,8 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('products', static function (RouteCollection $routes) {
             $routes->get('', 'ProductsController::index', ['filter' => 'permission:products.view']);
+            $routes->get('catalog', 'ProductsController::catalog', ['filter' => 'permission:products.view']);
+            $routes->get('catalog/summary', 'ProductsController::catalogSummary', ['filter' => 'permission:products.view']);
             $routes->post('bulk', 'ProductsController::bulkCreate', ['filter' => 'permission:products.create']);
             $routes->put('prices/bulk', 'ProductsController::bulkUpdatePrices', ['filter' => 'permission:products.update']);
             $routes->get('(:num)', 'ProductsController::show/$1', ['filter' => 'permission:products.view']);
@@ -152,6 +154,9 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
         $routes->group('inventory', static function (RouteCollection $routes) {
             $routes->get('', 'InventoryController::index', ['filter' => 'permission:inventory.view']);
             $routes->get('movements', 'InventoryController::movements', ['filter' => 'permission:inventory.view']);
+            $routes->get('stock', 'InventoryController::stock', ['filter' => 'permission:inventory.view']);
+            $routes->get('summary', 'InventoryController::summary', ['filter' => 'permission:inventory.view']);
+            $routes->put('reorder-level', 'InventoryController::setReorderLevel', ['filter' => 'permission:inventory.adjust']);
             $routes->get('by-product/(:num)', 'InventoryController::byProduct/$1', ['filter' => 'permission:inventory.view']);
             $routes->get('(:num)', 'InventoryController::show/$1', ['filter' => 'permission:inventory.view']);
             $routes->post('adjust', 'InventoryController::adjust', ['filter' => 'permission:inventory.adjust']);
@@ -160,6 +165,9 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('customers', static function (RouteCollection $routes) {
             $routes->get('', 'CustomersController::index', ['filter' => 'permission:customers.view']);
+            $routes->get('directory', 'CustomersController::directory', ['filter' => 'permission:customers.view']);
+            $routes->get('directory/summary', 'CustomersController::directorySummary', ['filter' => 'permission:customers.view']);
+            $routes->get('(:num)/purchases', 'CustomersController::purchases/$1', ['filter' => 'permission:customers.view']);
             $routes->get('(:num)', 'CustomersController::show/$1', ['filter' => 'permission:customers.view']);
             $routes->post('', 'CustomersController::create', ['filter' => 'permission:customers.create']);
             $routes->put('(:num)', 'CustomersController::update/$1', ['filter' => 'permission:customers.update']);
@@ -187,6 +195,9 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('suppliers', static function (RouteCollection $routes) {
             $routes->get('', 'SuppliersController::index', ['filter' => 'permission:suppliers.view']);
+            $routes->get('directory', 'SuppliersController::directory', ['filter' => 'permission:suppliers.view']);
+            $routes->get('directory/summary', 'SuppliersController::directorySummary', ['filter' => 'permission:suppliers.view']);
+            $routes->get('(:num)/orders', 'SuppliersController::orders/$1', ['filter' => 'permission:suppliers.view']);
             $routes->get('(:num)', 'SuppliersController::show/$1', ['filter' => 'permission:suppliers.view']);
             $routes->post('', 'SuppliersController::create', ['filter' => 'permission:suppliers.manage']);
             $routes->put('(:num)', 'SuppliersController::update/$1', ['filter' => 'permission:suppliers.manage']);
@@ -195,6 +206,8 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('purchases', static function (RouteCollection $routes) {
             $routes->get('', 'PurchasesController::index', ['filter' => 'permission:purchases.view']);
+            $routes->get('summary', 'PurchasesController::summary', ['filter' => 'permission:purchases.view']);
+            $routes->get('suppliers', 'PurchasesController::supplierOptions', ['filter' => 'permission:purchases.view']);
             $routes->get('(:num)', 'PurchasesController::show/$1', ['filter' => 'permission:purchases.view']);
             $routes->get('(:num)/items', 'PurchasesController::items/$1', ['filter' => 'permission:purchases.view']);
             $routes->post('', 'PurchasesController::create', ['filter' => 'permission:purchases.create']);
@@ -342,11 +355,17 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
 
         $routes->group('returns', static function (RouteCollection $routes) {
             $routes->get('', 'ReturnsController::index', ['filter' => 'permission:returns.view']);
+            $routes->get('summary', 'ReturnsController::summary', ['filter' => 'permission:returns.view']);
+            $routes->get('open-credits', 'ReturnsController::openCredits', ['filter' => 'permission:returns.create']);
+            $routes->post('(:num)/refund-credit', 'ReturnsController::refundCredit/$1', ['filter' => 'permission:returns.create']);
             $routes->get('eligible-items', 'ReturnsController::eligibleItems', ['filter' => 'permission:returns.create']);
             $routes->get('(:num)', 'ReturnsController::show/$1', ['filter' => 'permission:returns.view']);
             $routes->get('(:num)/items', 'ReturnsController::items/$1', ['filter' => 'permission:returns.view']);
-            $routes->post('', 'ReturnsController::create', ['filter' => 'permission:returns.create']);
-            $routes->put('(:num)', 'ReturnsController::update/$1', ['filter' => 'permission:returns.create']);
+            // Returns are made at the POS only, approved there by a
+            // supervisor's own credentials — gated on returns.create (the
+            // cashier asking) with the approver's returns.approve checked
+            // inside, and rate-limited like login because it takes a password.
+            $routes->post('pos', 'ReturnsController::posReturn', ['filter' => ['rateLimit:10,300,void-auth', 'permission:returns.create']]);
             $routes->post('(:num)/approve', 'ReturnsController::approve/$1', ['filter' => 'permission:returns.approve']);
             $routes->post('(:num)/reject', 'ReturnsController::reject/$1', ['filter' => 'permission:returns.approve']);
         });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { AuditLog } from '../api/types';
 import { useList } from './useList';
 import { DataTable, type Column } from './DataTable';
@@ -7,13 +7,18 @@ import { InlineSelectFilter } from './InlineSelectFilter';
 import { Modal } from './Modal';
 import { DetailView } from './DetailView';
 import { SearchField } from '../SearchField';
+import { useAuth } from '../auth/AuthContext';
+import { useSnackbar } from '../Snackbar';
+import { formatDateTime } from '../regional';
+import { DateRangeBar, ExportButton } from './reports/ReportKit';
+import { exportReport, type ReportColumn } from './reports/reportUtils';
+import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip';
-import TextField from '@mui/material/TextField';
 import Table from '@mui/material/Table';
 import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
@@ -93,6 +98,8 @@ interface Filters {
 const EMPTY_FILTERS: Filters = { q: '', entity_type: '', action: '', from: '', to: '' };
 
 export function AuditTrailScreen() {
+  const { user } = useAuth();
+  const notify = useSnackbar();
   // Draft values track the filter inputs as the user edits them; `applied`
   // is what's actually sent to the API, and only changes when Search is
   // clicked — this screen deliberately does not search as-you-type/filter
@@ -121,8 +128,8 @@ export function AuditTrailScreen() {
   }
 
   const columns: Column<AuditLog>[] = [
-    { key: 'created_at', label: 'Date', sortKey: 'created_at', render: (r) => r.created_at.slice(0, 16).replace('T', ' ') },
-    { key: 'user_name', label: 'User', render: (r) => r.user_name ?? 'System' },
+    { key: 'created_at', label: 'Date', sortKey: 'created_at', render: (r) => <Box sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.created_at, user?.currency)}</Box> },
+    { key: 'user_name', label: 'User', render: (r) => <b>{r.user_name ?? 'System'}</b> },
     {
       key: 'action',
       label: 'Action',
@@ -133,11 +140,62 @@ export function AuditTrailScreen() {
     { key: 'entity_label', label: 'Record', render: (r) => r.entity_label ?? (r.entity_id ? `#${r.entity_id}` : '—') },
   ];
 
+  async function onExport(format: 'xlsx' | 'csv' | 'pdf') {
+    try {
+      // Everything matching the applied filters, a page of 100 at a time.
+      const all: AuditLog[] = [];
+      for (let p = 1; p <= 50; p++) {
+        const params = new URLSearchParams({ page: String(p), per_page: '100', sort: sort || '-created_at' });
+        Object.entries(applied).forEach(([k, v]) => v && params.set(k, v));
+        const chunk = await api.get<AuditLog[]>(`/audit-logs?${params.toString()}`);
+        all.push(...chunk);
+        if (chunk.length < 100) break;
+      }
+      const columns: ReportColumn<AuditLog>[] = [
+        { key: 'created_at', label: 'Date', value: (r) => formatDateTime(r.created_at, user?.currency) },
+        { key: 'user_name', label: 'User', value: (r) => r.user_name ?? 'System' },
+        { key: 'action', label: 'Action', value: (r) => actionLabel(r.action) },
+        { key: 'entity_type', label: 'Entity' },
+        { key: 'entity_label', label: 'Record', value: (r) => r.entity_label ?? (r.entity_id ? `#${r.entity_id}` : '') },
+        { key: 'ip_address', label: 'IP address', value: (r) => r.ip_address ?? '' },
+      ];
+      await exportReport(format, {
+        title: 'Audit trail',
+        subtitle: 'All activity',
+        range: { from: applied.from, to: applied.to },
+        filters: [
+          applied.entity_type ? `Entity: ${applied.entity_type}` : '',
+          applied.action ? `Action: ${actionLabel(applied.action)}` : '',
+          applied.q ? `Search: "${applied.q}"` : '',
+        ].filter(Boolean),
+        stats: [{ label: 'Entries', value: all.length.toLocaleString() }],
+        columns,
+        rows: all,
+        printedBy: user?.name ?? null,
+        currency: user?.currency,
+      });
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Could not prepare the export', 'error');
+    }
+  }
+
   const changes = viewing?.changes ?? null;
   const diffShape = changes !== null && isDiffShape(changes);
 
   return (
     <div>
+      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1.5, mb: 2 }}>
+        <Box>
+          <Typography sx={{ fontWeight: 800, fontSize: 18 }}>Audit trail</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Who did what and when: sign-ins, edits, voids, approvals and every change to your records.
+          </Typography>
+        </Box>
+        {hasSearched && <ExportButton onExport={onExport} disabled={loading || data.length === 0} />}
+      </Stack>
+
+      <DateRangeBar range={{ from: draft.from, to: draft.to }} onChange={(r) => setDraft({ ...draft, from: r.from, to: r.to })} />
+
       <Stack spacing={1.5} sx={{ mb: 2 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1.5 }}>
           <InlineSelectFilter
@@ -154,24 +212,6 @@ export function AuditTrailScreen() {
             minWidth={160}
             options={ACTION_OPTIONS}
           />
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              From
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              value={draft.from}
-              onChange={(e) => setDraft({ ...draft, from: e.target.value })}
-              sx={{ minWidth: 150 }}
-            />
-          </Stack>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              To
-            </Typography>
-            <TextField type="date" size="small" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} sx={{ minWidth: 150 }} />
-          </Stack>
         </Stack>
 
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1.5 }}>

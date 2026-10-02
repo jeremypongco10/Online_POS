@@ -26,6 +26,8 @@ import { OpenRegisterScreen } from './OpenRegisterScreen';
 import { CloseRegisterModal } from './CloseRegisterModal';
 import { ReceiptModal } from './ReceiptModal';
 import { ReprintReceiptDialog } from './ReprintReceiptDialog';
+import { ReturnDialog, type ExchangeCredit } from './ReturnDialog';
+import { ExchangeCreditDialog } from './ExchangeCreditDialog';
 import { VoidApprovalDialog, type VoidSubject } from './VoidApprovalDialog';
 import { VoidItemDialog } from './VoidItemDialog';
 import { DiscountDialog, type DiscountResult } from './DiscountDialog';
@@ -121,6 +123,12 @@ export function PosScreen({ onOpenAdmin }: Props) {
   // screen — see posShortcuts.ts's 'reprint' entry for the full split
   // with ReceiptModal's own local F7 (print) listener.
   const [reprintOpen, setReprintOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
+  // A return settled as a replacement: spent as the first payment of this
+  // sale (see checkout). Kept across cancelled carts — it is the customer's
+  // money — until used, refunded, or set aside for later.
+  const [exchangeCredit, setExchangeCredit] = useState<ExchangeCredit | null>(null);
+  const [creditMenuOpen, setCreditMenuOpen] = useState(false);
   // Bumped after every completed sale to remount PaymentPanel, clearing its
   // internal amount-tendered/method state — those aren't lifted to this
   // component, so a plain re-render wouldn't reset them on its own.
@@ -935,7 +943,9 @@ export function PosScreen({ onOpenAdmin }: Props) {
                 tax_rate_id: l.taxRate?.id,
               }
         ),
-        payments,
+        // The exchange credit pays first and in full; anything over the
+        // sale comes back as change (SalesController::create).
+        payments: exchangeCredit ? [{ method: 'exchange', amount: exchangeCredit.amount, reference: exchangeCredit.return_number }, ...payments] : payments,
         bagger_id: bagger?.id,
         loyalty_card_id: card?.id,
         // Only sent when at least one line actually needs it — the server
@@ -955,6 +965,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
       const fullReceipt = await api.get<Receipt>(`/sales/${sale.id}/receipt`);
       setReceipt(fullReceipt);
       setAutoPrintReceipt(true);
+      setExchangeCredit(null);
       resetSale();
     } catch (err) {
       setCheckoutError(err instanceof ApiError ? err.message : 'Failed to complete checkout');
@@ -974,6 +985,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
     Boolean(voidSubject) ||
     discountOpen ||
     reprintOpen ||
+    returnOpen ||
+    creditMenuOpen ||
     voidItemSearchOpen ||
     logoutConfirmOpen ||
     // The lock screen covers every one of the dialogs above too, not
@@ -1100,7 +1113,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
         controlsSlotRef={setControlsSlot}
         actions={
           <>
-            <HelpPanel iconColor="#fff" />
+            <HelpPanel iconColor="#fff" context="Checkout" />
             <AccountMenu
               user={user}
               stores={stores}
@@ -1212,7 +1225,7 @@ export function PosScreen({ onOpenAdmin }: Props) {
               saleStarted={saleStarted}
               onOpenDiscount={openCartDiscount}
               onCancel={handleCancel}
-              onReturn={() => onOpenAdmin('/admin/customers/returns')}
+              onReturn={() => setReturnOpen(true)}
               onReprintReceipt={() => setReprintOpen(true)}
               onVoidItemSearch={() => setVoidItemSearchOpen(true)}
               searchPortalTarget={searchSlot}
@@ -1257,6 +1270,8 @@ export function PosScreen({ onOpenAdmin }: Props) {
             submitting={submitting}
             paymentDisabled={activeLines.length === 0 || !registerId || !cashSession}
             onCheckout={checkout}
+            exchangeCredit={exchangeCredit}
+            onExchangeCreditClick={() => setCreditMenuOpen(true)}
             saleCounter={saleCounter}
             onPaymentDialogOpenChange={setPaymentDialogOpen}
             onCancel={handleCancel}
@@ -1300,6 +1315,24 @@ export function PosScreen({ onOpenAdmin }: Props) {
           resetSale();
           setLogoutConfirmOpen(false);
           logout();
+        }}
+      />
+      <ReturnDialog
+        open={returnOpen}
+        onClose={() => setReturnOpen(false)}
+        cashSessionId={cashSession?.id ?? null}
+        storeId={storeId}
+        paymentMethods={paymentMethods}
+        activeCredit={exchangeCredit}
+        onExchangeCredit={setExchangeCredit}
+      />
+      <ExchangeCreditDialog
+        credit={creditMenuOpen ? exchangeCredit : null}
+        cashSessionId={cashSession?.id ?? null}
+        onClose={() => setCreditMenuOpen(false)}
+        onReleased={() => {
+          setExchangeCredit(null);
+          setCreditMenuOpen(false);
         }}
       />
       <ReprintReceiptDialog

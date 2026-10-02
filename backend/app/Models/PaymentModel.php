@@ -17,6 +17,14 @@ class PaymentModel extends Model
      */
     public const METHOD_CASH = 'cash';
 
+    /**
+     * Reserved, not admin-defined: an exchange credit from a return settled
+     * as a replacement, spent on the replacement sale (reference = the
+     * return number). It never touches the drawer — see
+     * SalesController::create() and ReturnsController::posReturn().
+     */
+    public const METHOD_EXCHANGE = 'exchange';
+
     protected $table = 'payments';
     protected $primaryKey = 'id';
     protected $useAutoIncrement = true;

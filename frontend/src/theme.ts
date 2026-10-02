@@ -44,6 +44,102 @@ export const theme = createTheme({
     },
   },
   components: {
+    // Every dropdown list (SearchableSelect, the supplier/product pickers,
+    // filters). MuiPaper below drops MUI's dark-mode elevation overlay, so
+    // without its own surface a dropdown opened over a dialog came out the
+    // exact colour of that dialog, with nothing marking where it ended.
+    // A bordered, slightly lifted panel, clear group headings, and rounded
+    // option highlights fix that in both themes.
+    MuiAutocomplete: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          marginTop: 6,
+          borderRadius: 12,
+          border: '1px solid',
+          borderColor: theme.vars ? theme.vars.palette.divider : theme.palette.divider,
+          backgroundColor: '#ffffff',
+          boxShadow: '0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06)',
+          ...theme.applyStyles('dark', {
+            backgroundColor: '#1a2538',
+            borderColor: '#2c3a52',
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35)',
+          }),
+        }),
+        listbox: {
+          padding: 6,
+        },
+        option: ({ theme }) => ({
+          borderRadius: 8,
+          minHeight: 40,
+          '&.Mui-focused': {
+            backgroundColor: theme.vars ? theme.vars.palette.action.hover : theme.palette.action.hover,
+          },
+          '&[aria-selected="true"], &[aria-selected="true"].Mui-focused': {
+            backgroundColor: 'color-mix(in srgb, var(--mui-palette-primary-main) 14%, transparent)',
+          },
+        }),
+        groupLabel: ({ theme }) => ({
+          // Sticky, so it needs the panel's own colour behind it or rows
+          // scroll visibly underneath the heading.
+          backgroundColor: '#ffffff',
+          ...theme.applyStyles('dark', { backgroundColor: '#1a2538' }),
+          color: theme.vars ? theme.vars.palette.text.secondary : theme.palette.text.secondary,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.07em',
+          textTransform: 'uppercase',
+          lineHeight: '30px',
+          paddingLeft: 12,
+          top: -6,
+        }),
+        groupUl: {
+          '& .MuiAutocomplete-option': { paddingLeft: 12 },
+        },
+        noOptions: { fontSize: 14 },
+        loading: { fontSize: 14 },
+      },
+    },
+    // Plain select menus (TextField select) and popup menus (account, Export,
+    // Print) — the same surface as MuiAutocomplete above, so every list that
+    // drops down looks like one family in both themes.
+    MuiMenu: {
+      styleOverrides: {
+        paper: ({ theme }) => ({
+          marginTop: 4,
+          borderRadius: 12,
+          border: '1px solid',
+          borderColor: theme.vars ? theme.vars.palette.divider : theme.palette.divider,
+          backgroundColor: '#ffffff',
+          boxShadow: '0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06)',
+          '& .MuiListSubheader-root': {
+            backgroundColor: '#ffffff',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.07em',
+            textTransform: 'uppercase',
+          },
+          ...theme.applyStyles('dark', {
+            backgroundColor: '#1a2538',
+            borderColor: '#2c3a52',
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35)',
+            '& .MuiListSubheader-root': { backgroundColor: '#1a2538' },
+          }),
+        }),
+        list: {
+          padding: 6,
+        },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+          '&.Mui-selected': {
+            backgroundColor: 'color-mix(in srgb, var(--mui-palette-primary-main) 14%, transparent)',
+          },
+        },
+      },
+    },
     MuiTooltip: {
       styleOverrides: {
         // A tooltip is meant purely as a label, never a surface — but MUI's
@@ -154,6 +250,23 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           transition: 'background-color 0.15s ease',
+        },
+      },
+    },
+    // Zebra striping on every table body, so the eye can follow a wide row
+    // across. Mixed from text.primary rather than a fixed grey, so the same
+    // rule gives a faint grey band on white and a faint lift on dark navy.
+    // Hover and selected are restated here because this selector would
+    // otherwise outrank MUI's own and hide them on the striped rows.
+    MuiTableBody: {
+      styleOverrides: {
+        root: {
+          '& > .MuiTableRow-root:nth-of-type(even):not(.Mui-selected)': {
+            backgroundColor: 'color-mix(in srgb, var(--mui-palette-text-primary) 3.5%, transparent)',
+          },
+          '& > .MuiTableRow-hover:hover:not(.Mui-selected)': {
+            backgroundColor: 'color-mix(in srgb, var(--mui-palette-primary-main) 7%, transparent)',
+          },
         },
       },
     },

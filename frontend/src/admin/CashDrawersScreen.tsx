@@ -282,6 +282,7 @@ function CashSessionModal({ session, canManage, registerName, registerLabel, cas
     { label: 'Cash Sales', value: summary ? money(summary.cash_sales_total) : '—' },
     { label: 'Cash In', value: summary ? money(summary.cash_in_total) : '—' },
     { label: 'Cash Out', value: summary ? money(summary.cash_out_total) : '—' },
+    { label: 'Cash Refunds', value: summary ? money(summary.cash_refund_total ?? 0) : '—' },
     { label: 'Expected Cash', value: isOpen ? (summary ? money(summary.expected_balance) : '—') : money(session.expected_balance) },
     { label: 'Counted Cash', value: money(session.closing_balance) },
   ];

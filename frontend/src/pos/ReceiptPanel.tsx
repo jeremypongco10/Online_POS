@@ -18,9 +18,10 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import type { CartTotals, CartLine } from './posTypes';
 import type { Bagger, Customer, PaymentMethodOption } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { POS_ACCENT, POS_ACTION_TINTS, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
+import { formatMoney, POS_ACCENT, POS_ACTION_TINTS, posRaisedButtonSx, THIN_SCROLLBAR_SX } from './format';
 import { Cart } from './Cart';
 import { TotalsPanel } from './TotalsPanel';
+import type { ExchangeCredit } from './ReturnDialog';
 import { PaymentPanel, type Payment } from './PaymentPanel';
 import { KeyHint } from './KeyHint';
 
@@ -43,6 +44,10 @@ interface Props {
   submitting: boolean;
   paymentDisabled: boolean;
   onCheckout: (payments: Payment[]) => void;
+  /** A replacement's exchange credit on this sale — it comes off what the customer pays. */
+  exchangeCredit?: ExchangeCredit | null;
+  /** Opens the choices for that credit (refund it, keep it for later). */
+  onExchangeCreditClick?: () => void;
   saleCounter: number;
   /** So PosScreen's keyboard shortcuts know to stay disabled while this dialog is up — its open state lives here, not in PosScreen. */
   onPaymentDialogOpenChange?: (open: boolean) => void;
@@ -90,6 +95,8 @@ export function ReceiptPanel({
   submitting,
   paymentDisabled,
   onCheckout,
+  exchangeCredit = null,
+  onExchangeCreditClick,
   saleCounter,
   onPaymentDialogOpenChange,
   onCancel,
@@ -100,6 +107,13 @@ export function ReceiptPanel({
   const loyaltyEnabled = user?.loyalty_enabled ?? true;
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const activeItemCount = lines.filter((line) => !line.voided).length;
+  // What the customer still owes once the exchange credit is applied, and
+  // whether the credit covers the whole sale (then Pay needs no tender:
+  // anything over comes back as change).
+  const credit = exchangeCredit?.amount ?? 0;
+  const amountDue = Math.max(0, Math.round((totals.total - credit) * 100) / 100);
+  const creditChange = Math.max(0, Math.round((credit - totals.total) * 100) / 100);
+  const creditCovers = credit > 0 && totals.total > 0 && amountDue === 0;
   // A successful checkout (or a Hold) resets the sale and bumps saleCounter
   // — close the dialog along with it rather than leaving it open over an
   // empty cart. A failed checkout doesn't bump saleCounter, so the dialog
@@ -357,6 +371,33 @@ export function ReceiptPanel({
             match or the two would visibly disagree. */}
         <TotalsPanel totals={totals} itemCount={activeItemCount} />
 
+        {exchangeCredit && (
+          <Stack spacing={0.5} sx={{ mb: 1.25, mt: -0.5 }}>
+            <Stack
+              direction="row"
+              onClick={onExchangeCreditClick}
+              role="button"
+              tabIndex={0}
+              sx={{ justifyContent: 'space-between', alignItems: 'center', px: 1.25, py: 0.75, borderRadius: 2, cursor: 'pointer', bgcolor: 'color-mix(in srgb, var(--mui-palette-success-main) 12%, transparent)', color: 'success.dark' }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                Exchange credit · {exchangeCredit.return_number}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                −{formatMoney(credit)}
+              </Typography>
+            </Stack>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', px: 1.25 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {creditChange > 0 ? 'Change to give back' : 'Customer pays'}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                {formatMoney(creditChange > 0 ? creditChange : amountDue)}
+              </Typography>
+            </Stack>
+          </Stack>
+        )}
+
         {/* Hold and Pay side by side, Hold on the left — back here after
             a stretch spent in CartActionsRow among the other sale-
             property toggles (Discount, Void Item). Moved back on
@@ -404,7 +445,8 @@ export function ReceiptPanel({
             disableElevation
             startIcon={<CreditCardOutlinedIcon />}
             disabled={paymentDisabled || lines.length === 0}
-            onClick={() => setPaymentDialogOpen(true)}
+            // A credit that covers the whole sale has nothing left to tender.
+            onClick={() => (creditCovers ? onCheckout([]) : setPaymentDialogOpen(true))}
             sx={{
               flex: 1,
               minHeight: 56,
@@ -439,7 +481,7 @@ export function ReceiptPanel({
               },
             }}
           >
-            Pay
+            {creditCovers ? 'Complete exchange' : 'Pay'}
             <KeyHint label="F11" onAccent />
           </Button>
         </Stack>
@@ -448,7 +490,7 @@ export function ReceiptPanel({
       <PaymentPanel
         open={paymentDialogOpen}
         onClose={() => setPaymentDialogOpen(false)}
-        total={totals.total}
+        total={amountDue}
         disabled={paymentDisabled}
         submitting={submitting}
         checkoutError={checkoutError}

@@ -980,7 +980,12 @@ function RegistersTab() {
     '/registers',
     { store_id: storeFilter, is_active: statusFilter },
     true,
-    'client'
+    'client',
+    // A register only carries its store's id, not its name — without
+    // this, typing a store name into the search box (the obvious thing
+    // to try, before noticing the separate Store dropdown below) matches
+    // nothing even though the table's own Store column shows it plainly.
+    (r) => stores.find((s) => s.id === r.store_id)?.name ?? ''
   );
 
   const [editing, setEditing] = useState<Register | null>(null);
@@ -1004,7 +1009,7 @@ function RegistersTab() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ store_id: storeFilter, name: '', code: '', is_active: true, is_training_mode: false });
+    setForm({ store_id: storeFilter || (stores.length === 1 ? String(stores[0].id) : ''), name: '', code: '', is_active: true, is_training_mode: false });
     clearErrors();
     setShow(true);
   }
@@ -1123,13 +1128,16 @@ function RegistersTab() {
         refreshing={loading}
         extra={
           <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-            <InlineSelectFilter
-              label="Store"
-              compactOnMobile
-              value={storeFilter}
-              onChange={setStoreFilter}
-              options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
-            />
+            {/* One store to see means nothing to filter by. */}
+            {stores.length > 1 && (
+              <InlineSelectFilter
+                label="Store"
+                compactOnMobile
+                value={storeFilter}
+                onChange={setStoreFilter}
+                options={[{ value: '', label: 'All Stores' }, ...stores.map((s) => ({ value: String(s.id), label: s.name }))]}
+              />
+            )}
             <InlineSelectFilter
               label="Status"
               compactOnMobile
@@ -1213,6 +1221,7 @@ function RegistersTab() {
                 error={!!fieldErrors?.store_id}
                 helperText={fieldErrors?.store_id}
                 required
+                disabled={stores.length === 1 && form.store_id === String(stores[0].id)}
                 options={[{ value: '', label: '— Select —' }, ...stores.map((s) => ({ value: String(s.id), label: `${s.code} — ${s.name}` }))]}
               />
             </Grid>
@@ -2190,6 +2199,7 @@ function SecurityTab() {
   const [company, setCompany] = useState<Company | null>(null);
   const [itemVoid, setItemVoid] = useState(false);
   const [cancel, setCancel] = useState(true);
+  const [returns, setReturns] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Kept separate from `saving` above — the toggles save themselves the
@@ -2208,14 +2218,15 @@ function SecurityTab() {
         setCompany(c);
         setItemVoid(Number(c.require_item_void_approval) === 1);
         setCancel(Number(c.require_cancel_approval) === 1);
+        setReturns(Number(c.require_return_approval ?? 1) === 1);
         setLockMinutes(String(c.pos_lock_idle_minutes));
       })
       .finally(() => setLoading(false));
   }, [user?.company_id]);
 
-  async function toggle(field: 'require_item_void_approval' | 'require_cancel_approval', next: boolean) {
+  async function toggle(field: 'require_item_void_approval' | 'require_cancel_approval' | 'require_return_approval', next: boolean) {
     if (!company) return;
-    const setter = field === 'require_item_void_approval' ? setItemVoid : setCancel;
+    const setter = field === 'require_item_void_approval' ? setItemVoid : field === 'require_cancel_approval' ? setCancel : setReturns;
     // Optimistic, then reconciled from the response — a Switch that waits
     // for the round trip before moving reads as broken/laggy for something
     // this immediate.
@@ -2226,6 +2237,7 @@ function SecurityTab() {
       setCompany(updated);
       setItemVoid(Number(updated.require_item_void_approval) === 1);
       setCancel(Number(updated.require_cancel_approval) === 1);
+      setReturns(Number(updated.require_return_approval ?? 1) === 1);
       notify('Security settings updated');
     } catch (err) {
       setter(!next);
@@ -2271,7 +2283,7 @@ function SecurityTab() {
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
           <ShieldOutlinedIcon color="primary" />
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Void / cancel approval
+            Supervisor approval
           </Typography>
         </Stack>
         {/* One line, not the five-line paragraph this used to open with.
@@ -2280,7 +2292,7 @@ function SecurityTab() {
             both switches regardless of setting, so it reads as a footnote
             below them rather than a preamble above them. */}
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Whether a supervisor has to sign off before the cashier can take something back off a sale.
+          Whether a supervisor has to sign off before the cashier takes something back off a sale, or gives money or goods back.
         </Typography>
 
         <Stack spacing={1.5}>
@@ -2298,10 +2310,17 @@ function SecurityTab() {
             disabled={saving}
             onChange={(v) => toggle('require_cancel_approval', v)}
           />
+          <SecurityToggle
+            title="Returns and replacements"
+            detail="A refund hands money back and a replacement hands goods out, so a supervisor signs off at the register. Recommended on."
+            checked={returns}
+            disabled={saving}
+            onChange={(v) => toggle('require_return_approval', v)}
+          />
         </Stack>
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2.5 }}>
-          Either way the cashier picks a reason, and every void, cancellation and denied attempt is recorded in the
+          Either way the cashier picks a reason, and every void, cancellation, return and denied attempt is recorded in the
           Audit Trail.
         </Typography>
       </Paper>

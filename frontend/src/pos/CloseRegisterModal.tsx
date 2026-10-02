@@ -92,6 +92,12 @@ export function CloseRegisterModal({ session, onClosed, onCancel }: Props) {
               <Typography variant="body2">Cash Out</Typography>
               <Typography variant="body2">-{formatMoney(summary.cash_out_total)}</Typography>
             </Stack>
+            {summary.cash_refund_total > 0 && (
+              <Stack direction="row" sx={{ justifyContent: 'space-between', py: 0.5 }}>
+                <Typography variant="body2">Cash Refunds</Typography>
+                <Typography variant="body2">-{formatMoney(summary.cash_refund_total)}</Typography>
+              </Stack>
+            )}
             <Divider sx={{ my: 0.5 }} />
             <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>

@@ -23,6 +23,170 @@ class ProductsController extends BaseCrudController
     protected array $searchableFields = ['name', 'sku', 'barcode', 'description'];
     protected string $defaultSort = 'name';
 
+    /** Max rows an export (`all=1`) may pull in one request. */
+    private const CATALOG_EXPORT_LIMIT = 10000;
+
+    /**
+     * The branch a catalog view prices and counts against: the requested
+     * one if the caller may see it, else their first. Price and stock only
+     * exist per branch, so the catalog always shows one branch's figures.
+     */
+    private function catalogStoreId(): ?int
+    {
+        $auth = Services::authContext();
+        $query = model(StoreModel::class)->where('company_id', $auth->companyId);
+        if ($auth->allowedStoreIds !== null) {
+            $query->whereIn('id', $auth->allowedStoreIds ?: [0]);
+        }
+        $allowed = array_map('intval', $query->orderBy('name')->findColumn('id') ?: []);
+
+        $requested = (int) ($this->request->getGet('store_id') ?? 0);
+        if ($requested === 0) {
+            return $allowed[0] ?? null;
+        }
+
+        return in_array($requested, $allowed, true) ? $requested : null;
+    }
+
+    private function catalogQuery(int $storeId, string $select)
+    {
+        return \Config\Database::connect()->table('products p')
+            ->select($select, false)
+            ->join('categories c', 'c.id = p.category_id', 'left')
+            ->join('units un', 'un.id = p.unit_id', 'left')
+            ->join('tax_rates tr', 'tr.id = p.tax_rate_id', 'left')
+            ->join('store_product_prices spp', "spp.product_id = p.id AND spp.store_id = {$storeId}", 'left')
+            ->join('inventory inv', "inv.product_id = p.id AND inv.store_id = {$storeId}", 'left')
+            ->where('p.company_id', Services::authContext()->companyId);
+    }
+
+    private function applyCatalogFilters($builder): void
+    {
+        $q = trim((string) $this->request->getGet('q'));
+        if ($q !== '') {
+            $builder->groupStart()
+                ->like('p.name', $q)->orLike('p.sku', $q)->orLike('p.barcode', $q)->orLike('p.description', $q)->orLike('c.name', $q)
+                ->groupEnd();
+        }
+
+        $category = (string) $this->request->getGet('category_id');
+        if ($category === 'none') {
+            $builder->where('p.category_id', null);
+        } elseif ((int) $category > 0) {
+            $builder->where('p.category_id', (int) $category);
+        }
+
+        foreach (['is_active', 'track_inventory'] as $flag) {
+            $value = $this->request->getGet($flag);
+            if ($value === '0' || $value === '1') {
+                $builder->where("p.{$flag}", (int) $value);
+            }
+        }
+
+        switch ((string) $this->request->getGet('issue')) {
+            case 'no_price':
+                $builder->where('p.is_active', 1)->where('spp.selling_price', null);
+                break;
+            case 'no_photo':
+                $builder->groupStart()->where('p.image_path', null)->orWhere('p.image_path', '')->groupEnd();
+                break;
+            case 'no_category':
+                $builder->where('p.category_id', null);
+                break;
+            case 'out_of_stock':
+                $builder->where('p.is_active', 1)->where('p.track_inventory', 1)->where('COALESCE(inv.quantity, 0) <= 0', null, false);
+                break;
+        }
+    }
+
+    /**
+     * GET /api/v1/products/catalog?store_id=&q=&category_id=&is_active=&issue=&sort=
+     * The Back Office catalog: every product with its category, unit and
+     * tax names, plus its cost, price and stock at one branch. Separate
+     * from index() on purpose — the POS reads index(), and this one is
+     * free to grow for the admin without risking the till. `all=1` returns
+     * every match (for Excel/CSV/PDF export).
+     */
+    public function catalog()
+    {
+        $storeId = $this->catalogStoreId();
+        if ($storeId === null) {
+            return $this->apiFail('Unknown store_id', 422);
+        }
+
+        $builder = $this->catalogQuery($storeId, 'p.id, p.sku, p.barcode, p.name, p.description, p.image_path, p.category_id, '
+            . 'c.name AS category_name, p.unit_id, un.abbreviation AS unit, p.tax_rate_id, tr.name AS tax_name, tr.rate AS tax_rate, '
+            . 'p.minimum_stock, p.is_active, p.track_inventory, p.created_at, p.updated_at, '
+            . 'spp.cost_price, spp.selling_price, inv.quantity AS stock_quantity, inv.reorder_level');
+        $this->applyCatalogFilters($builder);
+
+        if ($this->request->getGet('all') === '1') {
+            [$perPage, $page] = [self::CATALOG_EXPORT_LIMIT, 1];
+        } else {
+            $perPage = max(1, min((int) ($this->request->getGet('per_page') ?? 15), 100));
+            $page = max(1, (int) ($this->request->getGet('page') ?? 1));
+        }
+        $total = $builder->countAllResults(false);
+
+        $sortParam = (string) $this->request->getGet('sort');
+        $direction = str_starts_with($sortParam, '-') ? 'DESC' : 'ASC';
+        $sortExpr = match (ltrim($sortParam, '-')) {
+            'sku' => 'p.sku',
+            'category' => 'c.name',
+            'price' => 'spp.selling_price',
+            'cost' => 'spp.cost_price',
+            'margin' => '(spp.selling_price - spp.cost_price) / NULLIF(spp.selling_price, 0)',
+            'stock' => 'COALESCE(inv.quantity, 0)',
+            'created_at' => 'p.created_at',
+            default => 'p.name',
+        };
+        $builder->orderBy($sortExpr . ' IS NULL', 'ASC', false)->orderBy($sortExpr, $direction, false)->orderBy('p.name', 'ASC');
+
+        $rows = $builder->get($perPage, ($page - 1) * $perPage)->getResult();
+
+        return $this->ok($rows, '', [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'last_page' => (int) ceil($total / $perPage) ?: 1,
+            'store_id' => $storeId,
+        ]);
+    }
+
+    /** GET /api/v1/products/catalog/summary?store_id= — counts behind the catalog's summary cards. */
+    public function catalogSummary()
+    {
+        $storeId = $this->catalogStoreId();
+        if ($storeId === null) {
+            return $this->apiFail('Unknown store_id', 422);
+        }
+
+        $row = $this->catalogQuery($storeId, 'COUNT(*) AS total, '
+            . 'COALESCE(SUM(p.is_active = 1), 0) AS active, '
+            . 'COALESCE(SUM(p.is_active = 0), 0) AS inactive, '
+            . 'COALESCE(SUM(p.is_active = 1 AND spp.selling_price IS NULL), 0) AS no_price, '
+            . "COALESCE(SUM(p.image_path IS NULL OR p.image_path = ''), 0) AS no_photo, "
+            . 'COALESCE(SUM(p.category_id IS NULL), 0) AS no_category, '
+            . 'COALESCE(SUM(p.is_active = 1 AND p.track_inventory = 1 AND COALESCE(inv.quantity, 0) <= 0), 0) AS out_of_stock')
+            ->get()->getRow();
+
+        $store = model(StoreModel::class)->find($storeId);
+        $company = model(\App\Models\CompanyModel::class)->find(Services::authContext()->companyId);
+
+        return $this->ok([
+            'store_id' => $storeId,
+            'store_name' => $store->name ?? null,
+            'company_name' => $company->trade_name ?? null,
+            'total' => (int) $row->total,
+            'active' => (int) $row->active,
+            'inactive' => (int) $row->inactive,
+            'no_price' => (int) $row->no_price,
+            'no_photo' => (int) $row->no_photo,
+            'no_category' => (int) $row->no_category,
+            'out_of_stock' => (int) $row->out_of_stock,
+        ]);
+    }
+
     /**
      * A ?store_id= on the list endpoint resolves each product's price
      * (and on-hand stock_quantity) at that store — both left-joined, so
@@ -30,6 +194,17 @@ class ProductsController extends BaseCrudController
      * null value — this is what the POS product search relies on.
      * listResource() can't express a join, so this path bypasses it
      * entirely rather than bolting one onto the generic helper.
+     *
+     * Every other case (no store_id) goes through indexWithCategory()
+     * instead of the inherited listResource() path, for the same reason:
+     * the admin list shows each product's category by NAME, and a plain
+     * `?q=` search has to be able to match that name too, not just the
+     * product's own columns — joining categories is the only way to do
+     * either. Company scope is re-applied explicitly there rather than
+     * through applyScope(), since categories carries its own company_id
+     * and is_active columns; an unqualified `where('company_id', …)`
+     * against the joined pair would throw "column is ambiguous" the
+     * moment both tables are in the query.
      */
     public function index()
     {
@@ -38,23 +213,12 @@ class ProductsController extends BaseCrudController
             return $this->indexWithStorePrice((int) $storeId);
         }
 
-        // "category" isn't a real column — the list shows the category's
-        // NAME, not its id, so sorting has to order by the joined name too
-        // or the visible order wouldn't look sorted at all. listResource()
-        // only knows how to order by a column on this table directly, so
-        // that one case is the only reason to bypass it here.
-        $sortParam = ltrim((string) $this->request->getGet('sort'), '-');
-        if ($sortParam === 'category') {
-            return $this->indexSortedByCategory();
-        }
-
-        return parent::index();
+        return $this->indexWithCategory();
     }
 
-    private function indexSortedByCategory()
+    private function indexWithCategory()
     {
         $auth = Services::authContext();
-        $direction = str_starts_with((string) $this->request->getGet('sort'), '-') ? 'DESC' : 'ASC';
 
         $builder = model(ProductModel::class)->builder();
         $builder->select('products.*')
@@ -71,24 +235,49 @@ class ProductsController extends BaseCrudController
         $search = trim((string) $this->request->getGet('q'));
         if ($search !== '') {
             $builder->groupStart();
-            foreach (['name', 'sku', 'barcode', 'description'] as $i => $field) {
+            // categories.name last — it's the one field here that isn't a
+            // product column, called out by name rather than folded into
+            // a loop over $this->searchableFields so that distinction
+            // stays visible at the call site.
+            $fields = [...array_map(static fn ($f) => "products.$f", $this->searchableFields), 'categories.name'];
+            foreach ($fields as $i => $field) {
                 $method = $i === 0 ? 'like' : 'orLike';
-                $builder->{$method}("products.$field", $search);
+                $builder->{$method}($field, $search);
             }
             $builder->groupEnd();
+        }
+
+        // "category" isn't a real column on products — the list shows the
+        // category's NAME, so sorting by it has to order by the joined
+        // name instead, or the visible order wouldn't look sorted at all.
+        // Every other sort key is an ordinary column on this table.
+        $sortParam = (string) $this->request->getGet('sort');
+        $sortColumn = ltrim($this->defaultSort, '-');
+        $sortDirection = str_starts_with($this->defaultSort, '-') ? 'DESC' : 'ASC';
+        if ($sortParam !== '') {
+            $direction = str_starts_with($sortParam, '-') ? 'DESC' : 'ASC';
+            $column = ltrim($sortParam, '-');
+            if ($column === 'category' || in_array($column, $this->allowedSorts, true)) {
+                $sortColumn = $column;
+                $sortDirection = $direction;
+            }
         }
 
         $perPage = max(1, min((int) ($this->request->getGet('per_page') ?? 15), 100));
         $page = max(1, (int) ($this->request->getGet('page') ?? 1));
         $total = $builder->countAllResults(false);
-        // NULLs (products with no category) sort last in both directions —
-        // otherwise DESC would put them first, ahead of every real category.
-        $rows = $builder
-            ->orderBy('categories.name IS NULL', 'ASC', false)
-            ->orderBy('categories.name', $direction)
-            ->orderBy('products.name', 'ASC')
-            ->get($perPage, ($page - 1) * $perPage)
-            ->getResult();
+
+        if ($sortColumn === 'category') {
+            // NULLs (products with no category) sort last either way —
+            // otherwise DESC would put them first, ahead of every real one.
+            $builder->orderBy('categories.name IS NULL', 'ASC', false)
+                ->orderBy('categories.name', $sortDirection)
+                ->orderBy('products.name', 'ASC');
+        } else {
+            $builder->orderBy("products.$sortColumn", $sortDirection);
+        }
+
+        $rows = $builder->get($perPage, ($page - 1) * $perPage)->getResult();
 
         return $this->ok($rows, '', [
             'page' => $page,

@@ -398,9 +398,11 @@ export function InvoiceSeriesTab() {
         <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5 }}>
           Branch
         </Typography>
-        <Box sx={{ maxWidth: 360, mb: 2 }}>
-          <SearchableSelect label="Branch" value={selectedStoreId} onChange={setSelectedStoreId} options={storeOptions} fullWidth />
-        </Box>
+        {stores.length > 1 && (
+          <Box sx={{ maxWidth: 360, mb: 2 }}>
+            <SearchableSelect label="Branch" value={selectedStoreId} onChange={setSelectedStoreId} options={storeOptions} fullWidth />
+          </Box>
+        )}
 
         <DetailView
           fields={[

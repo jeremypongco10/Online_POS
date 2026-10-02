@@ -85,12 +85,23 @@ export function UsersScreen() {
   const confirm = useConfirm();
   const notify = useSnackbar();
   const [statusFilter, setStatusFilter] = useState('');
-  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<AdminUser>('/users', {
-    is_active: statusFilter,
-  });
-
+  const [roleFilter, setRoleFilter] = useState('');
   const [roles, setRoles] = useState<Role[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+
+  // 'client': a company's staff list is always small enough to fit on one
+  // page in practice — same reasoning as RegistersTab. Role is looked up
+  // by roleFilter below, but a user row only carries role_id, not the
+  // role's name, so the free-text box needs the same extraSearchText
+  // treatment Registers needed for store names, or typing "Cashier"
+  // would silently match nobody despite the Role column showing it.
+  const { data, meta, loading, error, page, setPage, perPage, setPerPage, sort, setSort, q, setQ, reload } = useList<AdminUser>(
+    '/users',
+    { is_active: statusFilter, role_id: roleFilter },
+    true,
+    'client',
+    (u) => roles.find((r) => r.id === u.role_id)?.name ?? ''
+  );
 
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE);
@@ -139,6 +150,8 @@ export function UsersScreen() {
   }, [hasPermission]);
 
   const roleName = (id: number | null) => roles.find((r) => r.id === id)?.name ?? '—';
+  // Same "Name (code)" form as InvoiceSeriesTab — branches often share a name stem, and the code is what staff use to tell them apart.
+  const storeLabel = (s: Store) => (s.code ? `${s.name} (${s.code})` : s.name);
   // Mirrors UsersController::TOP_LEVEL_ROLE_NAMES — Dev Admin is a Custom
   // role built with Super Admin's exact permission set purely for dev/test
   // administration, so the backend treats handing out either one the same
@@ -163,6 +176,11 @@ export function UsersScreen() {
   const SINGLE_STORE_ROLES = ['Store Admin', 'Cashier', 'Cashier Supervisor', 'Bagger'];
   const roleRequiresOneStore = (roleId: string) => SINGLE_STORE_ROLES.includes(roles.find((r) => String(r.id) === roleId)?.name ?? '');
   const creatingSingleStoreRole = roleRequiresOneStore(createForm.role_id);
+  // The other end: these roles always reach every store, so there's no
+  // store to assign. Mirrors UsersController::COMPANY_WIDE_ROLES.
+  const COMPANY_WIDE_ROLES = ['Company Admin'];
+  const roleIsCompanyWide = (roleId: string | number | null | undefined) =>
+    COMPANY_WIDE_ROLES.includes(roles.find((r) => String(r.id) === String(roleId ?? ''))?.name ?? '');
   const targetRequiresOneStore = storeAccessUserR ? roleRequiresOneStore(storeAccessUserR.role_id ? String(storeAccessUserR.role_id) : '') : false;
   // Baggers never sign themselves in — they're only picked from a list by
   // an already-logged-in cashier (see the POS's BaggerPanel) — so this is
@@ -371,17 +389,27 @@ export function UsersScreen() {
         onRefresh={reload}
         refreshing={loading}
         extra={
-          <InlineSelectFilter
-            label="Status"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            minWidth={140}
-            options={[
-              { value: '', label: 'All' },
-              { value: '1', label: 'Active' },
-              { value: '0', label: 'Inactive' },
-            ]}
-          />
+          <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+            <InlineSelectFilter
+              label="Role"
+              compactOnMobile
+              value={roleFilter}
+              onChange={setRoleFilter}
+              options={[{ value: '', label: 'All Roles' }, ...roles.map((r) => ({ value: String(r.id), label: r.name }))]}
+            />
+            <InlineSelectFilter
+              label="Status"
+              compactOnMobile
+              value={statusFilter}
+              onChange={setStatusFilter}
+              minWidth={140}
+              options={[
+                { value: '', label: 'All' },
+                { value: '1', label: 'Active' },
+                { value: '0', label: 'Inactive' },
+              ]}
+            />
+          </Stack>
         }
       />
 
@@ -414,11 +442,22 @@ export function UsersScreen() {
                       <EditOutlinedIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Store Access">
-                    <IconButton size="small" aria-label="Store Access" onClick={() => openStoreAccess(u)}>
-                      <StorefrontOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                  {roleIsCompanyWide(u.role_id) ? (
+                    // Kept as a disabled slot so the icons stay lined up row to row.
+                    <Tooltip title="Company Admin: has every store">
+                      <span>
+                        <IconButton size="small" aria-label="Has access to every store" disabled>
+                          <StorefrontOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Store Access">
+                      <IconButton size="small" aria-label="Store Access" onClick={() => openStoreAccess(u)}>
+                        <StorefrontOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <Tooltip title="Password">
                     <IconButton size="small" aria-label="Password" onClick={() => openPassword(u)}>
                       <LockOutlinedIcon fontSize="small" />
@@ -505,7 +544,7 @@ export function UsersScreen() {
                   required
                   value={createForm.role_id}
                   onChange={(v) => {
-                    setCreateForm({ ...createForm, role_id: v, store_id: '' });
+                    setCreateForm({ ...createForm, role_id: v, store_id: stores.length === 1 ? String(stores[0].id) : '' });
                     clearField('role_id');
                   }}
                   options={assignableRoles.map((r) => ({ value: String(r.id), label: r.name }))}
@@ -521,9 +560,17 @@ export function UsersScreen() {
                     required
                     value={createForm.store_id}
                     onChange={(v) => setCreateForm({ ...createForm, store_id: v })}
-                    options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+                    disabled={stores.length === 1}
+                    options={stores.map((s) => ({ value: String(s.id), label: storeLabel(s) }))}
                     helperText="This role is assigned to exactly one store."
                   />
+                </Grid>
+              )}
+              {roleIsCompanyWide(createForm.role_id) && (
+                <Grid size={{ xs: 12, sm: 6 }} sx={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <Alert severity="info" icon={<StorefrontOutlinedIcon fontSize="small" />} sx={{ width: '100%', py: 0.25 }}>
+                    Has access to every store. No store to assign.
+                  </Alert>
                 </Grid>
               )}
               <Grid size={{ xs: 12 }}>
@@ -713,7 +760,7 @@ export function UsersScreen() {
                       required
                       value={manageStoreIds[0] ? String(manageStoreIds[0]) : ''}
                       onChange={(v) => setManageStoreIds(v ? [Number(v)] : [])}
-                      options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
+                      options={stores.map((s) => ({ value: String(s.id), label: storeLabel(s) }))}
                     />
                   )}
                 </>
@@ -734,7 +781,7 @@ export function UsersScreen() {
                           <FormControlLabel
                             key={store.id}
                             control={<Checkbox checked={manageStoreIds.includes(store.id)} onChange={() => toggleStore(store.id)} />}
-                            label={store.name}
+                            label={storeLabel(store)}
                             sx={{ mr: 0 }}
                           />
                         ))}

@@ -250,6 +250,7 @@ export function AccountMenu({
               value={storeId ? String(storeId) : ''}
               onChange={(v) => onStoreChange(Number(v))}
               fullWidth
+              disabled={stores.length === 1}
               options={stores.map((s) => ({ value: String(s.id), label: s.name }))}
             />
             <SearchableSelect

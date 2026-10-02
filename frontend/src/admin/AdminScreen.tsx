@@ -3,20 +3,34 @@ import { DashboardBody } from '../dashboard/DashboardScreen';
 import { CatalogScreen } from './CatalogScreen';
 import { InventoryScreen } from './InventoryScreen';
 import { PurchasingScreen } from './PurchasingScreen';
-import { CustomerRelationsScreen } from './CustomerRelationsScreen';
+import { CustomersScreen } from './CustomersScreen';
+import { ReturnsScreen } from './ReturnsScreen';
 import { CashDrawersScreen } from './CashDrawersScreen';
 import { TeamScreen } from './TeamScreen';
 import { ReportsScreen } from './ReportsScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { useRouteState } from '../routing';
 
-const SECTIONS: AdminSection[] = ['dashboard', 'products', 'inventory', 'purchasing', 'customers', 'cash', 'team', 'reports', 'settings'];
+const SECTIONS: AdminSection[] = ['dashboard', 'products', 'inventory', 'purchasing', 'customers', 'returns', 'cash', 'team', 'reports', 'settings'];
 
 interface Props {
   onBackToPos: () => void;
 }
 
+/**
+ * Returns used to be a tab under Customers, but a return belongs to a sale,
+ * not a customer, so it is its own section now. Old links and bookmarks to
+ * /admin/customers/returns land on the new page instead of on Customers.
+ * Runs before useRouteState reads the path below.
+ */
+function redirectLegacyPaths() {
+  if (window.location.pathname.startsWith('/admin/customers/returns')) {
+    window.history.replaceState(null, '', '/admin/returns');
+  }
+}
+
 export function AdminScreen({ onBackToPos }: Props) {
+  redirectLegacyPaths();
   const [section, setSection] = useRouteState<AdminSection>(1, SECTIONS, 'dashboard', (s) => `/admin/${s}`);
 
   /**
@@ -42,7 +56,8 @@ export function AdminScreen({ onBackToPos }: Props) {
       {section === 'products' && <CatalogScreen />}
       {section === 'inventory' && <InventoryScreen />}
       {section === 'purchasing' && <PurchasingScreen />}
-      {section === 'customers' && <CustomerRelationsScreen />}
+      {section === 'customers' && <CustomersScreen />}
+      {section === 'returns' && <ReturnsScreen />}
       {section === 'cash' && <CashDrawersScreen />}
       {section === 'team' && <TeamScreen />}
       {section === 'reports' && <ReportsScreen />}

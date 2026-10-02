@@ -65,7 +65,7 @@ function Gate() {
       onOpenAdmin={(path) => {
         setView('admin');
         // setView('admin') already pushes '/admin' — overwrite with the
-        // deeper path (e.g. '/admin/customers/returns') in the same
+        // deeper path (e.g. '/admin/returns') in the same
         // synchronous call, before AdminScreen's useRouteState hooks mount
         // and read window.location.pathname for the first time.
         if (path && window.location.pathname !== path) {

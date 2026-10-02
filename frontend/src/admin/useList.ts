@@ -31,12 +31,20 @@ const SEARCH_DEBOUNCE_MS = 350;
  *   Registers, Roles, Payment Methods, Tax Rates, Units. Wrong choice
  *   here means search silently misses rows sitting on a page that was
  *   never fetched.
+ *
+ * `extraSearchText`, 'client' mode only: text to search in addition to a
+ * row's own field values — for a row whose only useful match on a related
+ * name is a foreign id. A Register carries `store_id`, not the store's
+ * name, so typing a store name into the search box would otherwise match
+ * nothing despite the table visibly showing which store every row
+ * belongs to (see RegistersTab).
  */
 export function useList<T>(
   endpoint: string,
   params: Record<string, string | number | undefined> = {},
   enabled = true,
-  searchMode: 'server' | 'client' = 'server'
+  searchMode: 'server' | 'client' = 'server',
+  extraSearchText?: (row: T) => string
 ) {
   const [data, setData] = useState<T[]>([]);
   const [meta, setMeta] = useState<Meta>(null);
@@ -116,12 +124,19 @@ export function useList<T>(
   const filteredData = useMemo(() => {
     if (searchMode !== 'client' || !needle) return data;
 
-    return data.filter((row) =>
-      Object.values(row as Record<string, unknown>).some(
+    return data.filter((row) => {
+      const ownFieldsMatch = Object.values(row as Record<string, unknown>).some(
         (value) => (typeof value === 'string' || typeof value === 'number') && String(value).toLowerCase().includes(needle)
-      )
-    );
-  }, [data, needle, searchMode]);
+      );
+      if (ownFieldsMatch) return true;
+      return extraSearchText !== undefined && extraSearchText(row).toLowerCase().includes(needle);
+    });
+    // extraSearchText is deliberately a dependency, not omitted like
+    // `reload`'s callback below — callers pass a fresh closure every
+    // render (RegistersTab's closes over `stores`, loaded async after
+    // mount), and recomputing this filter over a client-mode list's
+    // always-small row count costs nothing.
+  }, [data, needle, searchMode, extraSearchText]);
 
   // The pagination footer's "X–Y of Z" has to describe what's actually on
   // screen. While client-side searching, that's the filtered count on

@@ -328,16 +328,14 @@ function ActionButton({
  * overlapping the button's own label — none of which a genuinely empty
  * tooltip is worth carrying).
  *
- * (Refund used to sit here too, but it pointed at the exact same
- * /admin/customers/returns screen as Return — same backend flow, no
- * distinct refund-only path exists — so it was removed as a duplicate
- * rather than kept as a second button to the same place.)
+ * (Return covers refunds too — its dialog refunds on the spot once a
+ * supervisor approves — so there's no separate Refund button.)
  *
  * Customer, Bagger, Return, Reprint, Void Item and Shortcuts keep stable
  * `id`s that useKeyboardShortcuts triggers via a DOM click — for the
- * first five because their dialog/navigation state isn't here
- * (Customer/Bagger's dialogs are up in ProductBrowser; Return navigates
- * away, and Reprint/Void Item each open one of PosScreen's own dialogs —
+ * first five because their dialog state isn't here
+ * (Customer/Bagger's dialogs are up in ProductBrowser; Return, Reprint
+ * and Void Item each open one of PosScreen's own dialogs —
  * the same `reprint` handler DOM-clicks whichever of the two actually
  * exists, since CartActionsRow never renders both at once), and for
  * Shortcuts because its state IS here rather than in PosScreen, which

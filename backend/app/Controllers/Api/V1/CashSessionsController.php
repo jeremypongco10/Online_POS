@@ -8,8 +8,10 @@ use App\Models\CashMovementModel;
 use App\Models\CashSessionModel;
 use App\Models\PaymentModel;
 use App\Models\RegisterModel;
+use App\Models\SalesReturnModel;
 use App\Models\StoreModel;
 use CodeIgniter\Model;
+use Config\Database;
 use Config\Services;
 
 /**
@@ -236,13 +238,16 @@ class CashSessionsController extends BaseCrudController
         $cashIn = $movementModel->where('cash_session_id', $session->id)->where('type', CashMovementModel::TYPE_CASH_IN)->selectSum('amount')->first()->amount ?? 0;
         $cashOut = $movementModel->where('cash_session_id', $session->id)->where('type', CashMovementModel::TYPE_CASH_OUT)->selectSum('amount')->first()->amount ?? 0;
 
-        $expected = $opening + $cashSales + (float) $cashIn - (float) $cashOut;
+        $cashRefunds = $this->cashRefundsTotal((int) $session->id);
+
+        $expected = $opening + $cashSales + (float) $cashIn - (float) $cashOut - $cashRefunds;
 
         return [
             'opening_balance' => round($opening, 2),
             'cash_sales_total' => round($cashSales, 2),
             'cash_in_total' => round((float) $cashIn, 2),
             'cash_out_total' => round((float) $cashOut, 2),
+            'cash_refund_total' => round($cashRefunds, 2),
             'expected_balance' => round($expected, 2),
             ...$this->voidSummary($session),
         ];
@@ -292,10 +297,34 @@ class CashSessionsController extends BaseCrudController
         ];
     }
 
-    /** Sum of only the CASH portion of payments on completed sales tied to this session. */
+    /**
+     * Cash handed back over this drawer for returns done at the POS —
+     * ReturnsController::posReturn() ties a cash refund to the cashier's
+     * open session, and the money physically leaves this drawer.
+     */
+    private function cashRefundsTotal(int $cashSessionId): float
+    {
+        $result = model(SalesReturnModel::class)->builder()
+            ->selectSum('total_refund')
+            ->where('cash_session_id', $cashSessionId)
+            ->where('status', SalesReturnModel::STATUS_COMPLETED)
+            ->where('refund_method', PaymentModel::METHOD_CASH)
+            ->get()->getRow();
+
+        return (float) ($result->total_refund ?? 0);
+    }
+
+    /**
+     * Cash this session's completed sales actually left in the drawer: the
+     * cash tendered, minus the change handed back. A payment records what
+     * the customer handed over (₱500 for a ₱450 sale), so summing payments
+     * alone overstated the drawer by every peso of change — and change is
+     * always given in cash, even when an exchange credit or e-wallet
+     * overpaid the sale.
+     */
     private function cashSalesTotal(int $cashSessionId): float
     {
-        $result = model(PaymentModel::class)->builder()
+        $tendered = model(PaymentModel::class)->builder()
             ->selectSum('payments.amount')
             ->join('sales', 'sales.id = payments.sale_id')
             ->where('sales.cash_session_id', $cashSessionId)
@@ -303,6 +332,12 @@ class CashSessionsController extends BaseCrudController
             ->where('payments.method', PaymentModel::METHOD_CASH)
             ->get()->getRow();
 
-        return (float) ($result->amount ?? 0);
+        $change = Database::connect()->table('sales')
+            ->selectSum('change_due')
+            ->where('cash_session_id', $cashSessionId)
+            ->where('status', 'completed')
+            ->get()->getRow();
+
+        return (float) ($tendered->amount ?? 0) - (float) ($change->change_due ?? 0);
     }
 }

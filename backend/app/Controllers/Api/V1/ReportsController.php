@@ -6,6 +6,7 @@ use App\Controllers\BaseApiController;
 use App\Libraries\TaxService;
 use App\Models\InventoryModel;
 use App\Models\InventoryTransactionModel;
+use App\Models\PaymentModel;
 use App\Models\SaleItemModel;
 use App\Models\SaleModel;
 use App\Models\StoreModel;
@@ -35,7 +36,9 @@ class ReportsController extends BaseApiController
     private function scopedStoreIds(): array
     {
         $auth = Services::authContext();
-        $companyStoreIds = model(StoreModel::class)->where('company_id', $auth->companyId)->findColumn('id') ?: [];
+        // As ints: the driver returns ids as strings, and the strict
+        // in_array() below would otherwise never match a requested store.
+        $companyStoreIds = array_map('intval', model(StoreModel::class)->where('company_id', $auth->companyId)->findColumn('id') ?: []);
 
         if ($auth->allowedStoreIds !== null) {
             $companyStoreIds = array_values(array_intersect($companyStoreIds, $auth->allowedStoreIds));
@@ -53,7 +56,10 @@ class ReportsController extends BaseApiController
     private function applyCompletedSalesFilters(BaseBuilder $builder, string $salesAlias = 'sales'): BaseBuilder
     {
         $request = $this->request;
+        // Training-mode sales are practice — stamped TRAINING, never real
+        // money — so no report counts them.
         $builder->where("{$salesAlias}.status", 'completed')
+            ->where("{$salesAlias}.is_training", 0)
             ->where("{$salesAlias}.company_id", Services::authContext()->companyId)
             ->whereIn("{$salesAlias}.store_id", $this->scopedStoreIds() ?: [0]);
 
@@ -61,7 +67,7 @@ class ReportsController extends BaseApiController
             $builder->where("{$salesAlias}.sale_date >=", $from);
         }
         if ($to = $request->getGet('to')) {
-            $builder->where("{$salesAlias}.sale_date <=", $to);
+            $builder->where("{$salesAlias}.sale_date <=", self::endOfDay($to));
         }
 
         return $builder;
@@ -93,6 +99,7 @@ class ReportsController extends BaseApiController
 
         $salesBuilder = model(SaleModel::class)->builder();
         $salesBuilder->where('status', 'completed')
+            ->where('is_training', 0)
             ->where('sale_date >=', $rangeStart)
             ->where('sale_date <=', $rangeEnd)
             ->where('company_id', $companyId)
@@ -112,6 +119,7 @@ class ReportsController extends BaseApiController
             ->join('sales', 'sales.id = sale_items.sale_id')
             ->join('products p', 'p.id = sale_items.product_id', 'left')
             ->where('sales.status', 'completed')
+            ->where('sales.is_training', 0)
             ->where('sales.sale_date >=', $rangeStart)
             ->where('sales.sale_date <=', $rangeEnd)
             ->where('sales.company_id', $companyId)
@@ -138,6 +146,7 @@ class ReportsController extends BaseApiController
             ->select('p.method, COUNT(*) AS payment_count, COALESCE(SUM(p.amount), 0) AS total_amount')
             ->join('sales', 'sales.id = p.sale_id')
             ->where('sales.status', 'completed')
+            ->where('sales.is_training', 0)
             ->where('sales.sale_date >=', $rangeStart)
             ->where('sales.sale_date <=', $rangeEnd)
             ->where('sales.company_id', $companyId)
@@ -152,6 +161,7 @@ class ReportsController extends BaseApiController
         )
             ->join('stores s', 's.id = sales.store_id', 'left')
             ->where('sales.status', 'completed')
+            ->where('sales.is_training', 0)
             ->where('sales.sale_date >=', $rangeStart)
             ->where('sales.sale_date <=', $rangeEnd)
             ->where('sales.company_id', $companyId)
@@ -219,13 +229,14 @@ class ReportsController extends BaseApiController
         $builder->select('sales.store_id, s.name AS store_name, ' . self::SALE_AGGREGATES)
             ->join('stores s', 's.id = sales.store_id', 'left')
             ->where('sales.status', 'completed')
+            ->where('sales.is_training', 0)
             ->where('sales.company_id', Services::authContext()->companyId)
             ->whereIn('sales.store_id', $this->scopedStoreIds() ?: [0]);
         if ($from = $this->request->getGet('from')) {
             $builder->where('sales.sale_date >=', $from);
         }
         if ($to = $this->request->getGet('to')) {
-            $builder->where('sales.sale_date <=', $to);
+            $builder->where('sales.sale_date <=', self::endOfDay($to));
         }
 
         $rows = $builder->groupBy('sales.store_id, s.name')
@@ -356,6 +367,21 @@ class ReportsController extends BaseApiController
             ->orderBy('total_amount', 'DESC')
             ->get()->getResult();
 
+        // Cash is reported as what was kept, not what was handed over:
+        // change goes back out of the drawer in cash (see
+        // CashSessionsController::cashSalesTotal for the same rule).
+        $changeBuilder = Database::connect()->table('sales')->selectSum('sales.change_due', 'change_due');
+        $this->applyCompletedSalesFilters($changeBuilder);
+        $change = (float) ($changeBuilder->get()->getRow()->change_due ?? 0);
+        if ($change > 0) {
+            foreach ($rows as $row) {
+                if ($row->method === PaymentModel::METHOD_CASH) {
+                    $row->total_amount = number_format((float) $row->total_amount - $change, 2, '.', '');
+                }
+            }
+            usort($rows, static fn ($a, $b) => (float) $b->total_amount <=> (float) $a->total_amount);
+        }
+
         return $this->ok($rows);
     }
 
@@ -421,6 +447,16 @@ class ReportsController extends BaseApiController
      * return an unbounded result set at scale — a real risk once
      * inventory/inventory_transactions hold hundreds of thousands of rows.
      */
+    /**
+     * A plain YYYY-MM-DD "to" date widened to the end of that day, so the
+     * day itself is included — compared bare, "sale_date <= 2026-10-02"
+     * stops at midnight and drops every sale made on the 2nd.
+     */
+    private static function endOfDay(string $to): string
+    {
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) ? "{$to} 23:59:59" : $to;
+    }
+
     private function paginateBuilder(BaseBuilder $builder): array
     {
         $request = $this->request;
@@ -440,7 +476,7 @@ class ReportsController extends BaseApiController
             $builder->where('created_at >=', $from);
         }
         if ($to = $request->getGet('to')) {
-            $builder->where('created_at <=', $to);
+            $builder->where('created_at <=', self::endOfDay($to));
         }
         if ($types !== null) {
             $builder->whereIn('type', $types);

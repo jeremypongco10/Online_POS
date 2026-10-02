@@ -185,7 +185,9 @@ export function DataTable<T>({
           )}
         </Stack>
       ) : (
-      <TableContainer>
+      // Outlined so the striped rows have edges to end against — without
+      // it the alternating bands just fade out at either side.
+      <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
         {/* Default (comfortable) density, not `size="small"` — the dense
             variant was what made every list in the app read as cramped
             next to a normal reference UI: small shaves padding *and* font
@@ -209,9 +211,9 @@ export function DataTable<T>({
               // icon tiles use — a full-width band this large needs a
               // lighter touch to stay a wash rather than a solid color.
               bgcolor: 'color-mix(in srgb, var(--mui-palette-primary-main) 8%, var(--mui-palette-background-paper))',
-              '& th:first-of-type': { borderTopLeftRadius: 10, borderBottomLeftRadius: 10 },
-              '& th:last-of-type': { borderTopRightRadius: 10, borderBottomRightRadius: 10 },
-              '& th': { borderBottom: 0 },
+              // Fills the top of the outlined container edge to edge, with a
+              // rule underneath instead of its own rounded ends.
+              '& th': { borderBottom: '1px solid', borderColor: 'divider' },
             }}
           >
             <TableRow>
@@ -332,7 +334,10 @@ export function DataTable<T>({
           // it's the least-used control here and the longest label.
           labelRowsPerPage={stacked ? '' : 'Rows per page:'}
           sx={{
-            borderTop: '1px solid',
+            // The outlined table already closes itself off at the bottom, so
+            // a rule here only doubled it and ran wider than the outline.
+            // Kept for the stacked cards, which have no outline of their own.
+            borderTop: stacked ? '1px solid' : 0,
             borderColor: 'divider',
             // Left on the card rather than tinted: the header band above is
             // the one shaded strip in this table, and a second one down here

@@ -77,7 +77,11 @@ export function BulkUpdatePricesScreen() {
   const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
-    api.get<Store[]>('/stores?per_page=50&is_active=1').then(setStores);
+    api.get<Store[]>('/stores?per_page=50&is_active=1').then((rows) => {
+      setStores(rows);
+      // Only one store to price? It is the store — no picker needed.
+      if (rows.length === 1) setStoreId(String(rows[0].id));
+    });
     api.get<Category[]>('/categories?per_page=200').then(setCategories);
   }, []);
 
@@ -235,6 +239,7 @@ export function BulkUpdatePricesScreen() {
   return (
     <Box>
       <Stack direction="row" spacing={2.5} sx={{ alignItems: 'center', mb: 2, flexWrap: 'wrap', rowGap: 1 }}>
+        {stores.length > 1 && (
         <InlineSelectFilter
           label="Store"
           value={storeId}
@@ -243,7 +248,8 @@ export function BulkUpdatePricesScreen() {
           minWidth={220}
           disabled={applyToAllStores}
         />
-        {storeId && (
+        )}
+        {storeId && stores.length > 1 && (
           <FormControlLabel
             control={<Checkbox checked={applyToAllStores} onChange={(e) => setApplyToAllStores(e.target.checked)} size="small" />}
             label="Apply new prices to all stores"

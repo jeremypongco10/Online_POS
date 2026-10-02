@@ -141,6 +141,27 @@ class UsersController extends BaseCrudController
         return $role !== null && in_array($role->name, self::SINGLE_STORE_ROLES, true);
     }
 
+    /**
+     * The opposite of SINGLE_STORE_ROLES: these roles run the whole
+     * company, so they always have every store — no user_stores rows,
+     * which AuthContext::canAccessStore() reads as unrestricted. Every path
+     * that could leave such a user restricted (Store Access, a role change,
+     * the create-time default to the creator's store) keeps them clear.
+     * Mirrored in the frontend by UsersScreen's COMPANY_WIDE_ROLES.
+     */
+    private const COMPANY_WIDE_ROLES = ['Company Admin'];
+
+    private function roleIsCompanyWide(?int $roleId): bool
+    {
+        if ($roleId === null) {
+            return false;
+        }
+
+        $role = model(RoleModel::class)->find($roleId);
+
+        return $role !== null && in_array($role->name, self::COMPANY_WIDE_ROLES, true);
+    }
+
     private function roleIsBagger(?int $roleId): bool
     {
         if ($roleId === null) {
@@ -227,7 +248,7 @@ class UsersController extends BaseCrudController
                 } catch (\Throwable $e) {
                     log_message('error', 'Failed to assign new user\'s single store: {msg}', ['msg' => $e->getMessage()]);
                 }
-            } else {
+            } elseif (! $this->roleIsCompanyWide((int) $roleId)) {
                 $this->defaultNewUserToCallersOnlyStore($newUserId);
             }
         }
@@ -311,10 +332,34 @@ class UsersController extends BaseCrudController
             'role_id' => ['old' => $user->role_id, 'new' => $roleId],
         ]);
 
+        $this->clearStoresIfCompanyWide((int) $id, $roleId !== null ? (int) $roleId : null, $user->name);
+
         $response = $this->ok($this->model->find($id), 'Role updated');
         $this->stripPasswordHash($response);
 
         return $response;
+    }
+
+    /**
+     * A user just given a company-wide role drops any store assignments
+     * they carried from their old role, so they reach every store.
+     */
+    private function clearStoresIfCompanyWide(int $userId, ?int $roleId, string $userName): void
+    {
+        if (! $this->roleIsCompanyWide($roleId)) {
+            return;
+        }
+
+        $before = model(UserStoreModel::class)->where('user_id', $userId)->findColumn('store_id') ?: [];
+        if ($before === []) {
+            return;
+        }
+
+        model(UserStoreModel::class)->syncForUser($userId, []);
+
+        Services::auditLogger()->log('update', 'User', $userId, $userName, [
+            'store_ids' => ['old' => array_map('intval', $before), 'new' => []],
+        ]);
     }
 
     /** Whether a user (already saved, not a pending create) currently has access to exactly one store. */
@@ -444,6 +489,10 @@ class UsersController extends BaseCrudController
 
         if ($this->roleRequiresExactlyOneStore($user->role_id !== null ? (int) $user->role_id : null) && count($storeIds) !== 1) {
             return $this->apiFail('This role must be assigned to exactly one store.', 422);
+        }
+
+        if ($this->roleIsCompanyWide($user->role_id !== null ? (int) $user->role_id : null) && $storeIds !== []) {
+            return $this->apiFail('A Company Admin already has access to every store, so there is nothing to assign.', 422);
         }
 
         $beforeStoreIds = model(UserStoreModel::class)->where('user_id', $id)->findColumn('store_id') ?: [];
@@ -625,6 +674,13 @@ class UsersController extends BaseCrudController
 
         $response = parent::update($id);
         $this->stripPasswordHash($response);
+
+        if (array_key_exists('role_id', $payload) && $response->getStatusCode() < 300) {
+            $user = $this->model->find($id);
+            if ($user) {
+                $this->clearStoresIfCompanyWide((int) $id, $payload['role_id'] !== null ? (int) $payload['role_id'] : null, $user->name);
+            }
+        }
 
         return $response;
     }

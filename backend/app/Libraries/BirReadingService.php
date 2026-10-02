@@ -143,12 +143,15 @@ class BirReadingService
         // Returns are counted against the window they were made in, not
         // the window of the sale they refund — a refund handed over today
         // is today's cash movement even when the sale it reverses is from
-        // last month.
+        // last month. Likewise the terminal: the one that processed the
+        // return (returns.register_id), which may be a different counter
+        // from the one that rang up the sale. Returns from before that
+        // column existed fall back to the sale's own terminal.
         $returns = $db->table('returns')
             // Qualified: this joins sales, and both tables have an `id`.
             ->select('returns.id, returns.total_refund')
             ->join('sales', 'sales.id = returns.sale_id')
-            ->where('sales.register_id', $registerId)
+            ->where('COALESCE(returns.register_id, sales.register_id)', $registerId)
             ->where('returns.status', 'completed')
             ->where('returns.return_date >', $from)
             ->where('returns.return_date <=', $to)

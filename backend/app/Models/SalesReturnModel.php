@@ -23,8 +23,8 @@ class SalesReturnModel extends Model
     protected $updatedField = 'updated_at';
 
     protected $allowedFields = [
-        'sale_id', 'store_id', 'user_id', 'approved_by', 'customer_id', 'return_number',
-        'reason', 'status', 'total_refund', 'return_date', 'approved_at',
+        'sale_id', 'store_id', 'register_id', 'user_id', 'approved_by', 'customer_id', 'return_number',
+        'reason', 'status', 'total_refund', 'refund_method', 'cash_session_id', 'exchange_sale_id', 'return_date', 'approved_at',
     ];
 
     protected $validationRules = [

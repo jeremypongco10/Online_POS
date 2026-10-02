@@ -17,7 +17,7 @@ class CompanyModel extends Model
     protected $allowedFields = [
         'trade_name', 'legal_name', 'logo_path', 'tax_id', 'is_vat_registered', 'vat_registration_number',
         'email', 'phone', 'address', 'currency', 'tax_system', 'timezone', 'is_active', 'loyalty_points_per_100',
-        'require_item_void_approval', 'require_cancel_approval', 'require_manual_discount_approval',
+        'require_item_void_approval', 'require_cancel_approval', 'require_return_approval', 'require_manual_discount_approval',
         'default_regular_discount_percent', 'default_promo_discount_percent', 'default_employee_discount_percent',
         'default_member_discount_percent', 'default_wholesale_discount_percent', 'pos_lock_idle_minutes',
         'transaction_no_reset_rule', 'transaction_no_prefix', 'transaction_no_length', 'is_bir_registered',
@@ -58,6 +58,7 @@ class CompanyModel extends Model
         // split them.
         'require_item_void_approval' => ['label' => 'Require supervisor approval to void an item', 'rules' => 'permit_empty|in_list[0,1]'],
         'require_cancel_approval' => ['label' => 'Require supervisor approval to cancel a sale', 'rules' => 'permit_empty|in_list[0,1]'],
+        'require_return_approval' => ['label' => 'Require supervisor approval for a return or replacement', 'rules' => 'permit_empty|in_list[0,1]'],
         // Manual Discount specifically — see AddRequireManualDiscountApprovalToCompanies.
         'require_manual_discount_approval' => ['label' => 'Require supervisor approval for a manual discount', 'rules' => 'permit_empty|in_list[0,1]'],
         // A starting point DiscountDialog pre-fills, not an enforced
